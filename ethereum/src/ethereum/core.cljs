@@ -12,8 +12,6 @@
 
 (nodejs/enable-util-print!)
 
-(println "Hello from the Node!")
-
 (def -main (fn [] nil))
 (set! *main-cli-fn* -main) ;; this is required
 
@@ -23,20 +21,30 @@
 
 (def gas-limit 4500000)
 
-(def contract-source "
-pragma solidity ^0.4.6;
+(defn node-slurp [path]
+  (let [fs (nodejs/require "fs")]
+    (.readFileSync fs path "utf8")))
 
-contract test {
-  function multiply(uint a) returns(uint d) {
-    return a * 7;
-  }
-}
-")
+(def contract-source
+  (node-slurp "src/ethereum/contract.sol"))
 
 (defn is [val]
   (if val
     (js/console.log "OK")
     (js/console.log "ERROR --")))
+
+(println "-------ooooooo%%%%%%%%  Running Ethereum RPC calls  %%%%%%%%ooooooo-------")
+
+
+
+(def is-rpctest? (not (nil? (re-find #".*TestRPC.*" (web3/version-node w3)))))
+(if is-rpctest?
+  (println "Using in-memory Ethereum blockchain (TestRPC)")
+  (println "Using Ethereum blockchain"))
+;; (try (is (web3-personal/unlock-account w3 (web3-eth/default-account w3) "hd2tngNgdn56lbAZznxemmlnSnFMcPdogNGDnadGFmhNnasd" 999999))
+;;      (catch :default e ; js/Error
+;;        (reset! is-rpctest? true)))
+
 
 (is (web3/connected? w3))
 ;;(is (string? (web3/version-api w3)))
@@ -73,28 +81,76 @@ contract test {
 (is (map? (web3-eth/get-block w3 "latest")))
 (is (seq (web3-eth/get-compilers w3)))
 
-;;(is (web3-personal/unlock-account w3 (web3-eth/default-account w3) "m" 999999))
+
+(defn get-contract [compiled]
+  ;; Difference testrpc
+  (or (:test compiled) compiled))
 
 (let [create-contract-ch (chan)]
   (let [compiled (web3-eth/compile-solidity w3 contract-source)]
     (is (map? compiled))
-    (is (number? (web3-eth/estimate-gas w3 (:info compiled))))
-    (web3-eth/contract-new
-     w3
-     (:abi-definition (:info compiled))
-     {:data (:code (:test compiled))
-      :gas gas-limit
-      :from (first (web3-eth/accounts w3))}
-     #(go (>! create-contract-ch [%1 %2]))))
+    (is (number? (web3-eth/estimate-gas w3 (:info (get-contract compiled)))))
+    (web3-eth/contract-new w3
+                           (:abi-definition (:info (get-contract compiled)))
+                           {:data (:code (:test compiled))
+                            :gas gas-limit
+                            :from (first (web3-eth/accounts w3))}
+                           #(go (>! create-contract-ch [%1 %2]))))
   (go
-      (let [[err Contract] (<! create-contract-ch)]
-        (is (not err))
-        (is Contract)
-        (is (not (:address Contract)))
-        (is (map? (web3-eth/get-transaction w3 (aget Contract "transactionHash")))))
-      (let [[err Contract] (<! create-contract-ch)]
-        (is (not err))
-        (is (aget Contract "address"))
-        (is (string? (web3-eth/contract-call Contract :multiply 5)))
-        (js/console.log "-- DONE"))))
+    (let [[err contract] (<! create-contract-ch)]
+      (is (not err))
+      (is contract)
+      (is (not (:address contract)))
+      (is (map? (web3-eth/get-transaction w3 (aget contract "transactionHash")))))
+    (let [[err contract] (<! create-contract-ch)]
+      (is (not err))
+      (is (aget contract "address"))
+      (is (string? (web3-eth/contract-call contract :multiply 5)))
+      (println "-------ooooooo%%%%%%%%  Done  %%%%%%%%ooooooo-------"))))
 
+
+;; DOCUMENTATION
+
+
+;; web3.eth.accounts
+;; web3.version.api
+;; web3.eth.defaultAccount
+;; web3.isConnected()
+;; web3.net.peerCount
+;; web3.net.getPeerCount(function(error, result){ ... })
+;; becomes
+
+;; (web3-eth/accounts web3)
+;; (web3/version-api web3)
+;; (web3-eth/default-account web3)
+;; (web3/connected? web3)
+;; (web3-net/peer-count web3)
+;; (web3-net/peer-count web3 (fn [error result]))
+;; Some functions in cljs-web3.core don't really need web3 instance, even though they're called as object methods in Web3 docs. To make our lives easier, in clojurescript, you can just call it without web3 instance. For example:
+
+;; (web3/sha3 "1")
+;; => 0xc89efdaa54c0f20c7adf612882df0950f5a951637e0307cdcb4c672f298b8bc6
+;; (web3/to-hex "A")
+;; => 0x41
+;; (web3/to-wei 1 :ether)
+;; => "1000000000000000000"
+
+
+
+;; Thses are few extra functions, which you won't find in Web3 API
+
+;; ; Create web3 instance
+;; (web3/create-web3 "http://localhost:8545/")
+
+;; ; Deploy new contract
+;; (web3-eth/contract-new web3 abi
+;;   {:data bin
+;;    :gas gas-limit
+;;    :from (first (web3-eth/accounts w3))}
+;;   (fn [err res]))
+
+;; ; Create contract instance from already deployed contract
+;; (web3-eth/contract-at web3 abi address)
+
+;; ; This way you can call any contract method
+;; (web3-eth/contract-call ContractInstance :multiply 5)
