@@ -1,9 +1,19 @@
 (defproject ethereum "0.1.0-SNAPSHOT"
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [org.clojure/clojurescript "1.9.293"]]
+                 [org.clojure/clojurescript "1.9.293"]
+                 [org.clojure/core.async "0.2.395"]
+                 [cljsjs/web3 "0.16.0-0"]
+                 [cljs-web3 "0.16.0-0"]]
   :plugins [[lein-cljsbuild "1.1.5"]
-            [lein-figwheel "0.5.8"]]
+            [lein-figwheel "0.5.8"]
+            [lein-auto "0.1.3"]
+            [lein-shell "0.5.0"]]
   :clean-targets ^{:protect false} ["target"]
+  :aliases {"compile-solidity" ["shell" "./scripts/compile-solidity.sh"]}
+  :auto {"compile-solidity" {:file-pattern #"\.(sol)$"
+                             :paths ["src/ethereum"]}}
+  :repl-options {:nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}
+  :figwheel {}
   :profiles
   {:dev
    {:dependencies [[binaryage/devtools "0.8.3"]
@@ -15,7 +25,7 @@
     :source-paths ["env/dev"]
     :cljsbuild {:builds [{:id "dev"
                           :source-paths ["src/ethereum"]
-                          :figwheel {:on-jsload "ethereum.core/mount-root"}
+                          :figwheel true ;;{:on-jsload "ethereum.core/mount-root"}
                           :compiler {:main ethereum.core
                                      :output-to "target/dev/ethereum.js"
                                      :output-dir "target/dev/"
@@ -35,5 +45,4 @@
                                                   :optimizations :simple
                                                   :closure-defines {goog.DEBUG false}
                                                   :pretty-print true
-                                                  :pseudo-names true}}}}}}
-  :figwheel {})
+                                                  :pseudo-names true}}}}}})
