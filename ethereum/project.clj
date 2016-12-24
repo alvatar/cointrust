@@ -24,7 +24,7 @@
               [lein-ancient "0.6.10"]]
     :source-paths ["env/dev"]
     :cljsbuild {:builds [{:id "dev"
-                          :source-paths ["src/ethereum"]
+                          :source-paths ["src/ethereum/cljs"]
                           :figwheel true ;;{:on-jsload "ethereum.core/mount-root"}
                           :compiler {:main ethereum.core
                                      :output-to "target/dev/ethereum.js"
@@ -38,7 +38,7 @@
             :aot :all
             :main ethereum.core
             :cljsbuild {:builds {:app {:id "uberjar"
-                                       :source-paths ["src/deploy/"]
+                                       :source-paths ["src/ethereum/cljs"]
                                        :compiler {:main ethereum.core
                                                   :output-to "target/deploy/ethereum.js"
                                                   ;; Try advanced, but see https://github.com/bhauman/lein-figwheel/wiki/Node.js-development-with-figwheel

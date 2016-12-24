@@ -7,44 +7,38 @@
             [cljs-web3.db :as web3-db]
             [cljs-web3.personal :as web3-personal]
             [cljs-web3.shh :as web3-shh]
-            [cljs-web3.net :as web3-net])
+            [cljs-web3.net :as web3-net]
+            ;; Internal
+            [ethereum.utils :refer [is node-slurp]])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
+;;
+;; System init
+;;
+
 (nodejs/enable-util-print!)
-
 (def -main (fn [] nil))
-(set! *main-cli-fn* -main) ;; this is required
-
+(set! *main-cli-fn* -main)
 (js* "Web3 = require('web3'); web3 = new Web3();")
 
 (def w3 (web3/create-web3 "http://localhost:8545"))
 
-(def gas-limit 4500000)
-
-(defn node-slurp [path]
-  (let [fs (nodejs/require "fs")]
-    (.readFileSync fs path "utf8")))
-
-(def contract-source
-  (node-slurp "src/ethereum/contract.sol"))
-
-(defn is [val]
-  (if val
-    (js/console.log "OK")
-    (js/console.log "ERROR --")))
-
-(println "-------ooooooo%%%%%%%%  Running Ethereum RPC calls  %%%%%%%%ooooooo-------")
-
-
-
-(def is-rpctest? (not (nil? (re-find #".*TestRPC.*" (web3/version-node w3)))))
-(if is-rpctest?
-  (println "Using in-memory Ethereum blockchain (TestRPC)")
-  (println "Using Ethereum blockchain"))
 ;; (try (is (web3-personal/unlock-account w3 (web3-eth/default-account w3) "hd2tngNgdn56lbAZznxemmlnSnFMcPdogNGDnadGFmhNnasd" 999999))
 ;;      (catch :default e ; js/Error
 ;;        (reset! is-rpctest? true)))
+(def *is-rpctest* (not (nil? (re-find #".*TestRPC.*" (web3/version-node w3)))))
+(if *is-rpctest*
+  (println "Using in-memory Ethereum blockchain (TestRPC)")
+  (println "Using Ethereum blockchain"))
 
+;;
+;; Contract tests
+;;
+
+(println "-------ooooooo%%%%%%%%  Running Ethereum RPC calls  %%%%%%%%ooooooo-------")
+
+(def contract-source (node-slurp "src/ethereum/sol/contract.sol"))
+(def gas-limit 4500000)
 
 (is (web3/connected? w3))
 ;;(is (string? (web3/version-api w3)))
