@@ -2,29 +2,71 @@
   (:require [environ.core :refer [env]]
             [clojure.pprint :refer [pprint]])
   (:import [java.io File]
+           (java.net InetAddress)
            [com.google.common.collect ImmutableList]
-           [org.bitcoinj.core Address Coin ECKey Transaction]
-           [org.bitcoinj.params MainNetParams TestNet3Params]
+           [org.bitcoinj.core Address BlockChain Coin Context ECKey PeerAddress PeerGroup Transaction]
+           [org.bitcoinj.core.listeners DownloadProgressTracker]
            [org.bitcoinj.kits WalletAppKit]
-           [org.bitcoinj.utils BriefLogFormatter]
+           [org.bitcoinj.net.discovery DnsDiscovery]
+           [org.bitcoinj.params MainNetParams TestNet3Params]
            [org.bitcoinj.script ScriptBuilder]
-           [org.bitcoinj.wallet SendRequest]))
+           [org.bitcoinj.store MemoryBlockStore SPVBlockStore]
+           [org.bitcoinj.utils BriefLogFormatter]
+           [org.bitcoinj.wallet SendRequest Wallet]))
 
-(defonce network-params (atom nil))
-(defonce app-kit (atom nil))
 
-(defn init! []
-  (. BriefLogFormatter init)
-  (reset! network-params (case (env :env)
-                           ("production") (. MainNetParams get)
-                           (. TestNet3Params get)))
-  (reset! app-kit (WalletAppKit. @network-params (File. ".") (case (env :env)
-                                                               ("production") "mainnet"
-                                                               "testnet")))
-  (.startAsync @app-kit))
+;;
+;; App
+;;
 
-(defn wait-for-client []
-  (.awaitRunning @app-kit))
+(defrecord App [network-params blockchain peergroup wallets])
+
+(defn make-app []
+  (let [network-params (if (= (env :env) "production")
+                         (. MainNetParams get)
+                         (. TestNet3Params get))
+        blockchain (BlockChain. network-params
+                                ;;(MemoryBlockStore.)
+                                (SPVBlockStore. network-params (File. ".spvchain")))]
+    (. BriefLogFormatter init)
+    (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
+
+(defn app-start! [app]
+  (let [listener (proxy [DownloadProgressTracker] []
+                   (doneDownload []
+                     (println "Blockchain download complete"))
+                   (startDownload [blocks]
+                     (println (format "Downloading %d blocks" blocks)))
+                   (progress [pct block-so-far date]
+                     (println pct)))]
+    (doto (:peergroup app)
+      (.addPeerDiscovery (DnsDiscovery. (:network-params app)))
+      (.start)
+      (.startBlockChainDownload listener))
+    (.addShutdownHook (Runtime/getRuntime)
+                      (Thread. (fn []
+                                 (println "Shutting down Bitcoin app")
+                                 (. Context propagate (:network-params app))
+                                 (.stop (:peergroup app))
+                                 ;; TODO: Save wallets to their Files
+                                 (.close (.getBlockStore (:blockchain app))))))
+    listener))
+
+(defn app-add-wallet [app wallet]
+  (.addWallet (:blockchain app) wallet)
+  (.addWallet (:peergroup app) wallet)
+  (update app :wallets #(conj % wallet)))
+
+;; Wallet
+
+(defn make-wallet [app]
+  (Wallet. (:network-params app)))
+
+;(defonce app (make-app))
+
+
+;;;;;;;;;;;
+
 
 (defrecord MultiSigWallet [our-key seller-key buyer-key contract script])
 
@@ -32,18 +74,6 @@
 ;; (. org.bitcoinj.core.Base58 encode (.getSecretBytes (. ECKey fromPrivate (BigInteger. "103169733757778458218722489788847239787967310021819641785899608061388154372397"))))
 ;; Private key: "GMPBVAgMHJ6jUk7g7zoYhQep5EgpLAFbrJ4BbfxCr9pp"
 ;; Address: "mjd3Ug6t53rbsrZhZpCdobqHDUnU8sjAYd"
-
-(defn get-current-wallet []
-  (. @app-kit wallet))
-
-(defn get-current-network-params []
-  (. @app-kit params))
-
-(defn get-current-peergroup []
-  (. @app-kit peerGroup))
-
-(defn eckey-from-address [address]
-  (. ECKey fromPublicOnly ()))
 
 (defn create-multisig [network-params]
   (let [our-key (ECKey.)
@@ -58,14 +88,17 @@
         script (. ScriptBuilder createMultiSigOutputScript 2 keys)]
     (MultiSigWallet. our-key seller-key buyer-key contract script)))
 
-(defn multisig-get-our-address [multisig network-params]
-  (.toString (.toAddress (:our-key multisig) network-params)))
+;; (defn multisig-get-our-address [multisig network-params]
+;;   (.toString (.toAddress (:our-key multisig) network-params)))
+
+(defn wallet-get-current-address [wallet]
+  (.currentReceiveAddress wallet))
 
 (defn wallet-get-balance [wallet] (.getBalance wallet))
 
-(defn multisig-setup [multisig wallet peergroup]
+(defn multisig-setup-from-wallet [multisig wallet peergroup]
   (let [wallet-tx (first (.getUnspents wallet))
-        coins (get-wallet-balance wallet) ;;(. Coin valueOf 0 0001)
+        coins (wallet-get-balance wallet) ;;(. Coin valueOf 0 0001)
         output (.addOutput (:contract multisig) coins (:script multisig))
         input (.addInput (:contract multisig) wallet-tx)]
     (let [request (. SendRequest forTx (:contract multisig))]
@@ -116,6 +149,9 @@
       [spend-tx spend-script])))
 
 (comment
+  (def app (make-app))
+  (app-start! app)
+  (def app (app-add-wallet app (make-wallet app)))
   (def multisig (create-multisig (get-current-network-params)))
   (def multisig-address (multisig-get-our-address multisig (get-current-network-params)))
   (multisig-setup multisig (get-current-wallet) (get-current-peergroup))
