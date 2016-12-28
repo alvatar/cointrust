@@ -20,6 +20,8 @@
                  ;; Database
                  [org.clojure/java.jdbc "0.6.1"]
                  [org.postgresql/postgresql "9.4.1212"]
+                 ;; Bitcoin
+                 [org.bitcoinj/bitcoinj-core "0.14.3"]
                  ;; Misc
                  [crypto-random "1.2.0"]
                  [cheshire "5.6.3"]
@@ -115,10 +117,12 @@
               :plugins [[lein-figwheel "0.5.8"]
                         [lein-doo "0.1.6"]]
               :source-paths ["dev"]
-              :repl-options {:nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}}
+              :repl-options {:nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}
+              :env {:env "dev"}}
              :uberjar
              {:source-paths ^:replace ["src/clj" "src/cljc"]
               :prep-tasks ["compile" ["cljsbuild" "once" "min"]]
               :hooks []
               :omit-source true
-              :aot :all}})
+              :aot :all
+              :env {:env "uberjar"}}})
