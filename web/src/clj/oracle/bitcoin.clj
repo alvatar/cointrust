@@ -57,18 +57,29 @@
   (.addWallet (:peergroup app) wallet)
   (update app :wallets #(conj % wallet)))
 
+;;
 ;; Wallet
+;;
 
 (defn make-wallet [app]
   (Wallet. (:network-params app)))
 
-;(defonce app (make-app))
+(defn wallet-get-current-address [wallet]
+  (.currentReceiveAddress wallet))
 
+(defn wallet-get-balance [wallet] (.getBalance wallet))
 
-;;;;;;;;;;;
+(defn wallet-send-coins [wallet peergroup target-address amount]
+  (.sendCoins wallet
+              peergroup
+              (. Address fromBase58 (.getNetworkParameters wallet) target-address)
+              (. Coin valueOf amount)))
 
+;;
+;; Multisig
+;;
 
-(defrecord MultiSigWallet [our-key seller-key buyer-key contract script])
+(defrecord MultiSig [our-key seller-key buyer-key contract script])
 
 ;; (. ECKey fromPrivate (BigInteger. "103169733757778458218722489788847239787967310021819641785899608061388154372397"))
 ;; (. org.bitcoinj.core.Base58 encode (.getSecretBytes (. ECKey fromPrivate (BigInteger. "103169733757778458218722489788847239787967310021819641785899608061388154372397"))))
@@ -86,15 +97,10 @@
         ;; Prepare a template for the contract.
         contract (Transaction. network-params)
         script (. ScriptBuilder createMultiSigOutputScript 2 keys)]
-    (MultiSigWallet. our-key seller-key buyer-key contract script)))
+    (MultiSig. our-key seller-key buyer-key contract script)))
 
 ;; (defn multisig-get-our-address [multisig network-params]
 ;;   (.toString (.toAddress (:our-key multisig) network-params)))
-
-(defn wallet-get-current-address [wallet]
-  (.currentReceiveAddress wallet))
-
-(defn wallet-get-balance [wallet] (.getBalance wallet))
 
 (defn multisig-setup-from-wallet [multisig wallet peergroup]
   (let [wallet-tx (first (.getUnspents wallet))
@@ -105,12 +111,6 @@
       (try (.completeTx wallet request)
            (. peergroup broadcastTransaction (.tx request))
            (catch Exception e (println e))))))
-
-(defn wallet-send-coins [wallet peergroup target-address amount]
-  (.sendCoins wallet
-              peergroup
-              (. Address fromBase58 (.getNetworkParameters wallet) target-address)
-              (. Coin valueOf amount)))
 
 (defn multisig-send-ours [multisig network-params target-address]
   (let [multisig-output (.getOutput (:contract multisig) 0)
