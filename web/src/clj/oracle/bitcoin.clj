@@ -21,6 +21,8 @@
 ;; Utils
 ;;
 
+(def global-fee 5000)
+
 (defn satoshi->btc [sat]
   (/ sat 100000000))
 
@@ -28,10 +30,10 @@
   (* btc 100000000))
 
 (defn substract-satoshi-fee [sat]
-  (- sat 5000))
+  (- sat global-fee))
 
 (defn substract-btc-fee [sat]
-  (- sat 0.00005))
+  (- sat (satoshi->btc global-fee)))
 
 (defn make-tx-broadcast-progress-cb []
   (reify org.bitcoinj.core.TransactionBroadcast$ProgressCallback
@@ -118,7 +120,7 @@
 
 (defrecord MultiSig [our-key seller-key buyer-key tx script])
 
-(defn create-multisig [app wallet]
+(defn create-multisig [app wallet value]
   (let [our-key (ECKey.)
         seller-key (ECKey.)
         buyer-key (ECKey.)
@@ -126,7 +128,7 @@
         script (. ScriptBuilder createMultiSigOutputScript 2 keys)
         tx (Transaction. (:network-params app))
         multisig (MultiSig. our-key seller-key buyer-key tx script)
-        _ (.addOutput tx (. Coin valueOf 1 0) script)
+        _ (.addOutput tx (. Coin valueOf value) script)
         request (. SendRequest forTx tx)]
     (.completeTx wallet request)
     (.broadcastTransaction (:peergroup app) (.tx request))
@@ -161,8 +163,10 @@
     (.broadcastTransaction (:peergroup app) tx2)))
 
 ;;
-;; P2SH Multisig
+;; P2SH Multisig (not supported)
 ;;
+
+;; Ref: http://www.soroushjp.com/2014/12/20/bitcoin-multisig-the-hard-way-understanding-raw-multisignature-bitcoin-transactions/
 
 (defrecord P2SHMultiSig [our-key seller-key buyer-key p2sh-script redeem-script])
 
@@ -180,12 +184,19 @@
 (defn p2hs-multisig-address [multisig app]
   (. Address fromP2SHHash (:network-params app) (.getPubKeyHash (:p2sh-script multisig))))
 
+
+;;
+;; Notes
+;;
+
+;; See SendRequest on how to empty wallets (emptyWallet field, or emptyWallet static method)
+
 (comment
   (def app (make-app))
   (app-start! app)
   (def w (make-wallet app))
   (def app (app-add-wallet app w))
-  (def multisig (create-multisig app w))
+  (def multisig (create-multisig app w (btc->satoshi 1)))
   (multisig-spend multisig
                   app
                   (first (.getTransactionsByTime w))
