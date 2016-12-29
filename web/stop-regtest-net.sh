@@ -1,2 +1,2 @@
 #!/bin/bash
-sudo killall --regex bitcoin.*
+sudo killall --regex bitcoind.*
