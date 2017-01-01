@@ -6,6 +6,7 @@
             [ring.middleware.defaults :refer [wrap-defaults api-defaults]]
             [ring.middleware.gzip :refer [wrap-gzip]]
             [ring.middleware.logger :refer [wrap-with-logger]]
+            [ring.util.response :as response]
             ;; Compojure
             [compojure.core :refer [ANY GET PUT POST DELETE defroutes]]
             [compojure.route :refer [resources not-found]]
@@ -41,11 +42,10 @@
   (def connected-uids connected-uids))
 
 (defroutes app
-  (GET "/" _
-       {:status 200
-        :headers {"Content-Type" "text/html; charset=utf-8"}
-        :body (io/input-stream (io/resource "public/index.html"))})
-  (resources "/")
+  (GET "/" _ (response/content-type
+              (response/resource-response "index.html" {:root "public"})
+              "text/html"))
+  (resources "/" {:root "/public"})
   ;; Sente
   (GET "/chsk" req (ring-ajax-get-or-ws-handshake req))
   (POST "/chsk" req (ring-ajax-post req))
@@ -75,6 +75,10 @@
        wrap-error-page
        trace/wrap-stacktrace)
      app)))
+
+;;
+;; Server setup
+;;
 
 (defonce server (atom nil))
 

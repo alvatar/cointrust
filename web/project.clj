@@ -1,6 +1,6 @@
 (defproject oracle "0.1.0-SNAPSHOT"
-  :description "FIXME: write description"
-  :url "http://example.com/FIXME"
+  :description "Cointrust Web Service"
+  :url "http://cointrust.io"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
 
@@ -11,12 +11,13 @@
                  [environ "1.1.0"]
                  [ring "1.5.0"]
                  [ring/ring-defaults "0.2.1"]
-                 [bk/ring-gzip "0.1.1"]
+                 [bk/ring-gzip "0.2.0"]
                  [ring.middleware.logger "0.5.0"]
                  [aleph "0.4.2-alpha9"]
                  [compojure "1.5.1"]
                  [com.taoensso/sente "1.11.0"]
-                 [com.taoensso/timbre "4.7.4"]
+                 [com.taoensso/encore "2.88.0"]
+                 [com.taoensso/timbre "4.8.0"]
                  ;; Database
                  [org.clojure/java.jdbc "0.6.1"]
                  [org.postgresql/postgresql "9.4.1212"]
@@ -27,13 +28,14 @@
                  [cheshire "5.6.3"]
                  ;; Cljs
                  [rum "0.10.7" :exclusions [cljsjs/react cljsjs/react-dom]]
-                 [cljs-react-material-ui "0.2.33"]
+                 [cljs-react-material-ui "0.2.34"]
                  [netpyoung/fb-sdk-cljs "0.1.2"]
-                 [cljs-hash "0.0.2"]]
+                 [cljs-hash "0.0.2"]
+                 [datascript "0.15.5"]]
 
   :plugins [[lein-cljsbuild "1.1.3"]
             [lein-environ "1.0.3"]
-            [lein-ancient "0.6.10"]]
+            [lein-less "1.7.5"]]
 
   :min-lein-version "2.6.1"
 
@@ -109,20 +111,24 @@
 
   :doo {:build "test"}
 
+  :less {:source-paths ["src/less"]
+         :target-path "resources/public/css"}
+
   :profiles {:dev
              {:dependencies [[figwheel "0.5.8"]
                              [figwheel-sidecar "0.5.8"]
                              [com.cemerick/piggieback "0.2.1"]
                              [org.clojure/tools.nrepl "0.2.12"]]
               :plugins [[lein-figwheel "0.5.8"]
-                        [lein-doo "0.1.6"]]
+                        [lein-doo "0.1.6"]
+                        [lein-ancient "0.6.10"]]
               :source-paths ["dev"]
               :repl-options {:nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}
               :env {:env "dev"}}
              :uberjar
              {:source-paths ^:replace ["src/clj" "src/cljc"]
               :prep-tasks ["compile" ["cljsbuild" "once" "min"]]
-              :hooks []
+              :hooks [leiningen.less]
               :omit-source true
               :aot :all
               :env {:env "uberjar"}}})
