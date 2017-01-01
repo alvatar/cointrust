@@ -1,5 +1,6 @@
 (ns oracle.core
-  (:require-macros [cljs.core.async.macros :refer [go go-loop]])
+  (:require-macros [cljs.core.async.macros :refer [go go-loop]]
+                   [cljs-react-material-ui.core :refer [adapt-rum-class]])
   (:require [cljs.core.async :as async :refer (<! >! put! take! chan)]
             [taoensso.encore :as encore :refer-macros (have have?)]
             [taoensso.timbre :as timbre :refer-macros (tracef debugf infof warnf errorf)]
@@ -9,6 +10,7 @@
             [cljs-react-material-ui.core :refer [get-mui-theme color]]
             [cljs-react-material-ui.icons :as ic]
             [cljs-react-material-ui.rum :as ui]
+            [cljsjs.react-flexbox-grid]
             ;; React
             [rum.core :as rum]
             ;; Database
@@ -23,9 +25,10 @@
 ;; Globals
 ;;
 
-(goog-define *is-dev* false)
-(def *hook-fake-id* true)
+(goog-define is-dev?_ false)
+(def hook-fake-id?_ true)
 
+(defonce app-error (atom nil))
 (defonce app-state
   (atom {:scene "main-menu"
          :user-fbid nil
@@ -37,8 +40,6 @@
          :btc-usd 769.5
          :contracts nil}))
 
-(defonce app-error (atom nil))
-
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
 
@@ -48,16 +49,23 @@
 
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
+;; https://github.com/roylee0704/react-flexbox-grid
+(def ui-flexbox-grid (adapt-rum-class js/ReactFlexboxGrid.Grid))
+(def ui-flexbox-row (adapt-rum-class js/ReactFlexboxGrid.Row))
+(def ui-flexbox-col (adapt-rum-class js/ReactFlexboxGrid.Col))
+
 ;;
 ;; Setup
 ;;
 
+
 (enable-console-print!)
 
-
 (defonce router_ (atom nil))
+(def sente-callback-registry_ (atom []))
 
-(declare event-msg-handler)
+(defn sente-register-init-callback! [callback]
+  (swap! sente-callback-registry_ conj callback))
 
 (defn init-sente! [hashed-id]
   (js/console.log "Initializing Sente...")
@@ -76,6 +84,7 @@
     (def ch-chsk ch-recv)             ; ChannelSocket's receive channel
     (def chsk-send! send-fn)          ; ChannelSocket's send API fn
     (def chsk-state state)            ; Watchable, read-only atom
+    (declare event-msg-handler)
     (defn stop-router! [] (when-let [stop-f @router_] (stop-f)))
     (defn start-router! []
       (stop-router!)
@@ -85,7 +94,8 @@
                ch-chsk event-msg-handler)))
     (start-router!)))
 
-(when-not *hook-fake-id*
+;; For testing
+(when-not hook-fake-id?_
   (fb/load-sdk (fn []
                  (println "Facebook lib loaded")
                  (fb/init {:appId "1131377006981108"
@@ -99,13 +109,6 @@
 ;;
 
 (defn logout [] (js/console.log "LOGOUT TODO"))
-
-(defn wait-for-sente [cb]
-  (go-loop []
-    (js/console.log "Sente state: " (str @chsk-state))
-    (if (:open? @chsk-state)
-      (cb)
-      (recur))))
 
 (defn get-user-contracts []
   (chsk-send!
@@ -167,8 +170,8 @@
          (js/console.log "Hashed user: " hashed-id)
          (js/console.log "Friend IDs: " (str friend-fbids))
          (js/console.log "Hashed friends: " (str hashed-friends))
-         (init-sente! hashed-id)
-         (wait-for-sente #(try-enter hashed-id hashed-friends)))
+         (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
+         (init-sente! hashed-id))
        (js/console.log "Not logged in: " (clj->js response))))))
 
 ;;
@@ -194,11 +197,7 @@
   [{:as ev-msg :keys [?data]}]
   (let [[old-state-map new-state-map] (have vector? ?data)]
     (if (:first-open? new-state-map)
-      (let [username (:uid new-state-map)]
-        (if (= username :taoensso.sente/nil-uid)
-          (do (js/alert "Error logging in: cannot read user from Sente request")
-              (logout))
-          (js/console.log (str "Channel socket successfully established!: " new-state-map))))
+      (doseq [cb @sente-callback-registry_] (cb))
       (js/console.log "Channel socket state change: " new-state-map))))
 
 (defmethod -event-msg-handler :chsk/recv
@@ -226,26 +225,25 @@
    {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
    (ui/paper
     [:div
-     [:h2 {:style {:text-align "center"}} "Oracle"]
-     [:h4 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
+     [:h1 {:style {:text-align "center"}} "Cointrust"]
+     [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
      [:div {:style {:text-align "center"}}
       (ui/raised-button {:label "Ephemeral Login"
                          :style {:margin "1rem"}
                          :on-touch-tap
                          (fn [e]
-                           (if *hook-fake-id*
+                           (if hook-fake-id?_
                              (let [hashed-id "asdf" user-id 1]
                                (js/console.log "Connected with fake user hash: " hashed-id)
                                (swap! app-state assoc :user-hash hashed-id)
-                               (init-sente! hashed-id)
-                               (wait-for-sente #(try-enter hashed-id ["TODO"])))
+                               (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
+                               (init-sente! hashed-id))
                              (fb/get-login-status
                               (fn [response]
                                 (case (:status response)
                                   "connected"
                                   (js/console.log "Connected with userID: " (get-in response [:authResponse :userID]))
                                   (fb/login set-facebook-ids {:scope "public_profile,email,user_friends"}))))))})]])))
-
 
 (rum/defcs buy-dialog < rum/reactive (rum/local {:btc-amount 1.0} ::input)
   [state parent-component-mode btc-usd]
@@ -280,6 +278,20 @@
                                         :style {:margin "auto" :left "0" :right "0" :top "1.5rem"}})
                    [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])])))
 
+(rum/defc sell-dialog [parent-component-mode]
+  (ui/dialog {:title "Sell Bitcoins"
+              :actions [(ui/flat-button {:label "Sell"
+                                         :primary true
+                                         ;;:disabled (:processing (rum/react input))
+                                         })
+                        (ui/flat-button {:label "Cancel"
+                                         :on-touch-tap #(reset! parent-component-mode :none)})]
+              :open (= @parent-component-mode :sell)
+              :modal true}
+             (ui/paper
+              "asdf"
+              )))
+
 (rum/defc contract-stage-display
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}
   [contract ix text]
@@ -309,20 +321,21 @@
      {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
      (ui/paper
       [:div
-       [:h2 {:style {:text-align "center"}} "Oracle"]
-       [:h4 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
+       [:h1 {:style {:text-align "center"}} "Cointrust"]
+       [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
        [:h5 {:style {:text-align "center"}} (str "You can trade with " (count friends-of-friends) " partners")]
        (when-let [error (rum/react app-error)]
          [:h5 {:style {:text-align "center" :color "#f00"}} error])
        [:div {:style {:text-align "center"}}
           ;; TODO: hints http://kushagragour.in/lab/hint/
           (ui/raised-button {:label "I want to BUY Bitcoin"
-                             :disabled (not (or (= (:contracts app-state) :unknown) (empty? (:contracts app-state))))
+                             :disabled true ;;(not (or (= (:contracts app-state) :unknown) (empty? (:contracts app-state))))
                              :style {:margin "1rem"}
                              :on-touch-tap #(reset! component-mode :buy)})
           (ui/raised-button {:label "I want to SELL Bitcoin"
-                             :disabled true
-                             :style {:margin "1rem"}})]
+                             :disabled false
+                             :style {:margin "1rem"}
+                             :on-touch-tap #(reset! component-mode :sell)})]
        [:h4 {:style {:text-align "center"}} "My contracts"]
        [:div (cond
                (not (:contracts app-state))
@@ -336,7 +349,8 @@
                   (map-indexed
                    (fn [ix text] (contract-stage-display contract ix text))
                    ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])]))]
-       (buy-dialog component-mode (:btc-usd app-state))]))))
+       (buy-dialog component-mode (:btc-usd app-state))
+       (sell-dialog component-mode)]))))
 
 (rum/defc faq []
   (ui/mui-theme-provider

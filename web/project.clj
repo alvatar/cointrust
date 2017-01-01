@@ -29,13 +29,23 @@
                  ;; Cljs
                  [rum "0.10.7" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljs-react-material-ui "0.2.34"]
+                 [cljsjs/react-flexbox-grid "0.10.2-1" :exclusions [cljsjs/react cljsjs/react-dom]]
+                 [cljsjs/react-slider "0.6.1-0"]
                  [netpyoung/fb-sdk-cljs "0.1.2"]
                  [cljs-hash "0.0.2"]
                  [datascript "0.15.5"]]
 
   :plugins [[lein-cljsbuild "1.1.3"]
             [lein-environ "1.0.3"]
-            [lein-less "1.7.5"]]
+            [lein-less "1.7.5"]
+            [lein-npm "0.6.2"]]
+
+  :npm {:dependencies [;; [react-input-range "0.9.3"]
+                       ;; Other types of dependencies (github, private npm, etc.) can be passed as a string
+                       ;; See npm docs though as this may change between versions.
+                       ;; https://docs.npmjs.com/files/package.json#dependencies
+                       ;;[your-module "github-username/repo-name#commitish"]
+                       ]}
 
   :min-lein-version "2.6.1"
 
