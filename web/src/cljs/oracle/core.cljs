@@ -38,7 +38,8 @@
          :friend-hashes []
          :friends2 []
          :btc-usd 769.5
-         :sell-offer nil
+         :sell-offer {:min 200 :max 20000}
+         :offer-match nil
          :contracts nil}))
 
 (def db-schema {})
@@ -208,7 +209,7 @@
 (defmethod -event-msg-handler :chsk/handshake
   [{:as ev-msg :keys [?data]}]
   (let [[?uid ?csrf-token ?handshake-data] ?data]
-    (js/console.log "Handshake: " ?data)))
+    (when is-dev?_ (js/console.log "Handshake"))))
 
 (defmethod -event-msg-handler :contract/update
   [{:as ev-msg :keys [?data]}]
@@ -217,11 +218,16 @@
            (for [c (:contracts @app-state)]
              (if (= (:id c) id) (merge c {:stage stage :status status}) c)))))
 
+(defmethod -event-msg-handler :offer/matched
+  [{:as ev-msg :keys [?data]}]
+  (let [{:keys [id stage status]} ?data]
+    ()))
+
 ;;
 ;; UI Components
 ;;
 
-(rum/defc init []
+(rum/defc login-comp []
   (ui/mui-theme-provider
    {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
    (ui/paper
@@ -247,7 +253,7 @@
                                   (fb/login set-facebook-ids {:scope "public_profile,email,user_friends"}))))))})]])))
 
 (rum/defcs buy-dialog < rum/reactive (rum/local {:btc-amount 1.0} ::input)
-  [state parent-component-mode btc-usd]
+  [state parent-component-mode]
   (let [input (::input state)]
     (ui/dialog {:title "Buy Bitcoins"
                 :actions [(ui/flat-button {:label "Buy"
@@ -264,7 +270,8 @@
                 :open (= @parent-component-mode :buy)
                 :modal true}
                [:div
-                (let [total (* btc-usd (:btc-amount (rum/react input)))]
+                (let [btc-usd (:btc-usd app-state)
+                      total (* btc-usd (:btc-amount (rum/react input)))]
                   [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
                    (ui/text-field {:id "btc-amount"
                                    :autoFocus true
@@ -304,7 +311,45 @@
                             :value max-val
                             :on-change #(swap! ui-values assoc :max %2)})])))
 
-(rum/defc contract-stage-display
+(rum/defc menu-controls-comp < rum/reactive
+  [component-mode]
+  [:div
+   [:h1 {:style {:text-align "center"}} "Cointrust"]
+   [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
+   [:h5 {:style {:text-align "center"}} (str "You can trade with " (:friends2 (rum/react app-state)) " partners")]
+   (when-let [error (rum/react app-error)]
+     [:h5 {:style {:text-align "center" :color "#f00"}} error])
+   [:div {:style {:text-align "center"}}
+    ;; TODO: hints http://kushagragour.in/lab/hint/
+    (ui/raised-button {:label "I want to BUY Bitcoins"
+                       :disabled true ;;(not (or (= (:contracts app-state) :unknown) (empty? (:contracts app-state))))
+                       :style {:margin "1rem"}
+                       :on-touch-tap #(reset! component-mode :buy)})
+    (ui/raised-button {:label (if (:sell-offer (rum/react app-state)) "Change sell offer" "I want to SELL Bitcoins")
+                       :disabled false
+                       :style {:margin "1rem"}
+                       :on-touch-tap #(reset! component-mode :sell)})]])
+
+(rum/defc offer-progress-comp []
+  [:div
+   [:h4 {:style {:text-align "center"}} "My selling offer"]
+   [:p "You are currently offering to sell: "
+    [:strong (:min (:sell-offer @app-state))]
+    " (min.) - "
+    [:strong (:max (:sell-offer @app-state))]
+    " BTC (max.)"]
+   [:div (ui/stepper {:active-step 0}
+                     (ui/step (ui/step-label "Make Offer"))
+                     (ui/step (ui/step-label "Wait for Match"))
+                     (ui/step (ui/step-label "Initiate Contract")))]])
+
+(rum/defc offer-matched-dialog []
+  (ui/dialog {:titled "Offer Matched"
+              :open (boolean (:offer-match @app-state))
+              :modal true}
+             "HELLO"))
+
+(rum/defc contract-stage-comp
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}
   [contract ix text]
   (let [stage-color
@@ -322,60 +367,39 @@
                    :width "100%" :height "2rem" :margin-top "0.5rem"}}
      text]))
 
-(rum/defcs main-menu
+(rum/defc contract-listing-comp < rum/reactive []
+  [:div
+   [:h4 {:style {:text-align "center"}} "Active contracts"]
+   [:div
+    (cond
+      (not (:contracts @app-state))
+      [:div "Retrieving contracts..."
+       (ui/linear-progress {:size 60 :mode "indeterminate"})]
+      (empty? (:contracts @app-state))
+      "No contracts in history"
+      :else
+      (for [contract (:contracts @app-state)]
+        [:div (str "Contract Hash ID: " (:hash contract))
+         (map-indexed
+          (fn [ix text] (contract-stage-comp contract ix text))
+          ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])]))]])
+
+(rum/defcs main-comp
   < rum/reactive (rum/local :none ::mode)
   [state]
   (let [component-mode (::mode state)
         app-state (rum/react app-state)
-        friends-of-friends (:friends2 app-state)
         contracts (:contracts app-state)]
     (ui/mui-theme-provider
      {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
      (ui/paper
       [:div
-       [:h1 {:style {:text-align "center"}} "Cointrust"]
-       [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
-       [:h5 {:style {:text-align "center"}} (str "You can trade with " (count friends-of-friends) " partners")]
-       (when-let [error (rum/react app-error)]
-         [:h5 {:style {:text-align "center" :color "#f00"}} error])
-       [:div {:style {:text-align "center"}}
-        ;; TODO: hints http://kushagragour.in/lab/hint/
-        (ui/raised-button {:label "I want to BUY Bitcoins"
-                           :disabled true ;;(not (or (= (:contracts app-state) :unknown) (empty? (:contracts app-state))))
-                           :style {:margin "1rem"}
-                           :on-touch-tap #(reset! component-mode :buy)})
-        (ui/raised-button {:label (if (:sell-offer app-state) "Change sell offer" "I want to SELL Bitcoins")
-                           :disabled false
-                           :style {:margin "1rem"}
-                           :on-touch-tap #(reset! component-mode :sell)})]
-       (when (:sell-offer app-state)
-         [:div
-          [:h4 {:style {:text-align "center"}} "My selling offer"]
-          [:p "You are currently offering to sell: "
-           [:strong (:min (:sell-offer app-state))]
-           " (min.) - "
-           [:strong (:max (:sell-offer app-state))]
-           " BTC (max.)"]
-          [:div (ui/stepper {:active-step 0}
-                            (ui/step (ui/step-label "Make Offer"))
-                            (ui/step (ui/step-label "Wait for Match"))
-                            (ui/step (ui/step-label "Initiate Contract")))]])
-       [:div
-        [:h4 {:style {:text-align "center"}} "Active contracts"]
-        [:div (cond
-                (not (:contracts app-state))
-                [:div "Retrieving contracts..."
-                 (ui/linear-progress {:size 60 :mode "indeterminate"})]
-                (empty? (:contracts app-state))
-                "No contracts in history"
-                :else
-                (for [contract (:contracts app-state)]
-                  [:div (str "Contract Hash ID: " (:hash contract))
-                   (map-indexed
-                    (fn [ix text] (contract-stage-display contract ix text))
-                    ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])]))]]
-       (buy-dialog component-mode (:btc-usd app-state))
-       (sell-dialog component-mode)]))))
+       (menu-controls-comp component-mode)
+       (when (:sell-offer app-state) (offer-progress-comp))
+       (contract-listing-comp)
+       (buy-dialog component-mode)
+       (sell-dialog component-mode)
+       (offer-matched-dialog)]))))
 
 (rum/defc faq []
   (ui/mui-theme-provider
@@ -394,8 +418,8 @@
           (if (:user-hash state)
             (case (:scene state)
               "main-menu"
-              [(main-menu) (faq)])
-            [(init) (faq)]))))
+              [(main-comp) (faq)])
+            [(login-comp) (faq)]))))
 
 (rum/mount (app) (js/document.getElementById "app"))
 
