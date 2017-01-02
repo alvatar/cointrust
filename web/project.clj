@@ -16,7 +16,7 @@
                  [aleph "0.4.2-alpha9"]
                  [compojure "1.5.1"]
                  [com.taoensso/sente "1.11.0"]
-                 [com.taoensso/encore "2.88.0"]
+                 [com.taoensso/encore "2.88.2"]
                  [com.taoensso/timbre "4.8.0"]
                  ;; Database
                  [org.clojure/java.jdbc "0.6.1"]
