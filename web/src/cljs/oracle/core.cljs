@@ -29,18 +29,17 @@
 (def hook-fake-id?_ true)
 
 (defonce app-error (atom nil))
-(defonce app-state
-  (atom {:scene "main-menu"
-         :user-fbid nil
-         :user-hash nil
-         :user-id nil
-         :friend-fbids []
-         :friend-hashes []
-         :friends2 []
-         :btc-usd 769.5
-         :sell-offer {:min 200 :max 20000}
-         :offer-match 300
-         :contracts nil}))
+(defonce app-state {:scene (atom "main-menu")
+                    :user-fbid (atom nil)
+                    :user-hash (atom nil)
+                    :user-id (atom nil)
+                    :friend-fbids (atom [])
+                    :friend-hashes (atom [])
+                    :friends2 (atom [])
+                    :btc-usd (atom 769.5)
+                    :sell-offer (atom {:min 200 :max 20000})
+                    :offer-match (atom 300)
+                    :contracts (atom nil)})
 
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
@@ -112,37 +111,37 @@
 
 (defn get-user-contracts []
   (chsk-send!
-   [:user/contracts {:user-id (:user-id @app-state)}] 10000
+   [:user/contracts {:user-id @(:user-id app-state)}] 10000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (swap! oracle.core/app-state assoc :contracts (:contracts resp))
+       (reset! (:contracts app-state) (:contracts resp))
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
            (js/console.log "Error in get-user-contract: " (str resp))))
-     (js/console.log "Contracts: " (str (:contracts @app-state))))))
+     (js/console.log "Contracts: " (str @(:contracts app-state))))))
 
 (defn initiate-contract [btc-amount callback]
   (chsk-send!
-   [:contract/initiate {:user-id (:user-id @app-state)
+   [:contract/initiate {:user-id @(:user-id app-state)
                         :btc-amount btc-amount}] 20000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (swap! oracle.core/app-state update :contracts #(conj % (:contract resp)))
+       (swap! (:contracts app-state) #(conj % (:contract resp)))
        (do (reset! app-error "There was an error with your contract. Please try again.")
            (js/console.log "Error in initiate-contract: " (str resp))))
      (callback)
-     (js/console.log "Contracts: " (str (:contracts @app-state))))))
+     (js/console.log "Contracts: " (str @(:contracts app-state))))))
 
 (defn handle-enter [user-id]
-  (swap! app-state assoc :user-id user-id)
+  (reset! (:user-id app-state) user-id)
   (get-user-contracts)
   (chsk-send!
    [:user/friends-of-friends {:user-id user-id}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (swap! app-state assoc :friends2 (:friends2 resp))
+       (reset! (:friends2 app-state) (:friends2 resp))
        (do (reset! app-error "There was an error with your login. Please try again.")
            (js/console.log "Error in handle-enter: " (str resp))))
-     (js/console.log "Friends^2" (str (:friends2 @app-state))))))
+     (js/console.log "Friends^2" (str @(:friends2 app-state))))))
 
 (defn try-enter [hashed-id hashed-friends]
   (chsk-send!
@@ -162,10 +161,10 @@
              hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))
              friend-fbids (fb/api "/me/friends" {} identity)
              hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
-         (swap! app-state assoc :user-fbid user-fbid)
-         (swap! app-state assoc :user-hash hashed-id)
-         (swap! app-state assoc :friend-fbids friend-fbids)
-         (swap! app-state assoc :friend-hashes hashed-friends)
+         (reset! (:user-fbid app-state) user-fbid)
+         (reset! (:user-hash app-state) hashed-id)
+         (reset! (:friend-fbids app-state) friend-fbids)
+         (reset! (:friend-hashes app-state) hashed-friends)
          (js/console.log "Connected with Facebook userID: " user-fbid)
          (js/console.log "Hashed user: " hashed-id)
          (js/console.log "Friend IDs: " (str friend-fbids))
@@ -188,15 +187,15 @@
 
 (defmethod app-msg-handler :contract/update
   [[_ {:as app-msg :keys [stage status id amount]}]]
-  (swap! app-state assoc :contracts
-         (for [c (:contracts @app-state)]
-           (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
+  (reset! (:contracts app-state)
+          (for [c @(:contracts app-state)]
+            (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
 
 ;; (chsk-send! "asdf" [:offer/matched {:status :ok :amount 300}])
 (defmethod app-msg-handler :offer/matched
   [[_ {:as app-msg :keys [status amount]}]]
   (if (and (= status :ok) amount)
-    (swap! app-state assoc :offer-match amount)
+    (reset! (:offer-match app-state) amount)
     (js/console.log "Error in :offer/matched message")))
 
 ;; Sente-level messages
@@ -251,7 +250,7 @@
                            (if hook-fake-id?_
                              (let [hashed-id "asdf" user-id 1]
                                (js/console.log "Connected with fake user hash: " hashed-id)
-                               (swap! app-state assoc :user-hash hashed-id)
+                               (reset! (:user-hash app-state) hashed-id)
                                (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
                                (init-sente! hashed-id))
                              (fb/get-login-status
@@ -280,7 +279,7 @@
                 :open (= @parent-component-mode :buy)
                 :modal true}
                [:div
-                (let [btc-usd (:btc-usd app-state)
+                (let [btc-usd @(:btc-usd app-state)
                       total (* btc-usd (:btc-amount (rum/react input)))]
                   [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
                    (ui/text-field {:id "btc-amount"
@@ -300,12 +299,12 @@
   < (rum/local {} ::ui-values)
   [state parent-component-mode]
   (let [ui-values (::ui-values state)
-        min-val (or (:min @ui-values) (:min (:sell-offer @app-state)) 200)
-        max-val (or (:max @ui-values) (:max (:sell-offer @app-state)) 20000)]
+        min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 200)
+        max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)]
     (ui/dialog {:title "Sell Bitcoins"
                 :actions [(ui/flat-button {:label "Sell"
                                            :primary true
-                                           :on-touch-tap (fn [] (swap! app-state assoc :sell-offer {:min min-val :max max-val})
+                                           :on-touch-tap (fn [] (reset! (:sell-offer app-state) {:min min-val :max max-val})
                                                            (reset! parent-component-mode :none))})
                           (ui/flat-button {:label "Cancel"
                                            :on-touch-tap #(reset! parent-component-mode :none)})]
@@ -327,7 +326,7 @@
   [:div
    [:h1 {:style {:text-align "center"}} "Cointrust"]
    [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
-   [:h5 {:style {:text-align "center"}} (str "You can trade with " (:friends2 (rum/react app-state)) " partners")]
+   [:h5 {:style {:text-align "center"}} (str "You can trade with " (rum/react (:friends2 app-state)) " partners")]
    (when-let [error (rum/react app-error)]
      [:h5 {:style {:text-align "center" :color "#f00"}} error])
    [:div {:style {:text-align "center"}}
@@ -336,7 +335,7 @@
                        :disabled true ;;(not (or (= (:contracts app-state) :unknown) (empty? (:contracts app-state))))
                        :style {:margin "1rem"}
                        :on-touch-tap #(reset! component-mode :buy)})
-    (ui/raised-button {:label (if (:sell-offer (rum/react app-state)) "Change sell offer" "I want to SELL Bitcoins")
+    (ui/raised-button {:label (if (rum/react (:sell-offer app-state)) "Change sell offer" "I want to SELL Bitcoins")
                        :disabled false
                        :style {:margin "1rem"}
                        :on-touch-tap #(reset! component-mode :sell)})]])
@@ -344,24 +343,21 @@
 (rum/defc offer-progress-comp
   < rum/reactive
   []
-  (when (:sell-offer (rum/react app-state))
-    [:div
-     [:h4 {:style {:text-align "center"}} "My selling offer"]
-     [:p "You are currently offering to sell: "
-      [:strong (:min (:sell-offer @app-state))]
-      " (min.) - "
-      [:strong (:max (:sell-offer @app-state))]
-      " BTC (max.)"]
-     [:div (ui/stepper {:active-step 0}
-                       (ui/step (ui/step-label "Make Offer"))
-                       (ui/step (ui/step-label "Wait for Match"))
-                       (ui/step (ui/step-label "Initiate Contract")))]]))
+  (when-let [sell-offer (rum/react (:sell-offer app-state))]
+   [:div
+    [:h4 {:style {:text-align "center"}} "My selling offer"]
+    [:p "You are currently offering to sell: "
+     [:strong (:min sell-offer)] " (min.) - " [:strong (:max sell-offer)] " BTC (max.)"]
+    [:div (ui/stepper {:active-step 0}
+                      (ui/step (ui/step-label "Make Offer"))
+                      (ui/step (ui/step-label "Wait for Match"))
+                      (ui/step (ui/step-label "Initiate Contract")))]]))
 
 (rum/defc offer-matched-dialog
   < rum/reactive
   []
   (ui/dialog {:titled "Offer Matched"
-              :open (boolean (:offer-match @app-state))
+              :open (boolean @(:offer-match app-state))
               :modal true}
              "HELLO"))
 
@@ -389,18 +385,19 @@
   [:div
    [:h4 {:style {:text-align "center"}} "Active contracts"]
    [:div
-    (cond
-      (not (:contracts @app-state))
-      [:div "Retrieving contracts..."
-       (ui/linear-progress {:size 60 :mode "indeterminate"})]
-      (empty? (:contracts @app-state))
-      "No contracts in history"
-      :else
-      (for [contract (:contracts @app-state)]
-        [:div (str "Contract Hash ID: " (:hash contract))
-         (map-indexed
-          (fn [ix text] (contract-stage-comp contract ix text))
-          ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])]))]])
+    (let [contracts (rum/react (:contracts app-state))]
+     (cond
+       (not contracts)
+       [:div "Retrieving contracts..."
+        (ui/linear-progress {:size 60 :mode "indeterminate"})]
+       (empty? contracts)
+       "No contracts in history"
+       :else
+       (for [contract contracts]
+         [:div (str "Contract Hash ID: " (:hash contract))
+          (map-indexed
+           (fn [ix text] (contract-stage-comp contract ix text))
+           ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
 
 (rum/defcs main-comp
   < (rum/local :none ::mode)
@@ -433,12 +430,11 @@
   (into [:div {:style {:position "absolute"
                        :max-width "700px" ; :height "500px"
                        :margin "auto" :top "5rem" :bottom "0" :left "0" :right "0"}}]
-        (let [state (rum/react app-state)]
-          (if (:user-hash state)
-            (case (:scene state)
-              "main-menu"
-              [(main-comp) (faq)])
-            [(login-comp) (faq)]))))
+        (if (rum/react (:user-hash app-state))
+          (case @(:scene app-state)
+            "main-menu"
+            [(main-comp) (faq)])
+          [(login-comp) (faq)])))
 
 (rum/mount (app) (js/document.getElementById "app"))
 
