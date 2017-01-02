@@ -39,7 +39,7 @@
          :friends2 []
          :btc-usd 769.5
          :sell-offer {:min 200 :max 20000}
-         :offer-match nil
+         :offer-match 300
          :contracts nil}))
 
 (def db-schema {})
@@ -91,9 +91,7 @@
     (defn start-router! []
       (stop-router!)
       (js/console.log "Initializing Sente client router")
-      (reset! router_
-              (sente/start-client-chsk-router!
-               ch-chsk event-msg-handler)))
+      (reset! router_ (sente/start-client-chsk-router! ch-chsk event-msg-handler)))
     (start-router!)))
 
 ;; For testing
@@ -180,6 +178,29 @@
 ;; Event Handlers
 ;;
 
+;; App-level messaes
+
+(defmulti app-msg-handler first)
+
+(defmethod app-msg-handler :default
+  [app-msg]
+  (js/console.log "Unhandled app event: " (str app-msg)))
+
+(defmethod app-msg-handler :contract/update
+  [[_ {:as app-msg :keys [stage status id amount]}]]
+  (swap! app-state assoc :contracts
+         (for [c (:contracts @app-state)]
+           (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
+
+;; (chsk-send! "asdf" [:offer/matched {:status :ok :amount 300}])
+(defmethod app-msg-handler :offer/matched
+  [[_ {:as app-msg :keys [status amount]}]]
+  (if (and (= status :ok) amount)
+    (swap! app-state assoc :offer-match amount)
+    (js/console.log "Error in :offer/matched message")))
+
+;; Sente-level messages
+
 (defmulti -event-msg-handler
   "Multimethod to handle Sente `event-msg`s"
   :id)
@@ -189,12 +210,10 @@
   [{:as ev-msg :keys [id ?data event]}]
   (-event-msg-handler ev-msg))
 
-(defmethod -event-msg-handler
-  :default ; Default/fallback case (no other matching handler)
+(defmethod -event-msg-handler :default
   [{:as ev-msg :keys [event]}]
-  (js/console.log "Unhandled event: " event))
+  (js/console.log "Unhandled event: " (str event)))
 
-;; TODO: You'll want to listen on the receive channel for a [:chsk/state [_ {:first-open? true}]] event. That's the signal that the socket's been established.
 (defmethod -event-msg-handler :chsk/state
   [{:as ev-msg :keys [?data]}]
   (let [[old-state-map new-state-map] (have vector? ?data)]
@@ -204,24 +223,13 @@
 
 (defmethod -event-msg-handler :chsk/recv
   [{:as ev-msg :keys [?data]}]
-  (js/console.log "Push event from server: " ?data))
+  (js/console.log "Push event from server: " (str ?data))
+  (app-msg-handler ?data))
 
 (defmethod -event-msg-handler :chsk/handshake
   [{:as ev-msg :keys [?data]}]
   (let [[?uid ?csrf-token ?handshake-data] ?data]
     (when is-dev?_ (js/console.log "Handshake"))))
-
-(defmethod -event-msg-handler :contract/update
-  [{:as ev-msg :keys [?data]}]
-  (let [{:keys [id stage status]} ?data]
-    (swap! app-state assoc :contracts
-           (for [c (:contracts @app-state)]
-             (if (= (:id c) id) (merge c {:stage stage :status status}) c)))))
-
-(defmethod -event-msg-handler :offer/matched
-  [{:as ev-msg :keys [?data]}]
-  (let [{:keys [id stage status]} ?data]
-    ()))
 
 ;;
 ;; UI Components
@@ -350,6 +358,7 @@
                        (ui/step (ui/step-label "Initiate Contract")))]]))
 
 (rum/defc offer-matched-dialog
+  < rum/reactive
   []
   (ui/dialog {:titled "Offer Matched"
               :open (boolean (:offer-match @app-state))
