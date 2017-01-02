@@ -227,7 +227,8 @@
 ;; UI Components
 ;;
 
-(rum/defc login-comp []
+(rum/defc login-comp
+  []
   (ui/mui-theme-provider
    {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
    (ui/paper
@@ -252,7 +253,8 @@
                                   (js/console.log "Connected with userID: " (get-in response [:authResponse :userID]))
                                   (fb/login set-facebook-ids {:scope "public_profile,email,user_friends"}))))))})]])))
 
-(rum/defcs buy-dialog < rum/reactive (rum/local {:btc-amount 1.0} ::input)
+(rum/defcs buy-dialog
+  < rum/reactive (rum/local {:btc-amount 1.0} ::input)
   [state parent-component-mode]
   (let [input (::input state)]
     (ui/dialog {:title "Buy Bitcoins"
@@ -311,7 +313,8 @@
                             :value max-val
                             :on-change #(swap! ui-values assoc :max %2)})])))
 
-(rum/defc menu-controls-comp < rum/reactive
+(rum/defc menu-controls-comp
+  < rum/reactive
   [component-mode]
   [:div
    [:h1 {:style {:text-align "center"}} "Cointrust"]
@@ -330,20 +333,24 @@
                        :style {:margin "1rem"}
                        :on-touch-tap #(reset! component-mode :sell)})]])
 
-(rum/defc offer-progress-comp []
-  [:div
-   [:h4 {:style {:text-align "center"}} "My selling offer"]
-   [:p "You are currently offering to sell: "
-    [:strong (:min (:sell-offer @app-state))]
-    " (min.) - "
-    [:strong (:max (:sell-offer @app-state))]
-    " BTC (max.)"]
-   [:div (ui/stepper {:active-step 0}
-                     (ui/step (ui/step-label "Make Offer"))
-                     (ui/step (ui/step-label "Wait for Match"))
-                     (ui/step (ui/step-label "Initiate Contract")))]])
+(rum/defc offer-progress-comp
+  < rum/reactive
+  []
+  (when (:sell-offer (rum/react app-state))
+    [:div
+     [:h4 {:style {:text-align "center"}} "My selling offer"]
+     [:p "You are currently offering to sell: "
+      [:strong (:min (:sell-offer @app-state))]
+      " (min.) - "
+      [:strong (:max (:sell-offer @app-state))]
+      " BTC (max.)"]
+     [:div (ui/stepper {:active-step 0}
+                       (ui/step (ui/step-label "Make Offer"))
+                       (ui/step (ui/step-label "Wait for Match"))
+                       (ui/step (ui/step-label "Initiate Contract")))]]))
 
-(rum/defc offer-matched-dialog []
+(rum/defc offer-matched-dialog
+  []
   (ui/dialog {:titled "Offer Matched"
               :open (boolean (:offer-match @app-state))
               :modal true}
@@ -367,7 +374,9 @@
                    :width "100%" :height "2rem" :margin-top "0.5rem"}}
      text]))
 
-(rum/defc contract-listing-comp < rum/reactive []
+(rum/defc contract-listing-comp
+  < rum/reactive
+  []
   [:div
    [:h4 {:style {:text-align "center"}} "Active contracts"]
    [:div
@@ -385,23 +394,22 @@
           ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])]))]])
 
 (rum/defcs main-comp
-  < rum/reactive (rum/local :none ::mode)
+  < (rum/local :none ::mode)
   [state]
-  (let [component-mode (::mode state)
-        app-state (rum/react app-state)
-        contracts (:contracts app-state)]
+  (let [component-mode (::mode state)]
     (ui/mui-theme-provider
      {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
      (ui/paper
       [:div
        (menu-controls-comp component-mode)
-       (when (:sell-offer app-state) (offer-progress-comp))
+       (offer-progress-comp)
        (contract-listing-comp)
        (buy-dialog component-mode)
        (sell-dialog component-mode)
        (offer-matched-dialog)]))))
 
-(rum/defc faq []
+(rum/defc faq
+  []
   (ui/mui-theme-provider
    {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
    (ui/paper
@@ -410,7 +418,9 @@
      [:div "How it works..."]
      [:div "FAQ..."]])))
 
-(rum/defc app < rum/reactive []
+(rum/defc app
+  < rum/reactive
+  []
   (into [:div {:style {:position "absolute"
                        :max-width "700px" ; :height "500px"
                        :margin "auto" :top "5rem" :bottom "0" :left "0" :right "0"}}]
