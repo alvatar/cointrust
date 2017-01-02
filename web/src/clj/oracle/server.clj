@@ -62,7 +62,7 @@
           (fn [req]
             (try (handler req)
                  (catch Exception e
-                   (try (do (print-stack-trace e 20)
+                   (try (do (print-stack-trace e 60)
                             (println "== From request: ==")
                             (pprint req))
                         (catch Exception e2

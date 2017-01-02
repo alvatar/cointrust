@@ -32,6 +32,10 @@
     (when ?reply-fn
       (?reply-fn {:umatched-event-as-echoed-from-from-server event}))))
 
+;;
+;; Users
+;;
+
 (defmethod -event-msg-handler :user/enter
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (let [{:keys [user friends] :as result}
@@ -60,13 +64,9 @@
        (catch Exception e
          (?reply-fn {:status :error}))))
 
-#_(defmethod -event-msg-handler :user/offer
-  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (js/console.log "USER OFFER" )
-  (try (?reply-fn {:status :ok
-                   :amount (db/user-offer (:user ?data))})
-       (catch Exception e
-         (?reply-fn {:status :error}))))
+;;
+;; Sell offers
+;;
 
 (defmethod -event-msg-handler :offer/open
   [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
@@ -78,6 +78,28 @@
            (pprint res)))
        (catch Exception e
          (?reply-fn {:status :error}))))
+
+(defmethod -event-msg-handler :offer/get
+  [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
+  (try (let [{:as asff :keys [min max]}
+             (db/offer-get-by-user (:user-id ?data))]
+         (when (and min max)
+           (?reply-fn {:status :ok :min min :max max})))
+       (catch Exception e
+         (?reply-fn {:status :error}))))
+
+(defmethod -event-msg-handler :offer/close
+  [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
+  (try (let [res (db/offer-unset! (:user-id ?data))]
+         (if (= res 'ok)
+           (?reply-fn {:status :ok})
+           (pprint res)))
+       (catch Exception e
+         (?reply-fn {:status :error}))))
+
+;;
+;; Contracts
+;;
 
 (defmethod -event-msg-handler :contract/initiate
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
@@ -104,4 +126,3 @@
           (sente/start-server-chsk-router!
            ch-chsk
            event-msg-handler)))
-

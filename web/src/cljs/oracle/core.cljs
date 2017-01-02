@@ -123,11 +123,30 @@
 
 (defn open-sell-offer [{:as vals :keys [min max]}]
   (chsk-send!
-   [:offer/open (assoc vals :user @(:user-id app-state))] 10000
+   [:offer/open (assoc vals :user-id @(:user-id app-state))] 10000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:sell-offer app-state) (select-keys resp [:min :max]))
-       (reset! app-error "There was an error creating the sell offer. Please try again.")))))
+       (reset! app-error "There was an error opening the sell offer. Please try again.")))))
+
+(defn get-active-sell-offer []
+  (chsk-send!
+   [:offer/get {:user-id @(:user-id app-state)}] 10000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (reset! (:sell-offer app-state) (select-keys resp [:min :max]))
+       (reset! app-error "There was an error retrieving the sell offer.")))))
+
+;; Run when user we change the User ID
+(add-watch (:user-id app-state) :got-user-id #(when %4 (get-active-sell-offer)))
+
+(defn close-sell-offer []
+  (chsk-send!
+   [:offer/close {:user-id @(:user-id app-state)}] 10000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (reset! (:sell-offer app-state) nil)
+       (reset! app-error "There was an error closing the sell offer. Please try again.")))))
 
 (defn initiate-contract [btc-amount callback]
   (chsk-send!
@@ -316,18 +335,17 @@
                 :open (= @parent-component-mode :sell)
                 :modal true
                 :actions [(when offer-active?
-                            (ui/flat-button {:label "Cancel"
-                                             :primary true
+                            (ui/flat-button {:label "Remove"
                                              :on-touch-tap (fn []
-                                                             (when (js/confirm "Are you sure?") ;;TODO
-                                                              (reset! (:sell-offer app-state) nil)
+                                                             (when (js/confirm "Are you sure?")
+                                                              (close-sell-offer)
                                                               (reset! parent-component-mode :none)))}))
                           (ui/flat-button {:label (if offer-active? "Update" "Sell")
-                                           :primary true
                                            :on-touch-tap (fn []
                                                            (open-sell-offer {:min min-val :max max-val})
                                                            (reset! parent-component-mode :none))})
                           (ui/flat-button {:label "Back"
+                                           :primary true
                                            :on-touch-tap #(reset! parent-component-mode :none)})]}
                [:div
                 [:p "Minimum amount of Bitcoins I'm willing to sell: " [:strong min-val]]
@@ -367,7 +385,7 @@
     [:h4 {:style {:text-align "center"}} "My selling offer"]
     [:p "You are currently offering to sell: "
      [:strong (:min sell-offer)] " (min.) - " [:strong (:max sell-offer)] " BTC (max.)"]
-    [:div (ui/stepper {:active-step 0}
+    [:div (ui/stepper {:active-step 1}
                       (ui/step (ui/step-label "Make Offer"))
                       (ui/step (ui/step-label "Wait for Match"))
                       (ui/step (ui/step-label "Initiate Contract")))]]))
@@ -447,7 +465,7 @@
 
 (rum/defc faq
   []
-  (ui/mui-theme-provider
+  #_(ui/mui-theme-provider
    {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
    (ui/paper
     {:style {:margin-top "50px"}}

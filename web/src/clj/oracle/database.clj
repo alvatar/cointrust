@@ -142,6 +142,11 @@ DELETE FROM offer WHERE user_id = ?;
     'ok
     (catch Exception e (or (.getNextException e) e))))
 
+(defn get-all-offers []
+  (sql/query db ["
+SELECT * FROM offer;
+"]))
+
 ;;
 ;; Contracts
 ;;
@@ -224,13 +229,13 @@ CREATE TABLE users (
 );"
                             "
 CREATE TABLE friends (
-  user_id1        INTEGER REFERENCES users(id) ON UPDATE CASCADE,
-  user_id2        INTEGER REFERENCES users(id) ON UPDATE CASCADE,
+  user_id1        INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  user_id2        INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
   PRIMARY KEY (user_id1, user_id2)
 );"
                             "
 CREATE TABLE offer (
-  user_id                   INTEGER REFERENCES users(id) ON UPDATE CASCADE,
+  user_id                   INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
   CONSTRAINT one_per_user   UNIQUE (user_id),
   min                       BIGINT NOT NULL,
   max                       BIGINT NOT NULL
@@ -239,22 +244,22 @@ CREATE TABLE offer (
 CREATE TABLE contracts (
   id              SERIAL PRIMARY KEY,
   hash            TEXT NOT NULL UNIQUE,
-  buyer           INTEGER REFERENCES users(id) ON UPDATE CASCADE,
-  seller          INTEGER REFERENCES users(id) ON UPDATE CASCADE,
+  buyer           INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  seller          INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
   btc             TEXT NOT NULL
 );"
                             "
 CREATE TABLE contract_events (
   id              SERIAL PRIMARY KEY,
   time            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  contract_id     INTEGER REFERENCES contracts(id) ON UPDATE CASCADE,
+  contract_id     INTEGER REFERENCES contracts(id) ON UPDATE CASCADE NOT NULL,
   stage           SMALLINT NOT NULL,
   status          TEXT NOT NULL
 );"
                             "
 CREATE TABLE logs (
   id              SERIAL PRIMARY KEY,
-  time            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  time            TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   type            TEXT NOT NULL,
   data            TEXT NOT NULL
 );"
