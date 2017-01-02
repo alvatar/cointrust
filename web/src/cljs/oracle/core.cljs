@@ -18,7 +18,9 @@
             ;; Facebook
             [fb-sdk-cljs.core :as fb]
             ;; Crypto
-            [cljs-hash.goog :as gh]))
+            [cljs-hash.goog :as gh]
+            ;; Format
+            [goog.string :as gstring]))
 
 
 ;;
@@ -36,9 +38,9 @@
                     :friend-fbids (atom [])
                     :friend-hashes (atom [])
                     :friends2 (atom [])
-                    :btc-usd (atom 769.5)
-                    :sell-offer (atom {:min 200 :max 20000})
-                    :offer-match (atom 300)
+                    :btc-usd (atom 1025.0)
+                    :sell-offer (atom nil)
+                    :offer-match (atom nil)
                     :contracts (atom nil)})
 
 (def db-schema {})
@@ -119,6 +121,14 @@
            (js/console.log "Error in get-user-contract: " (str resp))))
      (js/console.log "Contracts: " (str @(:contracts app-state))))))
 
+(defn open-sell-offer [{:as vals :keys [min max]}]
+  (chsk-send!
+   [:offer/open (assoc vals :user @(:user-id app-state))] 10000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (reset! (:sell-offer app-state) (select-keys resp [:min :max]))
+       (reset! app-error "There was an error creating the sell offer. Please try again.")))))
+
 (defn initiate-contract [btc-amount callback]
   (chsk-send!
    [:contract/initiate {:user-id @(:user-id app-state)
@@ -135,7 +145,7 @@
   (reset! (:user-id app-state) user-id)
   (get-user-contracts)
   (chsk-send!
-   [:user/friends-of-friends {:user-id user-id}] 5000
+   [:user/friends-of-friends {:user-id user-id}] 10000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:friends2 app-state) (:friends2 resp))
@@ -146,7 +156,7 @@
 (defn try-enter [hashed-id hashed-friends]
   (chsk-send!
    [:user/enter {:hashed-user hashed-id
-                 :hashed-friends hashed-friends}] 5000
+                 :hashed-friends hashed-friends}] 10000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (handle-enter (:found-user resp))
@@ -265,6 +275,8 @@
   [state parent-component-mode]
   (let [input (::input state)]
     (ui/dialog {:title "Buy Bitcoins"
+                :open (= @parent-component-mode :buy)
+                :modal true
                 :actions [(ui/flat-button {:label "Buy"
                                            :primary true
                                            :disabled (:processing (rum/react input))
@@ -275,9 +287,7 @@
                                                                 #(do (reset! parent-component-mode :none)
                                                                      (swap! input assoc :processing false))))})
                           (ui/flat-button {:label "Cancel"
-                                           :on-touch-tap #(reset! parent-component-mode :none)})]
-                :open (= @parent-component-mode :buy)
-                :modal true}
+                                           :on-touch-tap #(reset! parent-component-mode :none)})]}
                [:div
                 (let [btc-usd @(:btc-usd app-state)
                       total (* btc-usd (:btc-amount (rum/react input)))]
@@ -298,18 +308,27 @@
 (rum/defcs sell-dialog
   < (rum/local {} ::ui-values)
   [state parent-component-mode]
-  (let [ui-values (::ui-values state)
+  (let [offer-active? (boolean @(:sell-offer app-state))
+        ui-values (::ui-values state)
         min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 200)
         max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)]
-    (ui/dialog {:title "Sell Bitcoins"
-                :actions [(ui/flat-button {:label "Sell"
-                                           :primary true
-                                           :on-touch-tap (fn [] (reset! (:sell-offer app-state) {:min min-val :max max-val})
-                                                           (reset! parent-component-mode :none))})
-                          (ui/flat-button {:label "Cancel"
-                                           :on-touch-tap #(reset! parent-component-mode :none)})]
+    (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoins")
                 :open (= @parent-component-mode :sell)
-                :modal true}
+                :modal true
+                :actions [(when offer-active?
+                            (ui/flat-button {:label "Cancel"
+                                             :primary true
+                                             :on-touch-tap (fn []
+                                                             (when (js/confirm "Are you sure?") ;;TODO
+                                                              (reset! (:sell-offer app-state) nil)
+                                                              (reset! parent-component-mode :none)))}))
+                          (ui/flat-button {:label (if offer-active? "Update" "Sell")
+                                           :primary true
+                                           :on-touch-tap (fn []
+                                                           (open-sell-offer {:min min-val :max max-val})
+                                                           (reset! parent-component-mode :none))})
+                          (ui/flat-button {:label "Back"
+                                           :on-touch-tap #(reset! parent-component-mode :none)})]}
                [:div
                 [:p "Minimum amount of Bitcoins I'm willing to sell: " [:strong min-val]]
                 (ui/slider {:min 200 :max 20000
@@ -353,13 +372,25 @@
                       (ui/step (ui/step-label "Wait for Match"))
                       (ui/step (ui/step-label "Initiate Contract")))]]))
 
-(rum/defc offer-matched-dialog
-  < rum/reactive
-  []
-  (ui/dialog {:titled "Offer Matched"
-              :open (boolean @(:offer-match app-state))
-              :modal true}
-             "HELLO"))
+(rum/defcs offer-matched-dialog
+  < rum/reactive (rum/local true ::decline-lock)
+  [state]
+  (let [decline-lock (::decline-lock state)]
+   (ui/dialog {:title "Offer Matched"
+               :open (boolean (rum/react (:offer-match app-state)))
+               :modal true
+               :actions [(ui/flat-button {:label "Accept"
+                                          :primary true
+                                          :on-touch-tap #()})
+                         (ui/flat-button {:label "Decline"
+                                          :disabled (rum/react decline-lock)
+                                          :on-touch-tap #(reset! (:offer-match app-state) nil)})]}
+              [:div
+               [:p (gstring/format "A buyer wants to purchase %f BTC (%f USD)." 2.2 2000)]
+               [:h6 "You can decline it, but your sell offer will be removed."
+                [:br] (ui/checkbox {:label "I understand"
+                                    :checked (not (rum/react decline-lock))
+                                    :on-check #(reset! decline-lock (not %2))})]])))
 
 (rum/defc contract-stage-comp
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}

@@ -116,6 +116,33 @@ WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
 " id id id id id id])))
 
 ;;
+;; Sell Offers
+;;
+
+(defn offer-set! [user-id minval maxval]
+  (try
+    (sql/execute! db ["
+INSERT INTO offer (user_id, min, max) VALUES (?, ?, ?)
+ON CONFLICT (user_id) DO UPDATE SET min = ?, max = ?
+" user-id minval maxval minval maxval])
+    'ok
+    (catch Exception e (or (.getNextException e) e))))
+
+(defn offer-get-by-user [user-id]
+  (first
+   (sql/query db ["
+SELECT min, max FROM offer WHERE user_id = ?;
+" user-id])))
+
+(defn offer-unset! [user-id]
+  (try
+    (sql/execute! db ["
+DELETE FROM offer WHERE user_id = ?;
+" user-id])
+    'ok
+    (catch Exception e (or (.getNextException e) e))))
+
+;;
 ;; Contracts
 ;;
 
@@ -186,6 +213,7 @@ WHERE buyer = ? OR seller = ?
     (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
                             "DROP TABLE IF EXISTS contract_events;"
                             "DROP TABLE IF EXISTS contracts;"
+                            "DROP TABLE IF EXISTS offer;"
                             "DROP TABLE IF EXISTS friends;"
                             "DROP TABLE IF EXISTS users;"
                             "
@@ -199,6 +227,13 @@ CREATE TABLE friends (
   user_id1        INTEGER REFERENCES users(id) ON UPDATE CASCADE,
   user_id2        INTEGER REFERENCES users(id) ON UPDATE CASCADE,
   PRIMARY KEY (user_id1, user_id2)
+);"
+                            "
+CREATE TABLE offer (
+  user_id                   INTEGER REFERENCES users(id) ON UPDATE CASCADE,
+  CONSTRAINT one_per_user   UNIQUE (user_id),
+  min                       BIGINT NOT NULL,
+  max                       BIGINT NOT NULL
 );"
                             "
 CREATE TABLE contracts (
@@ -234,3 +269,8 @@ CREATE TABLE logs (
   (user-insert! "cccc" [])
   (user-insert! "dddd" ["ffff"])
   'ok)
+
+;; Only one entry lock:
+;; lock                      CHAR(1) NOT NULL DEFAULT('X'),
+;; constraint only_one       PRIMARY KEY (lock),
+;; constraint CK_T1_locked   CHECK (lock='X'),

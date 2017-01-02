@@ -33,7 +33,7 @@
       (?reply-fn {:umatched-event-as-echoed-from-from-server event}))))
 
 (defmethod -event-msg-handler :user/enter
-  [{:as ev-msg :keys [event idn ?data ring-req ?reply-fn send-fn]}]
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (let [{:keys [user friends] :as result}
              (db/user-insert! (:hashed-user ?data) (:hashed-friends ?data))]
          (?reply-fn {:status :ok
@@ -43,7 +43,7 @@
          (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :user/friends-of-friends
-  [{:as ev-msg :keys [event idn ?data ring-req ?reply-fn send-fn]}]
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (?reply-fn {:status :ok
                    :friends2 (db/get-user-friends-of-friends (:user-id ?data))})
        (catch Exception e
@@ -53,15 +53,34 @@
   (rand-nth (db/get-user-friends-of-friends user-id)))
 
 (defmethod -event-msg-handler :user/contracts
-  [{:as ev-msg :keys [event idn ?data ring-req ?reply-fn send-fn]}]
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (?reply-fn {:status :ok
                    :contracts (for [c (db/get-user-contracts (:user-id ?data))]
                                 (merge c (db/get-contract-last-event (:id c))))})
        (catch Exception e
          (?reply-fn {:status :error}))))
 
+#_(defmethod -event-msg-handler :user/offer
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  (js/console.log "USER OFFER" )
+  (try (?reply-fn {:status :ok
+                   :amount (db/user-offer (:user ?data))})
+       (catch Exception e
+         (?reply-fn {:status :error}))))
+
+(defmethod -event-msg-handler :offer/open
+  [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
+  (try (let [res (db/offer-set! (:user-id ?data) (:min ?data) (:max ?data))]
+         (if (= res 'ok)
+           (?reply-fn {:status :ok
+                       :min (:min ?data)
+                       :max (:max ?data)})
+           (pprint res)))
+       (catch Exception e
+         (?reply-fn {:status :error}))))
+
 (defmethod -event-msg-handler :contract/initiate
-  [{:as ev-msg :keys [event idn ?data ring-req ?reply-fn send-fn]}]
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (let [buyer-id (:user-id ?data)]
     (try (Thread/sleep 5000) ;; Artificial delay to simulate Etherum
          (?reply-fn {:status :ok
