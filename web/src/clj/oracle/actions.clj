@@ -6,8 +6,18 @@
             [taoensso.sente :as sente]
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
+            ;; Redis tasks
+            [taoensso.carmine :as r]
+            [taoensso.carmine.message-queue :as mq]
             ;; Internal
             [oracle.database :as db]))
+
+;;
+;; Redis
+;;
+
+(def redis-conn {})
+(defmacro wcar* [& body] `(r/wcar redis-conn ~@body))
 
 ;;
 ;; Sente event handlers
@@ -32,10 +42,6 @@
     (when ?reply-fn
       (?reply-fn {:umatched-event-as-echoed-from-from-server event}))))
 
-;;
-;; Users
-;;
-
 (defmethod -event-msg-handler :user/enter
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (let [{:keys [user friends] :as result}
@@ -53,9 +59,6 @@
        (catch Exception e
          (?reply-fn {:status :error}))))
 
-(defn pick-partner [user-id]
-  (rand-nth (db/get-user-friends-of-friends user-id)))
-
 (defmethod -event-msg-handler :user/contracts
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (?reply-fn {:status :ok
@@ -63,10 +66,6 @@
                                 (merge c (db/get-contract-last-event (:id c))))})
        (catch Exception e
          (?reply-fn {:status :error}))))
-
-;;
-;; Sell offers
-;;
 
 (defmethod -event-msg-handler :offer/open
   [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
@@ -97,20 +96,53 @@
        (catch Exception e
          (?reply-fn {:status :error}))))
 
+;; TODO: The core of Cointrust. When a request to buy is received,
+;; the matching engine will select a counterparty (seller), wait for
+;; confirmation, and then create a contract and notify both parties.
+
+(declare task-init-contract-creation)
+
+(defmethod -event-msg-handler :contract/request
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  (try (task-init-contract-creation (:user-id ?data) (:btc ?data))
+       (?reply-fn {:status :ok})
+       (catch Exception e
+         (?reply-fn {:status :error}))))
+
 ;;
-;; Contracts
+;; Tasks
 ;;
 
-(defmethod -event-msg-handler :contract/initiate
-  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (let [buyer-id (:user-id ?data)]
-    (try (Thread/sleep 5000) ;; Artificial delay to simulate Etherum
-         (?reply-fn {:status :ok
-                     :contract (db/contract-create! buyer-id
-                                                    (pick-partner buyer-id)
-                                                    (:btc-amount ?data))})
-         (catch Exception e
-           (?reply-fn {:status :error})))))
+(defn pick-counterparty [user-id btc]
+  (rand-nth (db/get-user-friends-of-friends user-id)))
+
+(defn task-init-contract-creation []
+  (wcar* (mq/enqueue "contracts-queue" "my message!")))
+
+;; 1. Pick counterparty (or multiple), and wait for response
+;; counterparty (pick-counterparty buyer-id)
+;; 2. If no response, pick another one
+;; 3. When counterparty accepts, trigger contract creation
+;; (db/contract-create! buyer-id counterparty (:btc ?data))
+;; Notifications are done here
+(defonce contracts-worker (atom nil))
+
+(defn contracts-worker-stop! []
+  (when @contracts-worker (mq/stop @contracts-worker))
+  (reset! contracts-worker nil))
+
+(defn contracts-worker-start! []
+  (contracts-worker-stop!)
+  (reset! contracts-worker
+          (mq/worker redis-conn
+                     "contracts-queue"
+                     {:eoq-backoff-ms 200
+                      :throttle-ms 200
+                      :handler (fn [{:keys [message attempt]}]
+                                 (println "Received" message)
+                                 {:status :success})})))
+
+(defonce start-contract-worker_ (contracts-worker-start!))
 
 ;;
 ;; Sente event router (`event-msg-handler` loop)

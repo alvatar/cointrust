@@ -21,6 +21,7 @@
                  ;; Database
                  [org.clojure/java.jdbc "0.6.1"]
                  [org.postgresql/postgresql "9.4.1212"]
+                 [com.taoensso/carmine "2.15.0" :exclusions [com.taoensso/encore]]
                  ;; Bitcoin
                  [org.bitcoinj/bitcoinj-core "0.14.3"]
                  ;; Misc

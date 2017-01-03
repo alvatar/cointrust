@@ -143,9 +143,10 @@ DELETE FROM offer WHERE user_id = ?;
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-all-offers []
-  (sql/query db ["
+  (into []
+        (sql/query db ["
 SELECT * FROM offer;
-"]))
+"])))
 
 ;;
 ;; Contracts
@@ -208,6 +209,11 @@ SELECT * FROM contracts
 WHERE buyer = ? OR seller = ?
 " user-id user-id]))
     (catch Exception e (or (.getNextException e) e))))
+
+(defn get-all-contracts []
+  (sql/query db ["
+SELECT * FROM contracts
+"]))
 
 ;;
 ;; Development utilities
