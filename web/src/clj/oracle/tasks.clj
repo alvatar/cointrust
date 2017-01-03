@@ -85,14 +85,13 @@
      (when @worker (mq/stop @worker)))))
 
 (defn contract-workers-start! []
-  (contract-workers-stop!)
   (dosync
    (doseq [[stage worker] contract-workers]
-     (ref-set (:worker worker)
-              (mq/worker redis-conn
-                         (:qname worker)
-                         {:eoq-backoff-ms 200
-                          :throttle-ms 200
-                          :handler (:handler worker)})))))
+     (alter (:worker worker)
+            #(or % (mq/worker redis-conn
+                              (:qname worker)
+                              {:eoq-backoff-ms 200
+                               :throttle-ms 200
+                               :handler (:handler worker)}))))))
 
 (defonce start-contract-workers_ (contract-workers-start!))
