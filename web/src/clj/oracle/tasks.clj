@@ -36,8 +36,7 @@
 ;;
 
 (defn init-contract [buyer-id btc]
-  (wcar* (mq/enqueue "contract-requests-queue"
-                     {:buyer-id buyer-id :btc btc :stage :request})))
+  (wcar* (mq/enqueue "contract-requests-queue" {:buyer-id buyer-id :btc btc})))
 
 ;; 1. Pick counterparty (or multiple), and wait for response
 ;; counterparty (pick-counterparty buyer-id)
@@ -46,37 +45,54 @@
 ;; (db/contract-create! buyer-id counterparty (:btc ?data))
 ;; Notifications are done here
 
-(def contract-worker-handlers
-  {:request (fn [{:keys [message attempt]}]
-              (let [{:keys [buyer-id btc stage]} message
-                    seller-id (or (get-counterparty buyer-id)
-                                  (store-counterparty buyer-id (pick-counterparty buyer-id btc)))]
-                (case stage
-                  :request
-                  (println "Contract in REQUEST stage"))
-                {:status :success}))})
+;; - REQUEST
+;; 1. Recover counterparty, or run matching algorithm if buyer not matched.
+;;    If no counterparty, abort.
+;; 2. Do notifications: seller via web push, email with a click-to-accept link, and
+;;    set "pending" status somehow so if the seller logs in, gets notified.
+;; 3. Accept/decline in any of the notifications (and immediately request data from next stage)
+;; 4. If declined, mark counterparty as blacklisted, and retry immediately.
+;; 5. If accepted, create contract
+;; - RUNNING CONTRACT
+;; 1. Get current stage
+;; 2. Check if stage "notified". If not, do it.
+;; 3. Check for conditions to change stage. If not met, retry later.
+;; 4. Update SQL db.
+;; 5. Set new stage
+;; 6. Notify/Set-aync-notification combo
+;; 7. Set as stage "notified"
+
+(defn contract-request-handler
+  [{:keys [message attempt]}]
+  (let [{:keys [buyer-id btc stage]} message
+        seller-id (or (get-counterparty buyer-id)
+                      (store-counterparty buyer-id (pick-counterparty buyer-id btc)))]
+    (println "Contract REQUEST")
+    {:status :success}))
 
 ;;
 ;; Lifecyle
 ;;
 
 (defonce contract-workers
-  {:request (ref nil)})
+  {:request {:qname "contract-requests-queue"
+             :handler contract-request-handler
+             :worker (ref nil)}})
 
 (defn contract-workers-stop! []
   (dosync
-   (doseq [[stage handler] contract-workers]
-     (when @handler (mq/stop @handler)))))
+   (doseq [[stage {:keys [worker]}] contract-workers]
+     (when @worker (mq/stop @worker)))))
 
 (defn contract-workers-start! []
   (contract-workers-stop!)
   (dosync
-   (doseq [[stage handler] contract-workers]
-     (ref-set (stage contract-workers)
+   (doseq [[stage worker] contract-workers]
+     (ref-set (:worker worker)
               (mq/worker redis-conn
-                         "contract-requests-queue"
+                         (:qname worker)
                          {:eoq-backoff-ms 200
                           :throttle-ms 200
-                          :handler (stage contract-worker-handlers)})))))
+                          :handler (:handler worker)})))))
 
 (defonce start-contract-workers_ (contract-workers-start!))
