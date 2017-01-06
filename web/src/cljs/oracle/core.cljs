@@ -158,10 +158,8 @@
                          :currency-sell "xbt"}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       ;; (swap! (:contracts app-state) #(conj % (:contract resp)))
-       (do (log* "Contract requested")
-           (swap! (:buy-requests app-state) #(conj % (:buy-request resp))))
-       (do (reset! app-error "There was an error with your contract. Please try again.")
+       (log* "Contract requested")
+       (do (reset! app-error "There was an error creating the buy request. Please try again.")
            (log* "Error in create-buy-request:" resp)))
      (callback))))
 
@@ -279,29 +277,24 @@
 
 (rum/defc login-comp
   []
-  (ui/mui-theme-provider
-   {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
-   (ui/paper
-    [:div
-     [:h1 {:style {:text-align "center"}} "Cointrust"]
-     [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
-     [:div {:style {:text-align "center"}}
-      (ui/raised-button {:label "Ephemeral Login"
-                         :style {:margin "1rem"}
-                         :on-touch-tap
-                         (fn [e]
-                           (if hook-fake-id?_
-                             (let [hashed-id "asdf" user-id 1]
-                               (log* "Connected with fake user hash: " hashed-id)
-                               (reset! (:user-hash app-state) hashed-id)
-                               (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
-                               (init-sente! hashed-id))
-                             (fb/get-login-status
-                              (fn [response]
-                                (case (:status response)
-                                  "connected"
-                                  (log* "Connected with userID: " (get-in response [:authResponse :userID]))
-                                  (fb/login set-facebook-ids {:scope "public_profile,email,user_friends"}))))))})]])))
+  (ui/paper
+   [:div {:style {:text-align "center"}}
+    (ui/raised-button {:label "Ephemeral Login"
+                       :style {:margin "1rem"}
+                       :on-touch-tap
+                       (fn [e]
+                         (if hook-fake-id?_
+                           (let [hashed-id "asdf" user-id 1]
+                             (log* "Connected with fake user hash: " hashed-id)
+                             (reset! (:user-hash app-state) hashed-id)
+                             (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
+                             (init-sente! hashed-id))
+                           (fb/get-login-status
+                            (fn [response]
+                              (case (:status response)
+                                "connected"
+                                (log* "Connected with userID: " (get-in response [:authResponse :userID]))
+                                (fb/login set-facebook-ids {:scope "public_profile,email,user_friends"}))))))})]))
 
 (rum/defcs buy-dialog
   < rum/reactive (rum/local {:amount 1.0} ::input)
@@ -317,12 +310,11 @@
                                            :primary true
                                            :disabled (or (:processing (rum/react input)) (not (valid-val total)))
                                            :on-touch-tap
-                                           (fn [e]
-                                             (when (valid-val total)
-                                               (swap! input assoc :processing true)
-                                               (create-buy-request (:amount @input)
-                                                                   #(do (reset! (:ui-mode app-state) :none)
-                                                                        (swap! input assoc :processing false)))))})
+                                           (fn [e] (when (valid-val total)
+                                                     (swap! input assoc :processing true)
+                                                     (create-buy-request (:amount @input)
+                                                                         #(do (reset! (:ui-mode app-state) :none)
+                                                                              (swap! input assoc :processing false)))))})
                           (ui/flat-button {:label "Cancel"
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
@@ -377,19 +369,17 @@
   < rum/reactive
   []
   [:div
-   [:h1 {:style {:text-align "center"}} "Cointrust"]
-   [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
-   [:h5 {:style {:text-align "center"}} (str "You can trade with " (rum/react (:friends2 app-state)) " partners")]
+   [:h5.center (str "You can trade with " (count (rum/react (:friends2 app-state))) " partners")]
    (when-let [error (rum/react app-error)]
      [:h5 {:style {:text-align "center" :color "#f00"}} error])
    [:div {:style {:text-align "center"}}
     ;; TODO: hints http://kushagragour.in/lab/hint/
-    (ui/raised-button {:label "I want to BUY Bitcoins"
+    (ui/raised-button {:label "BUY Bitcoins"
                        :disabled false #_(not (let [contracts (rum/react (:contracts app-state))]
                                         (or (= contracts :unknown) (empty? contracts))))
                        :style {:margin "1rem"}
                        :on-touch-tap #(reset! (:ui-mode app-state) :buy-dialog)})
-    (ui/raised-button {:label (if (rum/react (:sell-offer app-state)) "Change sell offer" "I want to SELL Bitcoins")
+    (ui/raised-button {:label (if (rum/react (:sell-offer app-state)) "Change sell offer" "SELL Bitcoins")
                        :disabled false
                        :style {:margin "1rem"}
                        :on-touch-tap #(reset! (:ui-mode app-state) :sell-dialog)})]])
@@ -431,7 +421,7 @@
   < rum/reactive
   []
   [:div
-   [:h4 {:style {:text-align "center"}} "Active requests"]
+   [:h4 {:style {:text-align "center"}} "Active requests to BUY"]
    [:div
     (let [requests (rum/react (:buy-requests app-state))]
       (cond
@@ -470,7 +460,7 @@
   < rum/reactive
   []
   [:div
-   [:h4 {:style {:text-align "center"}} "Active contracts"]
+   [:h4.center "Active contracts"]
    [:div
     (let [contracts (rum/react (:contracts app-state))]
       (cond
@@ -478,7 +468,7 @@
         [:div "Retrieving contracts..."
          (ui/linear-progress {:size 60 :mode "indeterminate"})]
         (empty? contracts)
-        "No contracts in history"
+        [:p.center "No contracts in history"]
         :else
         (for [contract contracts]
           [:div {:key (:hash contract)} (str "Contract Hash ID: " (:hash contract))
@@ -488,17 +478,16 @@
 
 (rum/defc main-comp
   []
-  (ui/mui-theme-provider
-   {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
-   (ui/paper
-    [:div
-     (menu-controls-comp)
-     (offer-progress-comp)
-     (request-listing-comp)
-     (contract-listing-comp)
-     (buy-dialog)
-     (sell-dialog)
-     (offer-matched-dialog)])))
+  [:div
+   (menu-controls-comp)
+   (offer-progress-comp)
+   (ui/divider)
+   (request-listing-comp)
+   (ui/divider)
+   (contract-listing-comp)
+   (buy-dialog)
+   (sell-dialog)
+   (offer-matched-dialog)])
 
 (rum/defc app
   < rum/reactive
@@ -506,9 +495,14 @@
   [:div {:style {:position "absolute"
                  :max-width "700px" ; :height "500px"
                  :margin "auto" :top "5rem" :bottom "0" :left "0" :right "0"}}
-   (if (rum/react (:user-hash app-state))
-     (main-comp)
-     (login-comp))])
+   (ui/mui-theme-provider
+    {:mui-theme (get-mui-theme {:palette {:text-color (color :grey800)}})}
+    [:div
+     [:h1.title.center "COINTRUST"]
+     [:h2.center "Friend of Friend Bitcoin Trading"]
+     (if (rum/react (:user-hash app-state))
+       (main-comp)
+       (login-comp))])])
 
 ;;
 ;; Init

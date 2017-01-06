@@ -103,7 +103,7 @@
          (pprint e)
          (?reply-fn {:status :error}))))
 
-(defmethod -event-msg-handler :buy-requests/create
+(defmethod -event-msg-handler :buy-request/create
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (tasks/initiate-buy-request (:user-id ?data) (:amount ?data)
                                    (:currency-buy ?data) (:currency-sell ?data))

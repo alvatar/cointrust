@@ -29,7 +29,7 @@
                  [cheshire "5.6.3"]
                  ;; Cljs
                  [rum "0.10.7" :exclusions [cljsjs/react cljsjs/react-dom]]
-                 [cljs-react-material-ui "0.2.34"]
+                 [cljs-react-material-ui "0.2.35"]
                  [cljsjs/react-flexbox-grid "0.10.2-1" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljsjs/react-slider "0.6.1-0"]
                  [netpyoung/fb-sdk-cljs "0.1.2"]
