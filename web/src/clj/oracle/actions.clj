@@ -59,7 +59,7 @@
 
 (defmethod -event-msg-handler :offer/open
   [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
-  (try (let [res (db/offer-set! (:user-id ?data) (:min ?data) (:max ?data))]
+  (try (let [res (db/sell-offer-set! (:user-id ?data) (:min ?data) (:max ?data))]
          (if (= res 'ok)
            (?reply-fn {:status :ok
                        :min (:min ?data)
@@ -71,7 +71,7 @@
 (defmethod -event-msg-handler :offer/get
   [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
   (try (let [{:as asff :keys [min max]}
-             (db/offer-get-by-user (:user-id ?data))]
+             (db/sell-offer-get-by-user (:user-id ?data))]
          (when (and min max)
            (?reply-fn {:status :ok :min min :max max})))
        (catch Exception e
@@ -79,7 +79,7 @@
 
 (defmethod -event-msg-handler :offer/close
   [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
-  (try (let [res (db/offer-unset! (:user-id ?data))]
+  (try (let [res (db/sell-offer-unset! (:user-id ?data))]
          (if (= res 'ok)
            (?reply-fn {:status :ok})
            (pprint res)))
