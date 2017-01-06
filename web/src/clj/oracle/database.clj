@@ -31,7 +31,7 @@ INSERT INTO logs (type, data) VALUES (?, ?) RETURNING *;
 ;;
 
 (defn user-insert! [user-hash friend-hashes]
-  ;; TODO: We are currently storing
+  ;; TODO: We are currently storing ID too. Just keep hash
   (try
     (sql/with-db-transaction
       [tr db]
@@ -62,7 +62,7 @@ ON CONFLICT DO NOTHING
 " user-id1 user-id2]))))
                   friend-ids)]
         (log! tr "user-insert" {:user-hash user-hash
-                              :friend-hashes friend-hashes})
+                                :friend-hashes friend-hashes})
         {:user user-id
          :friends friend-ids}))
     (catch Exception e (or (.getNextException e) e))))
@@ -215,34 +215,28 @@ INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-contract-events [contract-id]
-  (try
-    (into []
-          (sql/query db ["
+  (into []
+        (sql/query db ["
 SELECT time, stage, status FROM contracts
 INNER JOIN contract_events
 ON contracts.id = contract_events.contract_id;
-"]))
-    (catch Exception e (or (.getNextException e) e))))
+"])))
 
 (defn get-contract-last-event [contract-id]
-  (try
-    (first
-     (sql/query db ["
+  (first
+   (sql/query db ["
 SELECT time, stage, status FROM contracts
 INNER JOIN contract_events
 ON contracts.id = contract_events.contract_id
 WHERE contract_events.time = (SELECT MAX(contract_events.time) FROM contract_events);
-"]))
-    (catch Exception e (or (.getNextException e) e))))
+"])))
 
 (defn get-user-contracts [user-id]
-  (try
-    (into []
-          (sql/query db ["
+  (into []
+        (sql/query db ["
 SELECT * FROM contracts
 WHERE buyer = ? OR seller = ?
-" user-id user-id]))
-    (catch Exception e (or (.getNextException e) e))))
+" user-id user-id])))
 
 (defn get-all-contracts []
   (sql/query db ["

@@ -99,7 +99,9 @@
 
 (defmethod -event-msg-handler :contract/request
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (try (tasks/request-contract (:user-id ?data) (:btc ?data))
+  (try (tasks/request-contract (:user-id ?data)
+                               (:amount ?data)
+                               (:currency ?data))
        (?reply-fn {:status :ok})
        (catch Exception e
          (pprint e)

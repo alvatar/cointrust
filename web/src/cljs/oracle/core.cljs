@@ -53,6 +53,8 @@
 
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
+(defn log* [& [args]] (when is-dev?_ (js/console.log (apply str args))))
+
 ;; https://github.com/roylee0704/react-flexbox-grid
 (def ui-flexbox-grid (adapt-rum-class js/ReactFlexboxGrid.Grid))
 (def ui-flexbox-row (adapt-rum-class js/ReactFlexboxGrid.Row))
@@ -72,7 +74,7 @@
   (swap! sente-callback-registry_ conj callback))
 
 (defn init-sente! [hashed-id]
-  (js/console.log "Initializing Sente...")
+  (log* "Initializing Sente...")
   (let [packer (sente-transit/get-transit-packer)
         {:keys [chsk ch-recv send-fn state]}
         (sente/make-channel-socket! "/chsk" { ;; :host (if *is-dev*
@@ -92,7 +94,7 @@
     (defn stop-router! [] (when-let [stop-f @router_] (stop-f)))
     (defn start-router! []
       (stop-router!)
-      (js/console.log "Initializing Sente client router")
+      (log* "Initializing Sente client router")
       (reset! router_ (sente/start-client-chsk-router! ch-chsk event-msg-handler)))
     (start-router!)))
 
@@ -110,17 +112,17 @@
 ;; Actions
 ;;
 
-(defn logout [] (js/console.log "LOGOUT TODO"))
+(defn logout [] (log* "LOGOUT TODO"))
 
 (defn get-user-contracts []
   (chsk-send!
    [:user/contracts {:user-id @(:user-id app-state)}] 10000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:contracts app-state) (:contracts resp))
+       (when (:contracts resp) (reset! (:contracts app-state) (:contracts resp)))
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
-           (js/console.log "Error in get-user-contract: " (str resp))))
-     (js/console.log "Contracts: " (str @(:contracts app-state))))))
+           (log* "Error in get-user-contract: " (str resp))))
+     (log* "Contracts: " (str @(:contracts app-state))))))
 
 (defn open-sell-offer [{:as vals :keys [min max]}]
   (chsk-send!
@@ -150,17 +152,21 @@
        (reset! (:sell-offer app-state) nil)
        (reset! app-error "There was an error closing the sell offer. Please try again.")))))
 
-(defn request-contract [btc-amount callback]
+(defn request-contract [amount callback]
   (chsk-send!
    [:contract/request {:user-id @(:user-id app-state)
-                       :btc-amount btc-amount}] 20000
+                       :amount amount
+                       :currency "xbt"}] 20000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (swap! (:contracts app-state) #(conj % (:contract resp)))
+       ;; (swap! (:contracts app-state) #(conj % (:contract resp)))
+       (do (log* "Contract requested")
+           ;; TODO  XXX
+           )
        (do (reset! app-error "There was an error with your contract. Please try again.")
-           (js/console.log "Error in request-contract: " (str resp))))
+           (log* "Error in request-contract: " (str resp))))
      (callback)
-     (js/console.log "Contracts: " (str @(:contracts app-state))))))
+     (log* "Contracts: " (str @(:contracts app-state))))))
 
 (defn handle-enter [user-id]
   (reset! (:user-id app-state) user-id)
@@ -171,8 +177,8 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:friends2 app-state) (:friends2 resp))
        (do (reset! app-error "There was an error with your login. Please try again.")
-           (js/console.log "Error in handle-enter: " (str resp))))
-     (js/console.log "Friends^2" (str @(:friends2 app-state))))))
+           (log* "Error in handle-enter: " (str resp))))
+     (log* "Friends^2" (str @(:friends2 app-state))))))
 
 (defn try-enter [hashed-id hashed-friends]
   (chsk-send!
@@ -182,7 +188,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (handle-enter (:found-user resp))
        (do (reset! app-error "There was an error with your login. Please try again.")
-           (js/console.log "Error in try-enter: " (str resp)))))))
+           (log* "Error in try-enter: " (str resp)))))))
 
 (defn set-facebook-ids []
   (fb/get-login-status
@@ -196,13 +202,13 @@
          (reset! (:user-hash app-state) hashed-id)
          (reset! (:friend-fbids app-state) friend-fbids)
          (reset! (:friend-hashes app-state) hashed-friends)
-         (js/console.log "Connected with Facebook userID: " user-fbid)
-         (js/console.log "Hashed user: " hashed-id)
-         (js/console.log "Friend IDs: " (str friend-fbids))
-         (js/console.log "Hashed friends: " (str hashed-friends))
+         (log* "Connected with Facebook userID: " user-fbid)
+         (log* "Hashed user: " hashed-id)
+         (log* "Friend IDs: " (str friend-fbids))
+         (log* "Hashed friends: " (str hashed-friends))
          (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
          (init-sente! hashed-id))
-       (js/console.log "Not logged in: " (clj->js response))))))
+       (log* "Not logged in: " (clj->js response))))))
 
 ;;
 ;; Event Handlers
@@ -214,7 +220,7 @@
 
 (defmethod app-msg-handler :default
   [app-msg]
-  (js/console.log "Unhandled app event: " (str app-msg)))
+  (log* "Unhandled app event: " (str app-msg)))
 
 (defmethod app-msg-handler :contract/update
   [[_ {:as app-msg :keys [stage status id amount]}]]
@@ -227,7 +233,7 @@
   [[_ {:as app-msg :keys [status amount]}]]
   (if (and (= status :ok) amount)
     (reset! (:offer-match app-state) amount)
-    (js/console.log "Error in :offer/matched message")))
+    (log* "Error in :offer/matched message")))
 
 ;; Sente-level messages
 
@@ -242,23 +248,23 @@
 
 (defmethod -event-msg-handler :default
   [{:as ev-msg :keys [event]}]
-  (js/console.log "Unhandled event: " (str event)))
+  (log* "Unhandled event: " (str event)))
 
 (defmethod -event-msg-handler :chsk/state
   [{:as ev-msg :keys [?data]}]
   (let [[old-state-map new-state-map] (have vector? ?data)]
     (if (:first-open? new-state-map)
       (doseq [cb @sente-callback-registry_] (cb))
-      (js/console.log "Channel socket state change: " new-state-map))))
+      (log* "Channel socket state change: " new-state-map))))
 
 (defmethod -event-msg-handler :chsk/handshake
   [{:as ev-msg :keys [?data]}]
   (let [[?uid ?csrf-token ?handshake-data] ?data]
-    (when is-dev?_ (js/console.log "Handshake"))))
+    (when is-dev?_ (log* "Handshake"))))
 
 (defmethod -event-msg-handler :chsk/recv
   [{:as ev-msg :keys [?data]}]
-  (js/console.log "Push event from server: " (str ?data))
+  (log* "Push event from server: " (str ?data))
   (app-msg-handler ?data))
 
 ;;
@@ -280,7 +286,7 @@
                          (fn [e]
                            (if hook-fake-id?_
                              (let [hashed-id "asdf" user-id 1]
-                               (js/console.log "Connected with fake user hash: " hashed-id)
+                               (log* "Connected with fake user hash: " hashed-id)
                                (reset! (:user-hash app-state) hashed-id)
                                (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
                                (init-sente! hashed-id))
@@ -288,38 +294,41 @@
                               (fn [response]
                                 (case (:status response)
                                   "connected"
-                                  (js/console.log "Connected with userID: " (get-in response [:authResponse :userID]))
+                                  (log* "Connected with userID: " (get-in response [:authResponse :userID]))
                                   (fb/login set-facebook-ids {:scope "public_profile,email,user_friends"}))))))})]])))
 
 (rum/defcs buy-dialog
-  < rum/reactive (rum/local {:btc-amount 1.0} ::input)
+  < rum/reactive (rum/local {:amount 1.0} ::input)
   [state]
-  (let [input (::input state)]
+  (let [input (::input state)
+        valid-val (fn [x] (and (number? x) (> x 0)))
+        btc-usd @(:btc-usd app-state)
+        total (* btc-usd (:amount (rum/react input)))]
     (ui/dialog {:title "Buy Bitcoins"
                 :open (= (rum/react (:ui-mode app-state)) :buy-dialog)
                 :modal true
                 :actions [(ui/flat-button {:label "Buy"
                                            :primary true
-                                           :disabled (:processing (rum/react input))
+                                           :disabled (or (:processing (rum/react input))
+                                                         (not (valid-val total)))
                                            :on-touch-tap
                                            (fn [e]
-                                             (swap! input assoc :processing true)
-                                             (request-contract (:btc-amount @input)
-                                                               #(do (reset! (:ui-mode app-state) :none)
-                                                                    (swap! input assoc :processing false))))})
+                                             (when (valid-val total)
+                                               (swap! input assoc :processing true)
+                                               (request-contract (:amount @input)
+                                                                 #(do (reset! (:ui-mode app-state) :none)
+                                                                      (swap! input assoc :processing false)))))})
                           (ui/flat-button {:label "Cancel"
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
-                (let [btc-usd @(:btc-usd app-state)
-                      total (* btc-usd (:btc-amount (rum/react input)))]
-                  [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
-                   (ui/text-field {:id "btc-amount"
-                                   :autoFocus true
-                                   :value (:btc-amount (rum/react input))
-                                   :on-change (fn [e] (swap! input assoc :btc-amount (.. e -target -value)))
-                                   :errorText (when (<= total 0) "Invalid value")})
-                   (when (> total 0)
-                     (str "for " (/ (long (* 100000 total)) 100000) " USD"))])
+                [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
+                 (ui/text-field {:id "amount"
+                                 :autoFocus true
+                                 :value (:amount (rum/react input))
+                                 :on-change (fn [e] (swap! input assoc :amount (.. e -target -value)))
+                                 :errorText (when (not (valid-val total)) "Invalid value")})
+                 (when (> total 0)
+                   (str "for " (/ (long (* 100000 total)) 100000) " USD"))]
                 (when (:processing (rum/react input))
                   [:div
                    (ui/linear-progress {:size 60 :mode "indeterminate"

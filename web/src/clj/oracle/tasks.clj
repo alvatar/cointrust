@@ -35,10 +35,10 @@
 ;; Tasks
 ;;
 
-(defn request-contract [buyer-id btc]
-  (db/buy-request-set! buyer-id btc)
+(defn request-contract [buyer-id amount & [currency]]
+  (db/buy-request-create! buyer-id amount (or currency "xbt"))
   (wcar* (mq/enqueue "requested-contracts-queue"
-                     {:buyer-id buyer-id :btc btc})))
+                     {:buyer-id buyer-id :amount amount :currency currency})))
 
 (defn init-contract [buyer-id seller-id btc]
   (wcar* (mq/enqueue "active-contracts-queue"
