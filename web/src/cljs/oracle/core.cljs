@@ -466,27 +466,15 @@
      (sell-dialog)
      (offer-matched-dialog)])))
 
-(rum/defc faq
-  []
-  #_(ui/mui-theme-provider
-   {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
-   (ui/paper
-    {:style {:margin-top "50px"}}
-    [:div
-     [:div "How it works..."]
-     [:div "FAQ..."]])))
-
 (rum/defc app
   < rum/reactive
   []
-  (into [:div {:style {:position "absolute"
-                       :max-width "700px" ; :height "500px"
-                       :margin "auto" :top "5rem" :bottom "0" :left "0" :right "0"}}]
-        (if (rum/react (:user-hash app-state))
-          (case @(:scene app-state)
-            "main-menu"
-            [(main-comp) (faq)])
-          [(login-comp) (faq)])))
+  [:div {:style {:position "absolute"
+                 :max-width "700px" ; :height "500px"
+                 :margin "auto" :top "5rem" :bottom "0" :left "0" :right "0"}}
+   (if (rum/react (:user-hash app-state))
+     (main-comp)
+     (login-comp))])
 
 ;;
 ;; Init
