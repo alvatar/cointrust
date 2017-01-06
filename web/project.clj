@@ -76,12 +76,14 @@
                            :asset-path "js/compiled/out"
                            :output-to "resources/public/js/compiled/oracle.js"
                            :output-dir "resources/public/js/compiled/out"
-                           :source-map-timestamp true}}
+                           :source-map-timestamp true
+                           :closure-defines {oracle.core/*is-dev* true}}}
                {:id "test"
                 :source-paths ["src/cljs" "test/cljs" "src/cljc" "test/cljc"]
                 :compiler {:output-to "resources/public/js/compiled/testable.js"
                            :main oracle.test-runner
-                           :optimizations :none}}
+                           :optimizations :none
+                           :closure-defines {oracle.core/*is-dev* true}}}
                {:id "min"
                 :source-paths ["src/cljs" "src/cljc"]
                 :jar true

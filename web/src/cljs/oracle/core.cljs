@@ -27,7 +27,7 @@
 ;; Globals
 ;;
 
-(goog-define is-dev?_ false)
+(goog-define *is-dev* false)
 (def hook-fake-id?_ true)
 
 (defonce app-error (atom nil))
@@ -53,7 +53,7 @@
 
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
-(defn log* [& [args]] (when is-dev?_ (js/console.log (apply str args))))
+(defn log* [& args] (when *is-dev* (js/console.log (clojure.string/join " " (map clj->js args)))))
 
 ;; https://github.com/roylee0704/react-flexbox-grid
 (def ui-flexbox-grid (adapt-rum-class js/ReactFlexboxGrid.Grid))
@@ -122,7 +122,7 @@
        (when (:contracts resp) (reset! (:contracts app-state) (:contracts resp)))
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
            (log* "Error in get-user-contract: " (str resp))))
-     (log* "Contracts: " (str @(:contracts app-state))))))
+     (log* "Contracts:" (str @(:contracts app-state))))))
 
 (defn open-sell-offer [{:as vals :keys [min max]}]
   (chsk-send!
@@ -260,7 +260,7 @@
 (defmethod -event-msg-handler :chsk/handshake
   [{:as ev-msg :keys [?data]}]
   (let [[?uid ?csrf-token ?handshake-data] ?data]
-    (when is-dev?_ (log* "Handshake"))))
+    (log* "Handshake")))
 
 (defmethod -event-msg-handler :chsk/recv
   [{:as ev-msg :keys [?data]}]
@@ -301,7 +301,7 @@
   < rum/reactive (rum/local {:amount 1.0} ::input)
   [state]
   (let [input (::input state)
-        valid-val (fn [x] (and (number? x) (> x 0)))
+        valid-val #(and (number? %) (> % 0))
         btc-usd @(:btc-usd app-state)
         total (* btc-usd (:amount (rum/react input)))]
     (ui/dialog {:title "Buy Bitcoins"
@@ -309,8 +309,7 @@
                 :modal true
                 :actions [(ui/flat-button {:label "Buy"
                                            :primary true
-                                           :disabled (or (:processing (rum/react input))
-                                                         (not (valid-val total)))
+                                           :disabled (or (:processing (rum/react input)) (not (valid-val total)))
                                            :on-touch-tap
                                            (fn [e]
                                              (when (valid-val total)
@@ -325,7 +324,7 @@
                  (ui/text-field {:id "amount"
                                  :autoFocus true
                                  :value (:amount (rum/react input))
-                                 :on-change (fn [e] (swap! input assoc :amount (.. e -target -value)))
+                                 :on-change #(swap! input assoc :amount (.. % -target -value))
                                  :errorText (when (not (valid-val total)) "Invalid value")})
                  (when (> total 0)
                    (str "for " (/ (long (* 100000 total)) 100000) " USD"))]
