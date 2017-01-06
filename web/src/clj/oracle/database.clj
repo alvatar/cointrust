@@ -154,7 +154,7 @@ SELECT * FROM sell_offer;
 
 (defn buy-request-create! [user-id amount & [currency]]
   (try
-    (sql/execute! db ["
+    (sql/query db ["
 INSERT INTO buy_request (user_id, amount, currency) VALUES (?, ?, ?)
 ON CONFLICT (user_id) DO UPDATE SET amount = ?, currency = ?
 RETURNING id;

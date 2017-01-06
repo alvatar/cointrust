@@ -36,11 +36,11 @@
 ;;
 
 (defn request-contract [buyer-id amount & [currency]]
-  (db/buy-request-create! buyer-id amount (or currency "xbt"))
   (wcar* (mq/enqueue "requested-contracts-queue"
-                     {:buyer-id buyer-id :amount amount :currency currency})))
+                     {:buyer-id buyer-id :amount amount :currency currency}))
+  (db/buy-request-create! buyer-id amount (or currency "xbt")))
 
-(defn init-contract [buyer-id seller-id btc]
+(defn activate-contract [buyer-id seller-id btc]
   (wcar* (mq/enqueue "active-contracts-queue"
                      {:buyer-id buyer-id :seller-id seller-id :btc btc})))
 

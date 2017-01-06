@@ -95,14 +95,10 @@
          (pprint e)
          (?reply-fn {:status :error}))))
 
-(declare task-init-contract)
-
 (defmethod -event-msg-handler :contract/request
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (try (tasks/request-contract (:user-id ?data)
-                               (:amount ?data)
-                               (:currency ?data))
-       (?reply-fn {:status :ok})
+  (try (?reply-fn {:status :ok
+                   :buy-request (tasks/request-contract (:user-id ?data) (:amount ?data) (:currency ?data))})
        (catch Exception e
          (pprint e)
          (?reply-fn {:status :error}))))

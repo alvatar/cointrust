@@ -42,6 +42,7 @@
                     :btc-usd (atom 1025.0)
                     :sell-offer (atom nil)
                     :offer-match (atom nil)
+                    :buy-requests (atom nil)
                     :contracts (atom nil)})
 
 (def db-schema {})
@@ -94,7 +95,7 @@
     (defn stop-router! [] (when-let [stop-f @router_] (stop-f)))
     (defn start-router! []
       (stop-router!)
-      (log* "Initializing Sente client router")
+      (log* "Initializing Sente client router...")
       (reset! router_ (sente/start-client-chsk-router! ch-chsk event-msg-handler)))
     (start-router!)))
 
@@ -158,12 +159,10 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        ;; (swap! (:contracts app-state) #(conj % (:contract resp)))
        (do (log* "Contract requested")
-           ;; TODO  XXX
-           )
+           (swap! (:buy-requests app-state) #(conj % (:buy-request resp))))
        (do (reset! app-error "There was an error with your contract. Please try again.")
            (log* "Error in request-contract: " (str resp))))
-     (callback)
-     (log* "Contracts: " (str @(:contracts app-state))))))
+     (callback))))
 
 (defn get-user-contracts []
   (chsk-send!
@@ -173,7 +172,7 @@
        (when (:contracts resp) (reset! (:contracts app-state) (:contracts resp)))
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
            (log* "Error in get-user-contract: " (str resp))))
-     (log* "Contracts:" (str @(:contracts app-state))))))
+     (log* "Contracts" (str @(:contracts app-state))))))
 
 (defn try-enter [hashed-id hashed-friends]
   (chsk-send!
@@ -254,7 +253,7 @@
 (defmethod -event-msg-handler :chsk/handshake
   [{:as ev-msg :keys [?data]}]
   (let [[?uid ?csrf-token ?handshake-data] ?data]
-    (log* "Handshake")))
+    (log* "Handshake completed...")))
 
 (defmethod -event-msg-handler :chsk/recv
   [{:as ev-msg :keys [?data]}]
@@ -482,7 +481,7 @@
 
 (rum/mount (app) (js/document.getElementById "app"))
 
-;; Run when user we change the User ID
+;; Run when we change the User ID
 (add-watch (:user-id app-state) :got-user-id
            #(when %4
               (get-friends2)
