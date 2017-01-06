@@ -114,19 +114,19 @@
 
 (defn logout [] (log* "LOGOUT TODO"))
 
-(defn get-user-contracts []
+(defn get-friends2 []
   (chsk-send!
-   [:user/contracts {:user-id @(:user-id app-state)}] 10000
+   [:user/friends-of-friends {:user-id @(:user-id app-state)}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (when (:contracts resp) (reset! (:contracts app-state) (:contracts resp)))
-       (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
-           (log* "Error in get-user-contract: " (str resp))))
-     (log* "Contracts:" (str @(:contracts app-state))))))
+       (reset! (:friends2 app-state) (:friends2 resp))
+       (do (reset! app-error "There was an error with your login. Please try again.")
+           (log* "Error in handle-enter: " (str resp))))
+     (log* "Friends^2" (str @(:friends2 app-state))))))
 
 (defn open-sell-offer [{:as vals :keys [min max]}]
   (chsk-send!
-   [:offer/open (assoc vals :user-id @(:user-id app-state))] 10000
+   [:offer/open (assoc vals :user-id @(:user-id app-state))] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:sell-offer app-state) (select-keys resp [:min :max]))
@@ -134,19 +134,16 @@
 
 (defn get-active-sell-offer []
   (chsk-send!
-   [:offer/get {:user-id @(:user-id app-state)}] 10000
+   [:offer/get {:user-id @(:user-id app-state)}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (let [offer (select-keys resp [:min :max])]
          (when (not-empty offer) (reset! (:sell-offer app-state) offer)))
        (reset! app-error "There was an error retrieving the sell offer.")))))
 
-;; Run when user we change the User ID
-(add-watch (:user-id app-state) :got-user-id #(when %4 (get-active-sell-offer)))
-
 (defn close-sell-offer []
   (chsk-send!
-   [:offer/close {:user-id @(:user-id app-state)}] 10000
+   [:offer/close {:user-id @(:user-id app-state)}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:sell-offer app-state) nil)
@@ -156,7 +153,7 @@
   (chsk-send!
    [:contract/request {:user-id @(:user-id app-state)
                        :amount amount
-                       :currency "xbt"}] 20000
+                       :currency "xbt"}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        ;; (swap! (:contracts app-state) #(conj % (:contract resp)))
@@ -168,25 +165,22 @@
      (callback)
      (log* "Contracts: " (str @(:contracts app-state))))))
 
-(defn handle-enter [user-id]
-  (reset! (:user-id app-state) user-id)
-  (get-user-contracts)
+(defn get-user-contracts []
   (chsk-send!
-   [:user/friends-of-friends {:user-id user-id}] 10000
+   [:user/contracts {:user-id @(:user-id app-state)}] 50000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:friends2 app-state) (:friends2 resp))
-       (do (reset! app-error "There was an error with your login. Please try again.")
-           (log* "Error in handle-enter: " (str resp))))
-     (log* "Friends^2" (str @(:friends2 app-state))))))
+       (when (:contracts resp) (reset! (:contracts app-state) (:contracts resp)))
+       (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
+           (log* "Error in get-user-contract: " (str resp))))
+     (log* "Contracts:" (str @(:contracts app-state))))))
 
 (defn try-enter [hashed-id hashed-friends]
   (chsk-send!
-   [:user/enter {:hashed-user hashed-id
-                 :hashed-friends hashed-friends}] 10000
+   [:user/enter {:hashed-user hashed-id :hashed-friends hashed-friends}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (handle-enter (:found-user resp))
+       (reset! (:user-id app-state) (:found-user resp))
        (do (reset! app-error "There was an error with your login. Please try again.")
            (log* "Error in try-enter: " (str resp)))))))
 
@@ -494,4 +488,15 @@
             [(main-comp) (faq)])
           [(login-comp) (faq)])))
 
+;;
+;; Init
+;;
+
 (rum/mount (app) (js/document.getElementById "app"))
+
+;; Run when user we change the User ID
+(add-watch (:user-id app-state) :got-user-id
+           #(when %4
+              (get-friends2)
+              (get-active-sell-offer)
+              (get-user-contracts)))
