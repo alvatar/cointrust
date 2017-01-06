@@ -368,11 +368,10 @@
 (rum/defc menu-controls-comp
   < rum/reactive
   []
-  [:div
+  [:div.main-menu
    [:h5.center (str "You can trade with " (count (rum/react (:friends2 app-state))) " partners")]
-   (when-let [error (rum/react app-error)]
-     [:h5 {:style {:text-align "center" :color "#f00"}} error])
-   [:div {:style {:text-align "center"}}
+   (when-let [error (rum/react app-error)] [:h5.center.error error])
+   [:div.center
     ;; TODO: hints http://kushagragour.in/lab/hint/
     (ui/raised-button {:label "BUY Bitcoins"
                        :disabled false #_(not (let [contracts (rum/react (:contracts app-state))]
@@ -421,7 +420,7 @@
   < rum/reactive
   []
   [:div
-   [:h4 {:style {:text-align "center"}} "Active requests to BUY"]
+   [:h4 {:style {:text-align "center"}} "Requests to buy"]
    [:div
     (let [requests (rum/react (:buy-requests app-state))]
       (cond

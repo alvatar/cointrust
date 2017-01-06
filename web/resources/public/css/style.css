@@ -1,12 +1,4 @@
 @import url('https://fonts.googleapis.com/css?family=Abel|Montserrat:700');
-.center {
-  text-align: center;
-}
-.title {
-  text-decoration: none;
-  text-transform: uppercase;
-  font-family: 'Montserrat', sans-serif;
-}
 h2 {
   font-size: 1rem;
   margin-top: -1.5rem;
@@ -20,4 +12,18 @@ h5,
 h6,
 div {
   font-family: 'Abel', sans-serif;
+}
+.center {
+  text-align: center;
+}
+.title {
+  text-decoration: none;
+  text-transform: uppercase;
+  font-family: 'Montserrat', sans-serif;
+}
+.error {
+  color: #f00;
+}
+.main-menu {
+  margin-bottom: 1.5rem;
 }
