@@ -119,33 +119,66 @@ WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
 ;; Sell Offers
 ;;
 
-(defn offer-set! [user-id minval maxval]
+(defn sell-offer-set! [user-id minval maxval]
   (try
     (sql/execute! db ["
-INSERT INTO offer (user_id, min, max) VALUES (?, ?, ?)
+INSERT INTO sell_offer (user_id, min, max) VALUES (?, ?, ?)
 ON CONFLICT (user_id) DO UPDATE SET min = ?, max = ?
 " user-id minval maxval minval maxval])
     'ok
     (catch Exception e (or (.getNextException e) e))))
 
-(defn offer-get-by-user [user-id]
+(defn sell-offer-get-by-user [user-id]
   (first
    (sql/query db ["
-SELECT min, max FROM offer WHERE user_id = ?;
+SELECT min, max FROM sell_offer WHERE user_id = ?;
 " user-id])))
 
-(defn offer-unset! [user-id]
+(defn sell-offer-unset! [user-id]
   (try
     (sql/execute! db ["
-DELETE FROM offer WHERE user_id = ?;
+DELETE FROM sell_offer WHERE user_id = ?;
 " user-id])
     'ok
     (catch Exception e (or (.getNextException e) e))))
 
-(defn get-all-offers []
+(defn get-all-sell-offers []
   (into []
         (sql/query db ["
-SELECT * FROM offer;
+SELECT * FROM sell_offer;
+"])))
+
+;;
+;; Buy Requests
+;;
+
+(defn buy-request-set! [user-id val]
+  (try
+    (sql/execute! db ["
+INSERT INTO buy_request (user_id, val) VALUES (?, ?)
+ON CONFLICT (user_id) DO UPDATE SET val = ?
+" user-id val val])
+    'ok
+    (catch Exception e (or (.getNextException e) e))))
+
+(defn buy-request-get-by-user [user-id]
+  (first
+   (sql/query db ["
+SELECT val FROM buy_request WHERE user_id = ?;
+" user-id])))
+
+(defn buy-request-unset! [user-id]
+  (try
+    (sql/execute! db ["
+DELETE FROM buy_request WHERE user_id = ?;
+" user-id])
+    'ok
+    (catch Exception e (or (.getNextException e) e))))
+
+(defn get-all-buy-requests []
+  (into []
+        (sql/query db ["
+SELECT * FROM buy_request;
 "])))
 
 ;;
@@ -224,7 +257,8 @@ SELECT * FROM contracts
     (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
                             "DROP TABLE IF EXISTS contract_events;"
                             "DROP TABLE IF EXISTS contracts;"
-                            "DROP TABLE IF EXISTS offer;"
+                            "DROP TABLE IF EXISTS sell_offer;"
+                            "DROP TABLE IF EXISTS buy_request;"
                             "DROP TABLE IF EXISTS friends;"
                             "DROP TABLE IF EXISTS users;"
                             "
@@ -240,11 +274,17 @@ CREATE TABLE friends (
   PRIMARY KEY (user_id1, user_id2)
 );"
                             "
-CREATE TABLE offer (
-  user_id                   INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
-  CONSTRAINT one_per_user   UNIQUE (user_id),
-  min                       BIGINT NOT NULL,
-  max                       BIGINT NOT NULL
+CREATE TABLE sell_offer (
+  user_id                          INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  CONSTRAINT one_offer_per_user    UNIQUE (user_id),
+  min                              BIGINT NOT NULL,
+  max                              BIGINT NOT NULL
+);"
+                            "
+CREATE TABLE buy_request (
+  user_id                           INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  CONSTRAINT one_request_per_user   UNIQUE (user_id),
+  amount                            BIGINT NOT NULL
 );"
                             "
 CREATE TABLE contracts (

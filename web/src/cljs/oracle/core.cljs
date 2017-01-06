@@ -149,15 +149,15 @@
        (reset! (:sell-offer app-state) nil)
        (reset! app-error "There was an error closing the sell offer. Please try again.")))))
 
-(defn initiate-contract [btc-amount callback]
+(defn request-contract [btc-amount callback]
   (chsk-send!
-   [:contract/initiate {:user-id @(:user-id app-state)
-                        :btc-amount btc-amount}] 20000
+   [:contract/request {:user-id @(:user-id app-state)
+                       :btc-amount btc-amount}] 20000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (swap! (:contracts app-state) #(conj % (:contract resp)))
        (do (reset! app-error "There was an error with your contract. Please try again.")
-           (js/console.log "Error in initiate-contract: " (str resp))))
+           (js/console.log "Error in request-contract: " (str resp))))
      (callback)
      (js/console.log "Contracts: " (str @(:contracts app-state))))))
 
@@ -295,7 +295,7 @@
   [state]
   (let [input (::input state)]
     (ui/dialog {:title "Buy Bitcoins"
-                :open (= @(:ui-mode app-state) :buy-dialog)
+                :open (= (rum/react (:ui-mode app-state)) :buy-dialog)
                 :modal true
                 :actions [(ui/flat-button {:label "Buy"
                                            :primary true
@@ -303,9 +303,9 @@
                                            :on-touch-tap
                                            (fn [e]
                                              (swap! input assoc :processing true)
-                                             (initiate-contract (:btc-amount @input)
-                                                                #(do (reset! (:ui-mode app-state) :none)
-                                                                     (swap! input assoc :processing false))))})
+                                             (request-contract (:btc-amount @input)
+                                                               #(do (reset! (:ui-mode app-state) :none)
+                                                                    (swap! input assoc :processing false))))})
                           (ui/flat-button {:label "Cancel"
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
@@ -326,14 +326,14 @@
                    [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])])))
 
 (rum/defcs sell-dialog
-  < (rum/local {} ::ui-values)
-  [state]
+  < rum/reactive (rum/local {} ::ui-values)
+  [state_]
   (let [offer-active? (boolean @(:sell-offer app-state))
-        ui-values (::ui-values state)
+        ui-values (::ui-values state_)
         min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 200)
         max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)]
     (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoins")
-                :open (= @(:ui-mode app-state) :sell-dialog)
+                :open (= (rum/react (:ui-mode app-state)) :sell-dialog)
                 :modal true
                 :actions [(when offer-active?
                             (ui/flat-button {:label "Remove"

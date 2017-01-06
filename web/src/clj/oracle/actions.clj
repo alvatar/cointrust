@@ -90,7 +90,7 @@
 
 (defmethod -event-msg-handler :contract/request
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (try (tasks/init-contract (:user-id ?data) (:btc ?data))
+  (try (tasks/request-contract (:user-id ?data) (:btc ?data))
        (?reply-fn {:status :ok})
        (catch Exception e
          (?reply-fn {:status :error}))))
