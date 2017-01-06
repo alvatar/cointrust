@@ -40,11 +40,11 @@ INSERT INTO logs (type, data) VALUES (?, ?) RETURNING *;
                   (first
                    (for [f friend-hashes]
                      (sql/query db ["
-SELECT id FROM users WHERE hash = ?;
+SELECT id FROM user_account WHERE hash = ?;
 " f]))))
             user-id
             (-> (sql/query db ["
-INSERT INTO users (hash) VALUES (?)
+INSERT INTO user_account (hash) VALUES (?)
 ON CONFLICT (hash) DO UPDATE SET hash = ?
 RETURNING id;
 " user-hash user-hash])
@@ -68,33 +68,33 @@ ON CONFLICT DO NOTHING
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-users []
-  (sql/query db ["SELECT * FROM users;"]))
+  (sql/query db ["SELECT * FROM user_account;"]))
 
 (defn get-friends []
   (sql/query db ["SELECT * FROM friends;"]))
 
 (defn get-user-by-id [id]
-  (-> (sql/query db ["SELECT hash FROM users WHERE id = ?;" id])
+  (-> (sql/query db ["SELECT hash FROM user_account WHERE id = ?;" id])
       first
       :hash))
 
 (defn get-user-by-hash [hash]
-  (-> (sql/query db ["SELECT id FROM users WHERE hash = ?;" hash])
+  (-> (sql/query db ["SELECT id FROM user_account WHERE hash = ?;" hash])
       first
       :id))
 
 (defn get-user-friends [id]
   (sql/query db ["
-SELECT user_id2 AS user FROM users, friends
+SELECT user_id2 AS user FROM user_account, friends
 WHERE user_id1 = ? AND id = ?
 UNION
-SELECT user_id1 AS user FROM users, friends
+SELECT user_id1 AS user FROM user_account, friends
 WHERE user_id2 = ? AND id = ?
 " id id id id]))
 
 (defn get-user-edges [id]
   (sql/query db ["
-SELECT user_id1, user_id2 FROM users, friends
+SELECT user_id1, user_id2 FROM user_account, friends
 WHERE (user_id1 = ? OR user_id2 = ?) AND id = ?
 " id id id]))
 
@@ -102,16 +102,16 @@ WHERE (user_id1 = ? OR user_id2 = ?) AND id = ?
   (mapv :user
         (sql/query db ["
 WITH user_friends AS (
-          SELECT user_id2 AS user FROM users, friends
+          SELECT user_id2 AS user FROM user_account, friends
           WHERE user_id1 = ? AND id = ?
           UNION
-          SELECT user_id1 AS user FROM users, friends
+          SELECT user_id1 AS user FROM user_account, friends
           WHERE user_id2 = ? AND id = ?
      )
-SELECT user_id1 AS user FROM users, friends
+SELECT user_id1 AS user FROM user_account, friends
 WHERE NOT (user_id1 = ?) AND id IN (SELECT * FROM user_friends)
 UNION
-SELECT user_id2 AS user FROM users, friends
+SELECT user_id2 AS user FROM user_account, friends
 WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
 " id id id id id id])))
 
@@ -154,11 +154,11 @@ SELECT * FROM sell_offer;
 
 (defn buy-request-create! [user-id amount & [currency]]
   (try
-    (sql/query db ["
+    (first
+     (sql/query db ["
 INSERT INTO buy_request (user_id, amount, currency) VALUES (?, ?, ?)
-ON CONFLICT (user_id) DO UPDATE SET amount = ?, currency = ?
 RETURNING id;
-" user-id amount currency amount currency])
+" user-id amount (or currency "xbt")]))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn buy-requests-get-by-user [user-id]
@@ -185,25 +185,28 @@ SELECT * FROM buy_request;
 ;; Contracts
 ;;
 
-(defn contract-create! [buyer-id seller-id amount & [currency]]
-  (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
-    (try
-      (sql/with-db-transaction
-        [tx db]
-        (let [contract
-              (first
-               (sql/query tx ["
+(defn contract-create!
+  ([buyer-id seller-id amount & [currency]]
+   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
+     (try
+       (sql/with-db-transaction
+         [tx db]
+         (let [contract
+               (first
+                (sql/query tx ["
 INSERT INTO contracts (hash, buyer, seller, amount, currency) VALUES (?, ?, ?, ?) RETURNING *;
-" (crypto/base64 27) buyer-id seller-id amount, "xbt"]))]
-          (sql/execute! tx ["
+" (crypto/base64 27) buyer-id seller-id amount currency]))]
+           (sql/execute! tx ["
 INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
 " (:id contract) 0 "waiting"])
-          (log! tx "user-insert" {:buyer-id buyer-id
-                                  :seller-id seller-id
-                                  :amount amount
-                                  :currency "xbt"})
-          contract))
-      (catch Exception e (or (.getNextException e) e)))))
+           (log! tx "user-insert" {:buyer-id buyer-id
+                                   :seller-id seller-id
+                                   :amount amount
+                                   :currency currency})
+           contract))
+       (catch Exception e (or (.getNextException e) e)))))
+  ([buyer-id seller-id amount]
+   (contract-create! buyer-id seller-id amount "xbt")))
 
 (defn contract-add-event! [contract-id stage status]
   (try
@@ -255,22 +258,22 @@ SELECT * FROM contracts
                             "DROP TABLE IF EXISTS sell_offer;"
                             "DROP TABLE IF EXISTS buy_request;"
                             "DROP TABLE IF EXISTS friends;"
-                            "DROP TABLE IF EXISTS users;"
+                            "DROP TABLE IF EXISTS user_account CASCADE;"
                             "
-CREATE TABLE users (
+CREATE TABLE user_account (
   id              SERIAL PRIMARY KEY,
   created         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   hash            TEXT NOT NULL UNIQUE
 );"
                             "
 CREATE TABLE friends (
-  user_id1        INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
-  user_id2        INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  user_id1        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  user_id2        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
   PRIMARY KEY (user_id1, user_id2)
 );"
                             "
 CREATE TABLE sell_offer (
-  user_id                          INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
   min                              BIGINT NOT NULL,
   max                              BIGINT NOT NULL
@@ -278,15 +281,16 @@ CREATE TABLE sell_offer (
                             "
 CREATE TABLE buy_request (
   id              SERIAL PRIMARY KEY,
-  user_id         INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
-  amount          BIGINT NOT NULL
+  user_id         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  amount          BIGINT NOT NULL,
+  currency        TEXT DEFAULT 'xbt' NOT NULL
 );"
                             "
 CREATE TABLE contracts (
   id              SERIAL PRIMARY KEY,
   hash            TEXT NOT NULL UNIQUE,
-  buyer           INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
-  seller          INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  buyer           INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  seller          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
   amount          TEXT NOT NULL,
   currency        TEXT DEFAULT 'xbt' NOT NULL
 );"

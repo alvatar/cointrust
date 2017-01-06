@@ -70,9 +70,9 @@
 
 (defn request-contract-handler
   [{:keys [message attempt]}]
-  (let [{:keys [buyer-id btc stage]} message
+  (let [{:keys [buyer-id amount currency]} message
         seller-id (or (get-counterparty buyer-id)
-                      (store-counterparty buyer-id (pick-counterparty buyer-id btc)))]
+                      (store-counterparty buyer-id (pick-counterparty buyer-id amount)))]
     (println "Contract REQUEST")
     {:status :success}))
 

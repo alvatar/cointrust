@@ -414,6 +414,24 @@
                                     :checked (not (rum/react decline-lock))
                                     :on-check #(reset! decline-lock (not %2))})]])))
 
+(rum/defc request-listing-comp
+  < rum/reactive
+  []
+  [:div
+   [:h4 {:style {:text-align "center"}} "Active requests"]
+   [:div
+    (let [requests (rum/react (:buy-requests app-state))]
+      (cond
+        (not requests)
+        [:div "Retrieving requests..."
+         (ui/linear-progress {:size 60 :mode "indeterminate"})]
+        (empty? requests)
+        "No requests in history"
+        :else
+        (for [req requests]
+          [:div {:key (:hash req)} (str "Request ID: " (:hash req))
+           ])))]])
+
 (rum/defc contract-stage-comp
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}
   [contract ix text]
