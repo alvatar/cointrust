@@ -32,6 +32,7 @@
 
 (defonce app-error (atom nil))
 (defonce app-state {:scene (atom "main-menu")
+                    :ui-mode (atom :none)
                     :user-fbid (atom nil)
                     :user-hash (atom nil)
                     :user-id (atom nil)
@@ -206,7 +207,7 @@
 ;; Event Handlers
 ;;
 
-;; App-level messaes
+;; App-level messages
 
 (defmulti app-msg-handler first)
 
@@ -249,15 +250,15 @@
       (doseq [cb @sente-callback-registry_] (cb))
       (js/console.log "Channel socket state change: " new-state-map))))
 
-(defmethod -event-msg-handler :chsk/recv
-  [{:as ev-msg :keys [?data]}]
-  (js/console.log "Push event from server: " (str ?data))
-  (app-msg-handler ?data))
-
 (defmethod -event-msg-handler :chsk/handshake
   [{:as ev-msg :keys [?data]}]
   (let [[?uid ?csrf-token ?handshake-data] ?data]
     (when is-dev?_ (js/console.log "Handshake"))))
+
+(defmethod -event-msg-handler :chsk/recv
+  [{:as ev-msg :keys [?data]}]
+  (js/console.log "Push event from server: " (str ?data))
+  (app-msg-handler ?data))
 
 ;;
 ;; UI Components
@@ -291,10 +292,10 @@
 
 (rum/defcs buy-dialog
   < rum/reactive (rum/local {:btc-amount 1.0} ::input)
-  [state parent-component-mode]
+  [state]
   (let [input (::input state)]
     (ui/dialog {:title "Buy Bitcoins"
-                :open (= @parent-component-mode :buy)
+                :open (= @(:ui-mode app-state) :buy-dialog)
                 :modal true
                 :actions [(ui/flat-button {:label "Buy"
                                            :primary true
@@ -303,10 +304,10 @@
                                            (fn [e]
                                              (swap! input assoc :processing true)
                                              (initiate-contract (:btc-amount @input)
-                                                                #(do (reset! parent-component-mode :none)
+                                                                #(do (reset! (:ui-mode app-state) :none)
                                                                      (swap! input assoc :processing false))))})
                           (ui/flat-button {:label "Cancel"
-                                           :on-touch-tap #(reset! parent-component-mode :none)})]}
+                                           :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
                 (let [btc-usd @(:btc-usd app-state)
                       total (* btc-usd (:btc-amount (rum/react input)))]
@@ -326,27 +327,27 @@
 
 (rum/defcs sell-dialog
   < (rum/local {} ::ui-values)
-  [state parent-component-mode]
+  [state]
   (let [offer-active? (boolean @(:sell-offer app-state))
         ui-values (::ui-values state)
         min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 200)
         max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)]
     (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoins")
-                :open (= @parent-component-mode :sell)
+                :open (= @(:ui-mode app-state) :sell-dialog)
                 :modal true
                 :actions [(when offer-active?
                             (ui/flat-button {:label "Remove"
                                              :on-touch-tap (fn []
                                                              (when (js/confirm "Are you sure?")
                                                               (close-sell-offer)
-                                                              (reset! parent-component-mode :none)))}))
+                                                              (reset! (:ui-mode app-state) :none)))}))
                           (ui/flat-button {:label (if offer-active? "Update" "Sell")
                                            :on-touch-tap (fn []
                                                            (open-sell-offer {:min min-val :max max-val})
-                                                           (reset! parent-component-mode :none))})
+                                                           (reset! (:ui-mode app-state) :none))})
                           (ui/flat-button {:label "Back"
                                            :primary true
-                                           :on-touch-tap #(reset! parent-component-mode :none)})]}
+                                           :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
                 [:p "Minimum amount of Bitcoins I'm willing to sell: " [:strong min-val]]
                 (ui/slider {:min 200 :max 20000
@@ -359,7 +360,7 @@
 
 (rum/defc menu-controls-comp
   < rum/reactive
-  [component-mode]
+  []
   [:div
    [:h1 {:style {:text-align "center"}} "Cointrust"]
    [:h3 {:style {:text-align "center"}} "Friend of Friend Bitcoin Trading"]
@@ -369,13 +370,14 @@
    [:div {:style {:text-align "center"}}
     ;; TODO: hints http://kushagragour.in/lab/hint/
     (ui/raised-button {:label "I want to BUY Bitcoins"
-                       :disabled true ;;(not (or (= (:contracts app-state) :unknown) (empty? (:contracts app-state))))
+                       :disabled false #_(not (let [contracts (rum/react (:contracts app-state))]
+                                        (or (= contracts :unknown) (empty? contracts))))
                        :style {:margin "1rem"}
-                       :on-touch-tap #(reset! component-mode :buy)})
+                       :on-touch-tap #(reset! (:ui-mode app-state) :buy-dialog)})
     (ui/raised-button {:label (if (rum/react (:sell-offer app-state)) "Change sell offer" "I want to SELL Bitcoins")
                        :disabled false
                        :style {:margin "1rem"}
-                       :on-touch-tap #(reset! component-mode :sell)})]])
+                       :on-touch-tap #(reset! (:ui-mode app-state) :sell-dialog)})]])
 
 (rum/defc offer-progress-comp
   < rum/reactive
@@ -392,8 +394,8 @@
 
 (rum/defcs offer-matched-dialog
   < rum/reactive (rum/local true ::decline-lock)
-  [state]
-  (let [decline-lock (::decline-lock state)]
+  [state_]
+  (let [decline-lock (::decline-lock state_)]
    (ui/dialog {:title "Offer Matched"
                :open (boolean (rum/react (:offer-match app-state)))
                :modal true
@@ -435,33 +437,31 @@
    [:h4 {:style {:text-align "center"}} "Active contracts"]
    [:div
     (let [contracts (rum/react (:contracts app-state))]
-     (cond
-       (not contracts)
-       [:div "Retrieving contracts..."
-        (ui/linear-progress {:size 60 :mode "indeterminate"})]
-       (empty? contracts)
-       "No contracts in history"
-       :else
-       (for [contract contracts]
-         [:div (str "Contract Hash ID: " (:hash contract))
-          (map-indexed
-           (fn [ix text] (contract-stage-comp contract ix text))
-           ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
+      (cond
+        (not contracts)
+        [:div "Retrieving contracts..."
+         (ui/linear-progress {:size 60 :mode "indeterminate"})]
+        (empty? contracts)
+        "No contracts in history"
+        :else
+        (for [contract contracts]
+          [:div {:key (:hash contract)} (str "Contract Hash ID: " (:hash contract))
+           (map-indexed
+            (fn [ix text] (contract-stage-comp contract ix text))
+            ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
 
-(rum/defcs main-comp
-  < (rum/local :none ::mode)
-  [state]
-  (let [component-mode (::mode state)]
-    (ui/mui-theme-provider
-     {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
-     (ui/paper
-      [:div
-       (menu-controls-comp component-mode)
-       (offer-progress-comp)
-       (contract-listing-comp)
-       (buy-dialog component-mode)
-       (sell-dialog component-mode)
-       (offer-matched-dialog)]))))
+(rum/defc main-comp
+  []
+  (ui/mui-theme-provider
+   {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
+   (ui/paper
+    [:div
+     (menu-controls-comp)
+     (offer-progress-comp)
+     (contract-listing-comp)
+     (buy-dialog)
+     (sell-dialog)
+     (offer-matched-dialog)])))
 
 (rum/defc faq
   []
@@ -486,15 +486,3 @@
           [(login-comp) (faq)])))
 
 (rum/mount (app) (js/document.getElementById "app"))
-
-;; (def ui-values (atom {:val 500}))
-
-;; (rum/defc mycomp < rum/reactive []
-;;   (ui/mui-theme-provider
-;;    {:mui-theme (get-mui-theme {:palette {:text-color (color :blue900)}})}
-;;    [:div [:p (:val (rum/react ui-values))] ; <-- removing this will avoid the error
-;;     (ui/slider {:min 200 :max 20000
-;;                 :value (:val (rum/react ui-values))
-;;                 :on-change #(swap! ui-values assoc :val %2)})]))
-
-;; (rum/mount (mycomp) (js/document.getElementById "app"))
