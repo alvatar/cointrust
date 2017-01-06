@@ -36,6 +36,7 @@
 ;;
 
 (defn request-contract [buyer-id btc]
+  (db/buy-request-set! buyer-id btc)
   (wcar* (mq/enqueue "requested-contracts-queue"
                      {:buyer-id buyer-id :btc btc})))
 

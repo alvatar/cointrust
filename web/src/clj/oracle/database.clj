@@ -152,18 +152,18 @@ SELECT * FROM sell_offer;
 ;; Buy Requests
 ;;
 
-(defn buy-request-set! [user-id val]
+(defn buy-request-create! [user-id amount & [currency]]
   (try
     (sql/execute! db ["
-INSERT INTO buy_request (user_id, val) VALUES (?, ?)
-ON CONFLICT (user_id) DO UPDATE SET val = ?
-" user-id val val])
-    'ok
+INSERT INTO buy_request (user_id, amount, currency) VALUES (?, ?, ?)
+ON CONFLICT (user_id) DO UPDATE SET amount = ?, currency = ?
+RETURNING id;
+" user-id amount currency amount currency])
     (catch Exception e (or (.getNextException e) e))))
 
-(defn buy-request-get-by-user [user-id]
-  (first
-   (sql/query db ["
+(defn buy-requests-get-by-user [user-id]
+  (into []
+       (sql/query db ["
 SELECT val FROM buy_request WHERE user_id = ?;
 " user-id])))
 
@@ -185,7 +185,7 @@ SELECT * FROM buy_request;
 ;; Contracts
 ;;
 
-(defn contract-create! [buyer-id seller-id btc-amount]
+(defn contract-create! [buyer-id seller-id amount & [currency]]
   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
     (try
       (sql/with-db-transaction
@@ -193,14 +193,15 @@ SELECT * FROM buy_request;
         (let [contract
               (first
                (sql/query tx ["
-INSERT INTO contracts (hash, buyer, seller, btc) VALUES (?, ?, ?, ?) RETURNING *;
-" (crypto/base64 27) buyer-id seller-id btc-amount]))]
+INSERT INTO contracts (hash, buyer, seller, amount, currency) VALUES (?, ?, ?, ?) RETURNING *;
+" (crypto/base64 27) buyer-id seller-id amount, "xbt"]))]
           (sql/execute! tx ["
 INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
 " (:id contract) 0 "waiting"])
           (log! tx "user-insert" {:buyer-id buyer-id
-                                :seller-id seller-id
-                                  :btc-amount btc-amount})
+                                  :seller-id seller-id
+                                  :amount amount
+                                  :currency "xbt"})
           contract))
       (catch Exception e (or (.getNextException e) e)))))
 
@@ -282,9 +283,9 @@ CREATE TABLE sell_offer (
 );"
                             "
 CREATE TABLE buy_request (
-  user_id                           INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
-  CONSTRAINT one_request_per_user   UNIQUE (user_id),
-  amount                            BIGINT NOT NULL
+  id              SERIAL PRIMARY KEY,
+  user_id         INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
+  amount          BIGINT NOT NULL
 );"
                             "
 CREATE TABLE contracts (
@@ -292,7 +293,8 @@ CREATE TABLE contracts (
   hash            TEXT NOT NULL UNIQUE,
   buyer           INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
   seller          INTEGER REFERENCES users(id) ON UPDATE CASCADE NOT NULL,
-  btc             TEXT NOT NULL
+  amount          TEXT NOT NULL,
+  currency        TEXT DEFAULT 'xbt' NOT NULL
 );"
                             "
 CREATE TABLE contract_events (
