@@ -40,6 +40,7 @@
                      :found-user user
                      :found-friends friends}))
        (catch Exception e
+         (pprint e)
          (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :user/friends-of-friends
@@ -55,6 +56,7 @@
                    :contracts (for [c (db/get-user-contracts (:user-id ?data))]
                                 (merge c (db/get-contract-last-event (:id c))))})
        (catch Exception e
+         (pprint e)
          (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/open
@@ -66,15 +68,21 @@
                        :max (:max ?data)})
            (pprint res)))
        (catch Exception e
+         (pprint e)
          (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/get
   [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
-  (try (let [{:as asff :keys [min max]}
-             (db/sell-offer-get-by-user (:user-id ?data))]
-         (when (and min max)
-           (?reply-fn {:status :ok :min min :max max})))
+  (try (let [{:keys [min max]} (db/sell-offer-get-by-user (:user-id ?data))]
+         (cond
+           (and min max)
+           (?reply-fn {:status :ok :min min :max max})
+           (and (not min) (not max))
+           (?reply-fn {:status :ok})
+           :else
+           (?reply-fn (?reply-fn {:status :error :id :internal-mismatch-in-offer}))))
        (catch Exception e
+         (pprint e)
          (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/close
@@ -84,6 +92,7 @@
            (?reply-fn {:status :ok})
            (pprint res)))
        (catch Exception e
+         (pprint e)
          (?reply-fn {:status :error}))))
 
 (declare task-init-contract)
@@ -93,6 +102,7 @@
   (try (tasks/request-contract (:user-id ?data) (:btc ?data))
        (?reply-fn {:status :ok})
        (catch Exception e
+         (pprint e)
          (?reply-fn {:status :error}))))
 
 ;;

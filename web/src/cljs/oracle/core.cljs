@@ -135,7 +135,8 @@
    [:offer/get {:user-id @(:user-id app-state)}] 10000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:sell-offer app-state) (select-keys resp [:min :max]))
+       (let [offer (select-keys resp [:min :max])]
+         (when (not-empty offer) (reset! (:sell-offer app-state) offer)))
        (reset! app-error "There was an error retrieving the sell offer.")))))
 
 ;; Run when user we change the User ID
