@@ -150,29 +150,42 @@
        (reset! (:sell-offer app-state) nil)
        (reset! app-error "There was an error closing the sell offer. Please try again.")))))
 
-(defn request-contract [amount callback]
+(defn create-buy-request [amount callback]
   (chsk-send!
-   [:contract/request {:user-id @(:user-id app-state)
-                       :amount amount
-                       :currency "xbt"}] 5000
+   [:buy-request/create {:user-id @(:user-id app-state)
+                         :amount amount
+                         :currency-buy "usd"
+                         :currency-sell "xbt"}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        ;; (swap! (:contracts app-state) #(conj % (:contract resp)))
        (do (log* "Contract requested")
            (swap! (:buy-requests app-state) #(conj % (:buy-request resp))))
        (do (reset! app-error "There was an error with your contract. Please try again.")
-           (log* "Error in request-contract: " (str resp))))
+           (log* "Error in create-buy-request:" resp)))
      (callback))))
+
+(defn get-user-requests []
+  (chsk-send!
+   [:user/buy-requests {:user-id @(:user-id app-state)}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (when-let [requests (:buy-requests resp)]
+         (log* "Received requests" requests)
+         (reset! (:buy-requests app-state) requests))
+       (do (reset! app-error "There was an error retrieving your previous buy requests. Please try again.")
+           (log* "Error in get-user-requests:" resp))))))
 
 (defn get-user-contracts []
   (chsk-send!
-   [:user/contracts {:user-id @(:user-id app-state)}] 50000
+   [:user/contracts {:user-id @(:user-id app-state)}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (when (:contracts resp) (reset! (:contracts app-state) (:contracts resp)))
+       (when-let [contracts (:contracts resp)]
+         (log* "Received contracts" contracts)
+         (reset! (:contracts app-state) contracts))
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
-           (log* "Error in get-user-contract: " (str resp))))
-     (log* "Contracts" (str @(:contracts app-state))))))
+           (log* "Error in get-user-contract:" resp))))))
 
 (defn try-enter [hashed-id hashed-friends]
   (chsk-send!
@@ -307,9 +320,9 @@
                                            (fn [e]
                                              (when (valid-val total)
                                                (swap! input assoc :processing true)
-                                               (request-contract (:amount @input)
-                                                                 #(do (reset! (:ui-mode app-state) :none)
-                                                                      (swap! input assoc :processing false)))))})
+                                               (create-buy-request (:amount @input)
+                                                                   #(do (reset! (:ui-mode app-state) :none)
+                                                                        (swap! input assoc :processing false)))))})
                           (ui/flat-button {:label "Cancel"
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
@@ -428,9 +441,12 @@
         (empty? requests)
         "No requests in history"
         :else
-        (for [req requests]
-          [:div {:key (:hash req)} (str "Request ID: " (:hash req))
-           ])))]])
+        (ui/list
+         (for [req requests]
+           (ui/list-item {:key (str "buy-request-item-" (:id req))
+                          :primary-text (gstring/format "Buy request for %s %s"
+                                                        (:amount req)
+                                                        (clojure.string/upper-case (:currency-sell req)))})))))]])
 
 (rum/defc contract-stage-comp
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}
@@ -478,6 +494,7 @@
     [:div
      (menu-controls-comp)
      (offer-progress-comp)
+     (request-listing-comp)
      (contract-listing-comp)
      (buy-dialog)
      (sell-dialog)
@@ -504,4 +521,5 @@
            #(when %4
               (get-friends2)
               (get-active-sell-offer)
+              (get-user-requests)
               (get-user-contracts)))

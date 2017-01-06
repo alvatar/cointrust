@@ -5,6 +5,8 @@
             ;; Redis tasks
             [taoensso.carmine :as r]
             [taoensso.carmine.message-queue :as mq]
+            ;; Logging
+            [taoensso.timbre :as log]
             ;; Internal
             [oracle.database :as db]))
 
@@ -35,13 +37,13 @@
 ;; Tasks
 ;;
 
-(defn request-contract [buyer-id amount & [currency]]
-  (wcar* (mq/enqueue "requested-contracts-queue"
-                     {:buyer-id buyer-id :amount amount :currency currency}))
-  (db/buy-request-create! buyer-id amount (or currency "xbt")))
+(defn initiate-buy-request [buyer-id amount currency-buy currency-sell]
+  (wcar* (mq/enqueue "buy-requests-queue"
+                     {:buyer-id buyer-id :amount amount
+                      :currency-buy currency-buy :currency-sell currency-sell})))
 
-(defn activate-contract [buyer-id seller-id btc]
-  (wcar* (mq/enqueue "active-contracts-queue"
+(defn initiate-contract [buyer-id seller-id btc]
+  (wcar* (mq/enqueue "contracts-queue"
                      {:buyer-id buyer-id :seller-id seller-id :btc btc})))
 
 ;; 1. Pick counterparty (or multiple), and wait for response
@@ -68,19 +70,25 @@
 ;; 6. Notify/Set-aync-notification combo
 ;; 7. Set as stage "notified"
 
-(defn request-contract-handler
+(defn buy-requests-handler
   [{:keys [message attempt]}]
-  (let [{:keys [buyer-id amount currency]} message
+  (let [{:keys [buyer-id amount currency-buy currency-sell]} message
         seller-id (or (get-counterparty buyer-id)
                       (store-counterparty buyer-id (pick-counterparty buyer-id amount)))]
-    (println "Contract REQUEST")
-    {:status :success}))
+    (if-not seller-id
+      (do (log/debug "No seller match")
+          {:status :error})
+      (do (log/debug "Contract REQUEST")
+          ;; TODO: retrieve exchange rate
+          (let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
+            (log/debug "Request created:" buy-request))
+          {:status :success}))))
 
-(defn active-contract-handler
+(defn contracts-handler
   [{:keys [message attempt]}]
-  (let [{:keys [buyer-id btc stage]} message
+  (let [{:keys [buyer-id seller-id amount currency]} message
         seller-id (or (get-counterparty buyer-id)
-                      (store-counterparty buyer-id (pick-counterparty buyer-id btc)))]
+                      (store-counterparty buyer-id (pick-counterparty buyer-id amount)))]
     (println "Contract ACTIVE")
     {:status :success}))
 
@@ -88,22 +96,22 @@
 ;; Lifecyle
 ;;
 
-(defonce contract-workers
-  {:request {:qname "requested-contracts-queue"
-             :handler request-contract-handler
+(defonce workers
+  {:request {:qname "buy-requests-queue"
+             :handler buy-requests-handler
              :worker (ref nil)}
-   :active {:qname "active-contracts-queue"
-            :handler active-contract-handler
+   :active {:qname "contracts-queue"
+            :handler contracts-handler
             :worker (ref nil)}})
 
-(defn contract-workers-stop! []
+(defn workers-stop! []
   (dosync
-   (doseq [[stage {:keys [worker]}] contract-workers]
+   (doseq [[stage {:keys [worker]}] workers]
      (when @worker (mq/stop @worker)))))
 
-(defn contract-workers-start! []
+(defn workers-start! []
   (dosync
-   (doseq [[stage worker] contract-workers]
+   (doseq [[stage worker] workers]
      (alter (:worker worker)
             #(or % (mq/worker redis-conn
                               (:qname worker)
@@ -111,4 +119,4 @@
                                :throttle-ms 200
                                :handler (:handler worker)}))))))
 
-(defonce start-contract-workers_ (contract-workers-start!))
+(defonce start-workers_ (workers-start!))

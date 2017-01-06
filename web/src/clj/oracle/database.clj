@@ -1,5 +1,5 @@
 (ns oracle.database
-  (:gen-class)
+  (:use [camel-snake-kebab.core])
   (:require [environ.core :refer [env]]
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
@@ -152,19 +152,19 @@ SELECT * FROM sell_offer;
 ;; Buy Requests
 ;;
 
-(defn buy-request-create! [user-id amount & [currency]]
+(defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate]
   (try
     (first
      (sql/query db ["
-INSERT INTO buy_request (user_id, amount, currency) VALUES (?, ?, ?)
+INSERT INTO buy_request (user_id, amount, currency_buy, currency_sell, exchange_rate) VALUES (?, ?, ?, ?, ?)
 RETURNING id;
-" user-id amount (or currency "xbt")]))
+" user-id amount currency-buy currency-sell exchange-rate]))
     (catch Exception e (or (.getNextException e) e))))
 
-(defn buy-requests-get-by-user [user-id]
-  (into []
-       (sql/query db ["
-SELECT val FROM buy_request WHERE user_id = ?;
+(defn get-buy-requests-by-user [user-id]
+  (mapv (fn [m] (reduce-kv #(assoc %1 (->kebab-case %2) %3) {} m))
+        (sql/query db ["
+SELECT id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request WHERE user_id = ?;
 " user-id])))
 
 (defn buy-request-unset! [user-id]
@@ -276,14 +276,17 @@ CREATE TABLE sell_offer (
   user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
   min                              BIGINT NOT NULL,
-  max                              BIGINT NOT NULL
+  max                              BIGINT NOT NULL,
+  currency                         TEXT DEFAULT 'xbt' NOT NULL
 );"
                             "
 CREATE TABLE buy_request (
-  id              SERIAL PRIMARY KEY,
-  user_id         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
-  amount          BIGINT NOT NULL,
-  currency        TEXT DEFAULT 'xbt' NOT NULL
+  id                              SERIAL PRIMARY KEY,
+  user_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  amount                          BIGINT NOT NULL,
+  currency_buy                    TEXT DEFAULT 'usd' NOT NULL,
+  currency_sell                   TEXT DEFAULT 'xbt' NOT NULL,
+  exchange_rate                   DECIMAL(26,6)
 );"
                             "
 CREATE TABLE contracts (

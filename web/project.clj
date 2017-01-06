@@ -34,7 +34,8 @@
                  [cljsjs/react-slider "0.6.1-0"]
                  [netpyoung/fb-sdk-cljs "0.1.2"]
                  [cljs-hash "0.0.2"]
-                 [datascript "0.15.5"]]
+                 [datascript "0.15.5"]
+                 [camel-snake-kebab "0.4.0"]]
 
   :plugins [[lein-cljsbuild "1.1.3"]
             [lein-environ "1.0.3"]

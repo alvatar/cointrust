@@ -50,6 +50,14 @@
        (catch Exception e
          (?reply-fn {:status :error}))))
 
+(defmethod -event-msg-handler :user/buy-requests
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  (try (?reply-fn {:status :ok
+                   :buy-requests (db/get-buy-requests-by-user (:user-id ?data))})
+       (catch Exception e
+         (pprint e)
+         (?reply-fn {:status :error}))))
+
 (defmethod -event-msg-handler :user/contracts
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (try (?reply-fn {:status :ok
@@ -95,10 +103,11 @@
          (pprint e)
          (?reply-fn {:status :error}))))
 
-(defmethod -event-msg-handler :contract/request
+(defmethod -event-msg-handler :buy-requests/create
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (try (?reply-fn {:status :ok
-                   :buy-request (tasks/request-contract (:user-id ?data) (:amount ?data) (:currency ?data))})
+  (try (tasks/initiate-buy-request (:user-id ?data) (:amount ?data)
+                                   (:currency-buy ?data) (:currency-sell ?data))
+       (?reply-fn {:status :ok})
        (catch Exception e
          (pprint e)
          (?reply-fn {:status :error}))))
