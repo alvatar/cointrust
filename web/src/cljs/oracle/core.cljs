@@ -37,10 +37,10 @@
                     :friends2 (atom [])
                     :btc-usd (atom 1025.0)
                     :sell-offer (atom nil)
-                    :sell-offer-matches (atom nil)
-                    :buy-requests (atom nil)
+                    :sell-offer-matches (atom cljs.core/PersistentQueue.EMPTY)
+                    :buy-requests (atom cljs.core/PersistentQueue.EMPTY)
                     :contracts (atom nil)
-                    :notifications (atom (-> cljs.core/PersistentQueue.EMPTY))})
+                    :notifications (atom cljs.core/PersistentQueue.EMPTY)})
 
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
@@ -132,12 +132,13 @@
          (when (not-empty offer) (reset! (:sell-offer app-state) offer)))
        (reset! app-error "There was an error retrieving the sell offer.")))))
 
-(defn close-sell-offer []
+(defn close-sell-offer [callback]
   (chsk-send!
    [:offer/close {:user-id @(:user-id app-state)}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:sell-offer app-state) nil)
+       (do (reset! (:sell-offer app-state) nil)
+           (callback))
        (reset! app-error "There was an error closing the sell offer. Please try again.")))))
 
 (defn create-buy-request [amount callback]
@@ -222,11 +223,11 @@
           (for [c @(:contracts app-state)]
             (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
 
-;; (chsk-send! "asdf" [:offer/matched {:status :ok :amount 300}])
+;; (chsk-send! "asdf" [:sell-offer/matched {:status :ok :amount 300}])
 (defmethod app-msg-handler :sell-offer/matched
-  [[_ {:as msg :keys [status amount]}]]
+  [[_ msg]]
   (if (:error msg)
-    (log* "Error in :offer/matched message")
+    (log* "Error in :sell-offer/matched message")
     (swap! (:sell-offer-matches app-state) conj msg)))
 
 (defmethod app-msg-handler :buy-request/created
@@ -314,35 +315,42 @@
   (let [input (::input state)
         valid-val #(and (number? %) (> % 0))
         btc-usd @(:btc-usd app-state)
-        total (* btc-usd (:amount (rum/react input)))]
-    (ui/dialog {:title "Buy Bitcoins"
-                :open (= (rum/react (:ui-mode app-state)) :buy-dialog)
-                :modal true
-                :actions [(ui/flat-button {:label "Buy"
-                                           :primary true
-                                           :disabled (or (:processing (rum/react input)) (not (valid-val total)))
-                                           :on-touch-tap
-                                           (fn [e] (when (valid-val total)
-                                                     (swap! input assoc :processing true)
-                                                     (create-buy-request (:amount @input)
-                                                                         #(do (reset! (:ui-mode app-state) :none)
-                                                                              (swap! input assoc :processing false)))))})
-                          (ui/flat-button {:label "Cancel"
-                                           :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
-               [:div
-                [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
-                 (ui/text-field {:id "amount"
-                                 :autoFocus true
-                                 :value (:amount (rum/react input))
-                                 :on-change #(swap! input assoc :amount (.. % -target -value))
-                                 :errorText (when (not (valid-val total)) "Invalid value")})
-                 (when (> total 0)
-                   (str "for " (/ (long (* 100000 total)) 100000) " USD"))]
-                (when (:processing (rum/react input))
-                  [:div
-                   (ui/linear-progress {:size 60 :mode "indeterminate"
-                                        :style {:margin "auto" :left "0" :right "0" :top "1.5rem"}})
-                   [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])])))
+        total (* btc-usd (:amount (rum/react input)))
+        open? (= (rum/react (:ui-mode app-state)) :buy-dialog)]
+    (if (<= (count @(:buy-requests app-state)) 3)
+      (ui/dialog {:title "Buy Bitcoins"
+                  :open open?
+                  :modal true
+                  :actions [(ui/flat-button {:label "Buy"
+                                             :primary true
+                                             :disabled (or (:processing (rum/react input)) (not (valid-val total)))
+                                             :on-touch-tap
+                                             (fn [e] (when (valid-val total)
+                                                       (swap! input assoc :processing true)
+                                                       (create-buy-request (:amount @input)
+                                                                           #(do (reset! (:ui-mode app-state) :none)
+                                                                                (swap! input assoc :processing false)))))})
+                            (ui/flat-button {:label "Cancel"
+                                             :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
+                 [:div
+                  [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
+                   (ui/text-field {:id "amount"
+                                   :autoFocus true
+                                   :value (:amount (rum/react input))
+                                   :on-change #(swap! input assoc :amount (.. % -target -value))
+                                   :errorText (when (not (valid-val total)) "Invalid value")})
+                   (when (> total 0)
+                     (str "for " (/ (long (* 100000 total)) 100000) " USD"))]
+                  (when (:processing (rum/react input))
+                    [:div
+                     (ui/linear-progress {:size 60 :mode "indeterminate"
+                                          :style {:margin "auto" :left "0" :right "0" :top "1.5rem"}})
+                     [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])])
+      (ui/dialog {:title "Maximum number reached"
+                  :open open?
+                  :actions [(ui/flat-button {:label "OK"
+                                             :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
+                 "Maximum number of simultaneous open BUY requests reached."))))
 
 (rum/defcs sell-dialog
   < rum/reactive (rum/local {} ::ui-values)
@@ -358,8 +366,8 @@
                             (ui/flat-button {:label "Remove"
                                              :on-touch-tap (fn []
                                                              (when (js/confirm "Are you sure?")
-                                                              (close-sell-offer)
-                                                              (reset! (:ui-mode app-state) :none)))}))
+                                                               (close-sell-offer
+                                                                #(reset! (:ui-mode app-state) :none))))}))
                           (ui/flat-button {:label (if offer-active? "Update" "Sell")
                                            :on-touch-tap (fn []
                                                            (open-sell-offer {:min min-val :max max-val})
@@ -395,18 +403,19 @@
                        :style {:margin "1rem"}
                        :on-touch-tap #(reset! (:ui-mode app-state) :sell-dialog)})]])
 
-(rum/defc offer-progress-comp
+(rum/defc sell-offer-comp
   < rum/reactive
   []
   (when-let [sell-offer (rum/react (:sell-offer app-state))]
    [:div
-    [:h4 {:style {:text-align "center"}} "My selling offer"]
-    [:p "You are currently offering to sell: "
+    [:h4 {:style {:text-align "center"}} "Sell offer"]
+    [:p.center "You are currently offering to sell: "
      [:strong (:min sell-offer)] " (min.) - " [:strong (:max sell-offer)] " BTC (max.)"]
-    [:div (ui/stepper {:active-step 1}
-                      (ui/step (ui/step-label "Make Offer"))
-                      (ui/step (ui/step-label "Wait for Match"))
-                      (ui/step (ui/step-label "Initiate Contract")))]]))
+    ;; [:div (ui/stepper {:active-step 1}
+    ;;                   (ui/step (ui/step-label "Make Offer"))
+    ;;                   (ui/step (ui/step-label "Wait for Match"))
+    ;;                   (ui/step (ui/step-label "Initiate Contract")))]
+    ]))
 
 (rum/defc request-listing-comp
   < rum/reactive
@@ -471,7 +480,7 @@
             (fn [ix text] (contract-stage-comp contract ix text))
             ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
 
-(rum/defc generic-notifications-dialog
+(rum/defc generic-notifications
   < rum/reactive
   []
   (let [notifications (rum/react (:notifications app-state))
@@ -479,28 +488,34 @@
    (ui/dialog {:title (or (:title current) "Notification")
                :open (boolean (not-empty notifications))
                :actions [(ui/flat-button {:label "OK"
+                                          :primary true
                                           :on-touch-tap #(swap! (:notifications app-state) pop)})]}
               (:message current))))
 
-(rum/defcs offer-matched-notification-dialog
+(rum/defcs sell-offer-matched-notification
   < rum/reactive (rum/local true ::decline-lock)
   [state_]
-  (let [decline-lock (::decline-lock state_)]
-   (ui/dialog {:title "Offer Matched"
-               :open (boolean (rum/react (:offer-match app-state)))
-               :modal true
-               :actions [(ui/flat-button {:label "Accept"
-                                          :primary true
-                                          :on-touch-tap #()})
-                         (ui/flat-button {:label "Decline"
-                                          :disabled (rum/react decline-lock)
-                                          :on-touch-tap #(reset! (:offer-match app-state) nil)})]}
-              [:div
-               [:p (gstring/format "A buyer wants to purchase %f BTC (%f USD)." 2.2 2000)]
-               [:h6 "You can decline it, but your sell offer will be removed."
-                [:br] (ui/checkbox {:label "I understand"
-                                    :checked (not (rum/react decline-lock))
-                                    :on-check #(reset! decline-lock (not %2))})]])))
+  (let [decline-lock (::decline-lock state_)
+        pending-matches (rum/react (:sell-offer-matches app-state))
+        current (peek pending-matches)]
+    (when current
+      (ui/dialog {:title "Offer Matched"
+                  :open (boolean (not-empty pending-matches))
+                  :modal true
+                  :actions [(ui/flat-button {:label "Accept"
+                                             :primary true
+                                             :on-touch-tap #(swap! (:sell-offer-matches app-state) pop)})
+                            (ui/flat-button {:label "Decline"
+                                             :disabled (rum/react decline-lock)
+                                             :on-touch-tap (fn [] (close-sell-offer #(reset! (:sell-offer-matches app-state) nil)))})]}
+                 [:div
+                  [:p (gstring/format "A buyer wants to purchase %f %s"
+                                      (:amount current)
+                                      (clojure.string/upper-case (:currency-sell current)))]
+                  [:h6 "You can decline it, but your sell offer will be removed."
+                   [:br] (ui/checkbox {:label "I understand"
+                                       :checked (not (rum/react decline-lock))
+                                       :on-check #(reset! decline-lock (not %2))})]]))))
 
 (rum/defc footer
   []
@@ -512,22 +527,22 @@
   []
   [:div
    (menu-controls-comp)
-   (offer-progress-comp)
+   (sell-offer-comp)
    (ui/divider)
    (request-listing-comp)
    (ui/divider)
    (contract-listing-comp)
    (buy-dialog)
    (sell-dialog)
-   (generic-notifications-dialog)
-   (offer-matched-notification-dialog)
+   (generic-notifications)
+   (sell-offer-matched-notification)
    (footer)])
 
 (rum/defc app
   < rum/reactive
   []
   [:div {:style {:position "absolute"
-                 :max-width "700px" ; :height "500px"
+                 :max-width "700px"
                  :margin "auto" :top "5rem" :bottom "0" :left "0" :right "0"}}
    (ui/mui-theme-provider
     {:mui-theme (get-mui-theme {:palette {:text-color (color :grey900)}})}
