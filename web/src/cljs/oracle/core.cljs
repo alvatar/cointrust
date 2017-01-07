@@ -37,7 +37,7 @@
                     :friends2 (atom [])
                     :btc-usd (atom 1025.0)
                     :sell-offer (atom nil)
-                    :offer-match (atom nil)
+                    :sell-offer-matches (atom nil)
                     :buy-requests (atom nil)
                     :contracts (atom nil)
                     :notifications (atom (-> cljs.core/PersistentQueue.EMPTY))})
@@ -217,17 +217,17 @@
   (log* "Unhandled app event: " (str app-msg)))
 
 (defmethod app-msg-handler :contract/update
-  [[_ {:as app-msg :keys [stage status id amount]}]]
+  [[_ {:keys [stage status id amount]}]]
   (reset! (:contracts app-state)
           (for [c @(:contracts app-state)]
             (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
 
 ;; (chsk-send! "asdf" [:offer/matched {:status :ok :amount 300}])
-(defmethod app-msg-handler :offer/matched
-  [[_ {:as app-msg :keys [status amount]}]]
-  (if (and (= status :ok) amount)
-    (reset! (:offer-match app-state) amount)
-    (log* "Error in :offer/matched message")))
+(defmethod app-msg-handler :sell-offer/matched
+  [[_ {:as msg :keys [status amount]}]]
+  (if (:error msg)
+    (log* "Error in :offer/matched message")
+    (swap! (:sell-offer-matches app-state) conj msg)))
 
 (defmethod app-msg-handler :buy-request/created
   [[_ msg]]
@@ -408,26 +408,6 @@
                       (ui/step (ui/step-label "Wait for Match"))
                       (ui/step (ui/step-label "Initiate Contract")))]]))
 
-(rum/defcs offer-matched-dialog
-  < rum/reactive (rum/local true ::decline-lock)
-  [state_]
-  (let [decline-lock (::decline-lock state_)]
-   (ui/dialog {:title "Offer Matched"
-               :open (boolean (rum/react (:offer-match app-state)))
-               :modal true
-               :actions [(ui/flat-button {:label "Accept"
-                                          :primary true
-                                          :on-touch-tap #()})
-                         (ui/flat-button {:label "Decline"
-                                          :disabled (rum/react decline-lock)
-                                          :on-touch-tap #(reset! (:offer-match app-state) nil)})]}
-              [:div
-               [:p (gstring/format "A buyer wants to purchase %f BTC (%f USD)." 2.2 2000)]
-               [:h6 "You can decline it, but your sell offer will be removed."
-                [:br] (ui/checkbox {:label "I understand"
-                                    :checked (not (rum/react decline-lock))
-                                    :on-check #(reset! decline-lock (not %2))})]])))
-
 (rum/defc request-listing-comp
   < rum/reactive
   []
@@ -491,7 +471,7 @@
             (fn [ix text] (contract-stage-comp contract ix text))
             ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
 
-(rum/defc notifications-comp
+(rum/defc generic-notifications-dialog
   < rum/reactive
   []
   (let [notifications (rum/react (:notifications app-state))
@@ -501,6 +481,26 @@
                :actions [(ui/flat-button {:label "OK"
                                           :on-touch-tap #(swap! (:notifications app-state) pop)})]}
               (:message current))))
+
+(rum/defcs offer-matched-notification-dialog
+  < rum/reactive (rum/local true ::decline-lock)
+  [state_]
+  (let [decline-lock (::decline-lock state_)]
+   (ui/dialog {:title "Offer Matched"
+               :open (boolean (rum/react (:offer-match app-state)))
+               :modal true
+               :actions [(ui/flat-button {:label "Accept"
+                                          :primary true
+                                          :on-touch-tap #()})
+                         (ui/flat-button {:label "Decline"
+                                          :disabled (rum/react decline-lock)
+                                          :on-touch-tap #(reset! (:offer-match app-state) nil)})]}
+              [:div
+               [:p (gstring/format "A buyer wants to purchase %f BTC (%f USD)." 2.2 2000)]
+               [:h6 "You can decline it, but your sell offer will be removed."
+                [:br] (ui/checkbox {:label "I understand"
+                                    :checked (not (rum/react decline-lock))
+                                    :on-check #(reset! decline-lock (not %2))})]])))
 
 (rum/defc footer
   []
@@ -519,8 +519,8 @@
    (contract-listing-comp)
    (buy-dialog)
    (sell-dialog)
-   (offer-matched-dialog)
-   (notifications-comp)
+   (generic-notifications-dialog)
+   (offer-matched-notification-dialog)
    (footer)])
 
 (rum/defc app

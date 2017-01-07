@@ -83,7 +83,8 @@
       (if-let [seller-id (or (get-counterparty buyer-id)
                              (store-counterparty (:id buy-request)
                                                  (pick-counterparty buyer-id amount currency-sell)))]
-        (do (events/dispatch! buyer-id :buy-request-matched {:id (:id buy-request) :seller-id seller-id})
+        (do (events/dispatch! seller-id :sell-offer-matched buy-request)
+            (events/dispatch! buyer-id :buy-request-matched {:id (:id buy-request) :seller-id seller-id})
             {:status :success})
         (do (log/debug "No seller match")
             (log/debug (db/get-user-friends-of-friends buyer-id))
