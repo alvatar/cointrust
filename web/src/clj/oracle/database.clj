@@ -1,9 +1,9 @@
 (ns oracle.database
-  (:use [camel-snake-kebab.core])
   (:require [environ.core :refer [env]]
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
-            [clojure.data.json :as json]))
+            [clojure.data.json :as json]
+            [camel-snake-kebab.core :as case-shift]))
 
 ;; References:
 ;; http://clojure-doc.org/articles/ecosystem/java_jdbc/using_sql.html
@@ -152,31 +152,43 @@ SELECT * FROM sell_offer;
 ;; Buy Requests
 ;;
 
+(defn ->kebab-case [r] (reduce-kv #(assoc %1 (case-shift/->kebab-case %2) %3) {} r))
+
 (defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate]
   (try
-    (first
-     (sql/query db ["
-INSERT INTO buy_request (user_id, amount, currency_buy, currency_sell, exchange_rate) VALUES (?, ?, ?, ?, ?)
-RETURNING id;
-" user-id amount currency-buy currency-sell exchange-rate]))
+    (->kebab-case
+     (first
+      (sql/query db ["
+INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate) VALUES (?, ?, ?, ?, ?)
+RETURNING *;
+" user-id amount currency-buy currency-sell exchange-rate])))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-buy-requests-by-user [user-id]
-  (mapv (fn [m] (reduce-kv #(assoc %1 (->kebab-case %2) %3) {} m))
+  (mapv ->kebab-case
         (sql/query db ["
-SELECT id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request WHERE user_id = ?;
+SELECT id, seller_id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request WHERE buyer_id = ?;
 " user-id])))
 
-(defn buy-request-unset! [user-id]
+(defn buy-request-set-seller! [buy-request seller-id]
   (try
     (sql/execute! db ["
-DELETE FROM buy_request WHERE user_id = ?;
-" user-id])
+UPDATE buy_request SET seller_id = ?
+WHERE id = ?
+" seller-id buy-request])
+    'ok
+    (catch Exception e (or (.getNextException e) e))))
+
+(defn buy-request-remove! [buy-request]
+  (try
+    (sql/execute! db ["
+DELETE FROM buy_request WHERE id = ?;
+" buy-request])
     'ok
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-all-buy-requests []
-  (into []
+  (mapv ->kebab-case
         (sql/query db ["
 SELECT * FROM buy_request;
 "])))
@@ -242,9 +254,10 @@ WHERE buyer = ? OR seller = ?
 " user-id user-id])))
 
 (defn get-all-contracts []
-  (sql/query db ["
+  (into []
+        (sql/query db ["
 SELECT * FROM contracts
-"]))
+"])))
 
 ;;
 ;; Development utilities
@@ -279,10 +292,14 @@ CREATE TABLE sell_offer (
   max                              BIGINT NOT NULL,
   currency                         TEXT DEFAULT 'xbt' NOT NULL
 );"
+
+                            ;; TODO: CHECK THESE ON UPDATE CASCADES
+
                             "
 CREATE TABLE buy_request (
   id                              SERIAL PRIMARY KEY,
-  user_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  buyer_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  seller_id                       INTEGER REFERENCES user_account(id) ON UPDATE CASCADE,
   amount                          BIGINT NOT NULL,
   currency_buy                    TEXT DEFAULT 'usd' NOT NULL,
   currency_sell                   TEXT DEFAULT 'xbt' NOT NULL,

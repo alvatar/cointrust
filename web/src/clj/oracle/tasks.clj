@@ -8,7 +8,8 @@
             ;; Logging
             [taoensso.timbre :as log]
             ;; Internal
-            [oracle.database :as db]))
+            [oracle.database :as db]
+            [oracle.notifications :as notifications]))
 
 ;;
 ;; Redis
@@ -24,14 +25,16 @@
 ;; This is the core of Cointrust. When a request to buy is received,
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
-(defn pick-counterparty [user-id btc]
+(defn pick-counterparty [user-id amount currency-sell]
   (rand-nth (db/get-user-friends-of-friends user-id)))
 
-(defn get-counterparty [buyer-id]
-  (wcar* (r/hget "contract:buyer->seller" buyer-id)))
+(defn get-counterparty [buy-requests-id]
+  (wcar* (r/hget "buy-request->seller" buy-request-id)))
 
-(defn store-counterparty [buyer-id seller-id]
-  (wcar* "contract:buyer->seller" buyer-id seller-id))
+(defn store-counterparty [buy-request-id seller-id]
+  ;; HERE: SQL PART
+  (wcar* "buy-request->seller" buy-request-id seller-id)
+  seller-id)
 
 ;;
 ;; Tasks
@@ -42,9 +45,9 @@
                      {:buyer-id buyer-id :amount amount
                       :currency-buy currency-buy :currency-sell currency-sell})))
 
-(defn initiate-contract [buyer-id seller-id btc]
+(defn initiate-contract [buyer-id seller-id amount currency-buy currency-sell exchange-rate]
   (wcar* (mq/enqueue "contracts-queue"
-                     {:buyer-id buyer-id :seller-id seller-id :btc btc})))
+                     {:buyer-id buyer-id :seller-id seller-id})))
 
 ;; 1. Pick counterparty (or multiple), and wait for response
 ;; counterparty (pick-counterparty buyer-id)
@@ -72,23 +75,25 @@
 
 (defn buy-requests-handler
   [{:keys [message attempt]}]
-  (let [{:keys [buyer-id amount currency-buy currency-sell]} message
-        seller-id (or (get-counterparty buyer-id)
-                      (store-counterparty buyer-id (pick-counterparty buyer-id amount)))]
-    (if-not seller-id
-      (do (log/debug "No seller match")
-          {:status :error})
-      (do (log/debug "Contract REQUEST")
-          ;; TODO: retrieve exchange rate
-          (let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
-            (log/debug "Request created:" buy-request))
-          {:status :success}))))
+  (let [{:keys [buyer-id amount currency-buy currency-sell]} message]
+    ;; TODO: retrieve exchange rate
+    ;; TODO: IDEMPOTENT REQUEST CREATE
+    (let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
+      (notifications/send! buyer-id :buy-request-created buy-request)
+      (log/debug "Buy request created:" buy-request)
+      (Thread/sleep 5000) ;; FAKE
+      (if-let [seller-id (or (get-counterparty buyer-id)
+                             (store-counterparty (:id buy-request)
+                                                 (pick-counterparty buyer-id amount currency-sell)))]
+        (do (notifications/send! buyer-id :buy-request-matched {:id (:id buy-request) :seller-id seller-id})
+            {:status :success})
+        (do (log/debug "No seller match")
+            (log/debug (db/get-user-friends-of-friends buyer-id))
+            {:status :success})))))
 
 (defn contracts-handler
   [{:keys [message attempt]}]
-  (let [{:keys [buyer-id seller-id amount currency]} message
-        seller-id (or (get-counterparty buyer-id)
-                      (store-counterparty buyer-id (pick-counterparty buyer-id amount)))]
+  (let [{:keys [buyer-id seller-id amount currency]} message]
     (println "Contract ACTIVE")
     {:status :success}))
 
@@ -96,27 +101,31 @@
 ;; Lifecyle
 ;;
 
-(defonce workers
-  {:request {:qname "buy-requests-queue"
-             :handler buy-requests-handler
-             :worker (ref nil)}
-   :active {:qname "contracts-queue"
-            :handler contracts-handler
-            :worker (ref nil)}})
+(defonce workers {:buy-requests {:qname "buy-requests-queue"
+                                 :handler (ref nil)
+                                 :worker (ref nil)}
+                  :contracts {:qname "contracts-queue"
+                              :handler (ref nil)
+                              :worker (ref nil)}})
+
+(def worker-handlers {:buy-requests buy-requests-handler
+                      :contracts contracts-handler})
 
 (defn workers-stop! []
   (dosync
-   (doseq [[stage {:keys [worker]}] workers]
-     (when @worker (mq/stop @worker)))))
+   (doseq [[id {:keys [worker]}] workers]
+     (when @worker (mq/stop @worker) (ref-set worker nil)))))
 
 (defn workers-start! []
   (dosync
-   (doseq [[stage worker] workers]
-     (alter (:worker worker)
+   (doseq [[id {:keys [worker] :as worker-data}] workers]
+     (alter worker
             #(or % (mq/worker redis-conn
-                              (:qname worker)
+                              (:qname worker-data)
                               {:eoq-backoff-ms 200
                                :throttle-ms 200
-                               :handler (:handler worker)}))))))
+                               :handler (id worker-handlers)}))))))
+
+(defn restart! [] (workers-stop!) (workers-start!))
 
 (defonce start-workers_ (workers-start!))

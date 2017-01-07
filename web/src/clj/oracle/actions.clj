@@ -122,7 +122,4 @@
 
 (defn start-sente-router! [ch-chsk]
   (stop-sente-router!)
-  (reset! router_
-          (sente/start-server-chsk-router!
-           ch-chsk
-           event-msg-handler)))
+  (reset! router_ (sente/start-server-chsk-router! ch-chsk event-msg-handler)))

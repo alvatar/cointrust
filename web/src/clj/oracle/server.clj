@@ -22,7 +22,8 @@
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
             ;; Internal
-            [oracle.actions :as actions])
+            [oracle.actions :as actions]
+            [oracle.notifications :as notifications])
   (:import (java.lang.Integer)
            (java.net InetSocketAddress)
            (java.io RandomAccessFile))
@@ -87,6 +88,7 @@
 (defn start! [& [port ip]]
   (log/set-level! :debug)
   (actions/start-sente-router! ch-chsk)
+  (notifications/init! chsk-send!)
   (reset! server
           (aleph.http/start-server
            (-> app

@@ -54,7 +54,7 @@
 
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
-(defn log* [& args] (when *is-dev* (js/console.log (clojure.string/join " " (map clj->js args)))))
+(defn log* [& args] (when *is-dev* (js/console.log (clojure.string/join " " (map str args)))))
 
 ;; https://github.com/roylee0704/react-flexbox-grid
 (def ui-flexbox-grid (adapt-rum-class js/ReactFlexboxGrid.Grid))
@@ -122,7 +122,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:friends2 app-state) (:friends2 resp))
        (do (reset! app-error "There was an error with your login. Please try again.")
-           (log* "Error in handle-enter: " (str resp))))
+           (log* "Error in handle-enter:" resp)))
      (log* "Friends^2" (str @(:friends2 app-state))))))
 
 (defn open-sell-offer [{:as vals :keys [min max]}]
@@ -192,7 +192,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:user-id app-state) (:found-user resp))
        (do (reset! app-error "There was an error with your login. Please try again.")
-           (log* "Error in try-enter: " (str resp)))))))
+           (log* "Error in try-enter:" resp))))))
 
 (defn set-facebook-ids []
   (fb/get-login-status
@@ -238,6 +238,21 @@
   (if (and (= status :ok) amount)
     (reset! (:offer-match app-state) amount)
     (log* "Error in :offer/matched message")))
+
+(defmethod app-msg-handler :buy-request/created
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :buy-request/created" msg)
+    (swap! (:buy-requests app-state) #(conj % msg))))
+
+(defmethod app-msg-handler :buy-request/matched
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :buy-request/matched" msg)
+    (if-let [found-idx (first (keep-indexed #(when (= (:id %2) (:id msg)) %1) @(:buy-requests app-state)))]
+      (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] (:seller-id msg))
+      (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
+          (log* "Error in buy-request/matched" msg)))))
 
 ;; Sente-level messages
 
@@ -428,14 +443,17 @@
         [:div "Retrieving requests..."
          (ui/linear-progress {:size 60 :mode "indeterminate"})]
         (empty? requests)
-        "No requests in history"
+        [:p.center "No requests in history"]
         :else
         (ui/list
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
                           :primary-text (gstring/format "Buy request for %s %s"
                                                         (:amount req)
-                                                        (clojure.string/upper-case (:currency-sell req)))})))))]])
+                                                        (clojure.string/upper-case (:currency-sell req)))
+                          :secondary-text (if (:seller-id req)
+                                            "PARTNER FOUND - WAITING SELLER ACTION"
+                                            "LOOKING FOR A PARTNER...")})))))]])
 
 (rum/defc contract-stage-comp
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}
