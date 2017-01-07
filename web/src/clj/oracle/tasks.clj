@@ -75,7 +75,8 @@
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message]
     ;; TODO: retrieve exchange rate
     ;; TODO: IDEMPOTENT REQUEST CREATE
-    (if-let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
+    (let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
+      (when-not buy-request (throw (Exception. "Couldn't create buy-request")))
       (notifications/send! buyer-id :buy-request-created buy-request)
       (log/debug "Buy request created:" buy-request)
       (Thread/sleep 5000) ;; FAKE
@@ -86,8 +87,7 @@
             {:status :success})
         (do (log/debug "No seller match")
             (log/debug (db/get-user-friends-of-friends buyer-id))
-            {:status :success}))
-      {:status :error})))
+            {:status :success})))))
 
 (defn contracts-handler
   [{:keys [message attempt]}]

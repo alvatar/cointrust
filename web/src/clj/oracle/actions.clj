@@ -1,12 +1,11 @@
 (ns oracle.actions
   (:require [clojure.pprint :refer [pprint]]
-            ;; Environment and configuration
             [environ.core :refer [env]]
             [taoensso.sente :as sente]
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
-            ;; Internal
             [oracle.database :as db]
+            [oracle.common :as common]
             [oracle.tasks :as tasks]))
 
 ;;
@@ -105,7 +104,9 @@
 
 (defmethod -event-msg-handler :buy-request/create
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (try (tasks/initiate-buy-request (:user-id ?data) (:amount ?data)
+  (try (tasks/initiate-buy-request (:user-id ?data) (common/currency-as-long
+                                                     (:amount ?data)
+                                                     (:currency-sell ?data))
                                    (:currency-buy ?data) (:currency-sell ?data))
        (?reply-fn {:status :ok})
        (catch Exception e

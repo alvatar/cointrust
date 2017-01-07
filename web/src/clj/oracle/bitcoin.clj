@@ -1,6 +1,7 @@
 (ns oracle.bitcoin
   (:require [environ.core :refer [env]]
-            [clojure.pprint :refer [pprint]])
+            [clojure.pprint :refer [pprint]]
+            [oracle.common :as common])
   (:import [java.io File]
            [java.net InetAddress]
            [java.util ArrayList]
@@ -23,17 +24,11 @@
 
 (def global-fee 5000)
 
-(defn satoshi->btc [sat]
-  (/ sat 100000000))
-
-(defn btc->satoshi [btc]
-  (* btc 100000000))
-
 (defn substract-satoshi-fee [sat]
   (- sat global-fee))
 
 (defn substract-btc-fee [sat]
-  (- sat (satoshi->btc global-fee)))
+  (- sat (common/satoshi->btc global-fee)))
 
 (defn make-tx-broadcast-progress-cb []
   (reify org.bitcoinj.core.TransactionBroadcast$ProgressCallback
