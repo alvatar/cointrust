@@ -15,6 +15,7 @@
             [fb-sdk-cljs.core :as fb]
             [cljs-hash.goog :as gh]
             [goog.string :as gstring]
+            ;; -----
             [oracle.common :as common]))
 
 
@@ -39,7 +40,7 @@
                     :offer-match (atom nil)
                     :buy-requests (atom nil)
                     :contracts (atom nil)
-                    :notifications (atom nil)})
+                    :notifications (atom (-> cljs.core/PersistentQueue.EMPTY))})
 
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
@@ -232,7 +233,7 @@
   [[_ msg]]
   (if (:error msg)
     (log* "Error in :buy-request/created" msg)
-    (swap! (:buy-requests app-state) #(conj % msg))))
+    (swap! (:buy-requests app-state) conj msg)))
 
 (defmethod app-msg-handler :buy-request/matched
   [[_ msg]]
@@ -242,6 +243,13 @@
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] (:seller-id msg))
       (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
           (log* "Error in buy-request/matched" msg)))))
+
+(defmethod app-msg-handler :notification/create
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :notification/create" msg)
+    (swap! (:notifications app-state) conj msg)))
+
 
 ;; Sente-level messages
 
@@ -483,6 +491,17 @@
             (fn [ix text] (contract-stage-comp contract ix text))
             ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
 
+(rum/defc notifications-comp
+  < rum/reactive
+  []
+  (let [notifications (rum/react (:notifications app-state))
+        current (peek notifications)]
+   (ui/dialog {:title (or (:title current) "Notification")
+               :open (boolean (not-empty notifications))
+               :actions [(ui/flat-button {:label "OK"
+                                          :on-touch-tap #(swap! (:notifications app-state) pop)})]}
+              (:message current))))
+
 (rum/defc footer
   []
   [:div.footer
@@ -501,6 +520,7 @@
    (buy-dialog)
    (sell-dialog)
    (offer-matched-dialog)
+   (notifications-comp)
    (footer)])
 
 (rum/defc app
@@ -510,7 +530,7 @@
                  :max-width "700px" ; :height "500px"
                  :margin "auto" :top "5rem" :bottom "0" :left "0" :right "0"}}
    (ui/mui-theme-provider
-    {:mui-theme (get-mui-theme {:palette {:text-color (color :grey800)}})}
+    {:mui-theme (get-mui-theme {:palette {:text-color (color :grey900)}})}
     [:div
      [:h1.title.center "COINTRUST"]
      [:h2.center "Friend of Friend Bitcoin Trading"]

@@ -4,9 +4,9 @@
             [taoensso.timbre :as log]
             [taoensso.carmine :as r]
             [taoensso.carmine.message-queue :as mq]
-            ;; Internal
+            ;; -----
             [oracle.database :as db]
-            [oracle.notifications :as notifications]))
+            [oracle.events :as events]))
 
 ;;
 ;; Redis
@@ -77,13 +77,13 @@
     ;; TODO: IDEMPOTENT REQUEST CREATE
     (let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
       (when-not buy-request (throw (Exception. "Couldn't create buy-request")))
-      (notifications/send! buyer-id :buy-request-created buy-request)
+      (events/dispatch! buyer-id :buy-request-created buy-request)
       (log/debug "Buy request created:" buy-request)
       (Thread/sleep 5000) ;; FAKE
       (if-let [seller-id (or (get-counterparty buyer-id)
                              (store-counterparty (:id buy-request)
                                                  (pick-counterparty buyer-id amount currency-sell)))]
-        (do (notifications/send! buyer-id :buy-request-matched {:id (:id buy-request) :seller-id seller-id})
+        (do (events/dispatch! buyer-id :buy-request-matched {:id (:id buy-request) :seller-id seller-id})
             {:status :success})
         (do (log/debug "No seller match")
             (log/debug (db/get-user-friends-of-friends buyer-id))

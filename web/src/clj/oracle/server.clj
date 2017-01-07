@@ -1,29 +1,25 @@
 (ns oracle.server
   (:require [clojure.java.io :as io]
-            [clojure.stacktrace :refer [print-stack-trace]]
             [clojure.pprint :refer [pprint]]
-            ;; Ring
+            [taoensso.timbre :as log]
             [ring.middleware.defaults :refer [wrap-defaults api-defaults]]
             [ring.middleware.gzip :refer [wrap-gzip]]
             [ring.middleware.logger :refer [wrap-with-logger]]
+            [ring.middleware.defaults :refer :all]
+            [ring.middleware.stacktrace :as trace]
             [ring.util.response :as response]
-            ;; Compojure
+            [clojure.stacktrace :refer [print-stack-trace]]
             [compojure.core :refer [ANY GET PUT POST DELETE defroutes]]
             [compojure.route :refer [resources not-found]]
             [environ.core :refer [env]]
-            ;; Logging
-            [taoensso.timbre :as log]
-            ;; Web
-            [ring.middleware.defaults :refer :all]
-            [ring.middleware.stacktrace :as trace]
             [aleph [netty] [http]]
             [compojure.route :as route]
             [taoensso.sente :as sente]
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
-            ;; Internal
+            ;; -----
             [oracle.actions :as actions]
-            [oracle.notifications :as notifications])
+            [oracle.events :as events])
   (:import (java.lang.Integer)
            (java.net InetSocketAddress)
            (java.io RandomAccessFile))
@@ -88,7 +84,7 @@
 (defn start! [& [port ip]]
   (log/set-level! :debug)
   (actions/start-sente-router! ch-chsk)
-  (notifications/init! chsk-send!)
+  (events/init! chsk-send!)
   (reset! server
           (aleph.http/start-server
            (-> app
