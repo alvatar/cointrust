@@ -493,6 +493,11 @@
             (fn [ix text] (contract-stage-comp contract ix text))
             ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
 
+(rum/defc footer
+  []
+  [:div
+   [:p.footer.center (gstring/format "Cointrust © %d" (.getFullYear (js/Date.)))]])
+
 (rum/defc main-comp
   []
   [:div
@@ -504,7 +509,8 @@
    (contract-listing-comp)
    (buy-dialog)
    (sell-dialog)
-   (offer-matched-dialog)])
+   (offer-matched-dialog)
+   (footer)])
 
 (rum/defc app
   < rum/reactive

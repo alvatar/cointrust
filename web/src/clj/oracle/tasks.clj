@@ -1,12 +1,9 @@
 (ns oracle.tasks
   (:require [clojure.pprint :refer [pprint]]
-            ;; Environment and configuration
             [environ.core :refer [env]]
-            ;; Redis tasks
+            [taoensso.timbre :as log]
             [taoensso.carmine :as r]
             [taoensso.carmine.message-queue :as mq]
-            ;; Logging
-            [taoensso.timbre :as log]
             ;; Internal
             [oracle.database :as db]
             [oracle.notifications :as notifications]))
@@ -28,11 +25,11 @@
 (defn pick-counterparty [user-id amount currency-sell]
   (rand-nth (db/get-user-friends-of-friends user-id)))
 
-(defn get-counterparty [buy-requests-id]
+(defn get-counterparty [buy-request-id]
   (wcar* (r/hget "buy-request->seller" buy-request-id)))
 
 (defn store-counterparty [buy-request-id seller-id]
-  ;; HERE: SQL PART
+  (db/buy-request-set-seller! buy-request-id seller-id)
   (wcar* "buy-request->seller" buy-request-id seller-id)
   seller-id)
 
@@ -78,7 +75,7 @@
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message]
     ;; TODO: retrieve exchange rate
     ;; TODO: IDEMPOTENT REQUEST CREATE
-    (let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
+    (if-let [buy-request (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
       (notifications/send! buyer-id :buy-request-created buy-request)
       (log/debug "Buy request created:" buy-request)
       (Thread/sleep 5000) ;; FAKE
@@ -89,7 +86,8 @@
             {:status :success})
         (do (log/debug "No seller match")
             (log/debug (db/get-user-friends-of-friends buyer-id))
-            {:status :success})))))
+            {:status :success}))
+      {:status :error})))
 
 (defn contracts-handler
   [{:keys [message attempt]}]

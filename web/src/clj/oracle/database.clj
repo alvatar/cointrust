@@ -1,5 +1,6 @@
 (ns oracle.database
   (:require [environ.core :refer [env]]
+            [taoensso.timbre :as log]
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
             [clojure.data.json :as json]
@@ -162,7 +163,7 @@ SELECT * FROM sell_offer;
 INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate) VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 " user-id amount currency-buy currency-sell exchange-rate])))
-    (catch Exception e (or (.getNextException e) e))))
+    (catch Exception e (log/debug (or (.getNextException e) e)) nil)))
 
 (defn get-buy-requests-by-user [user-id]
   (mapv ->kebab-case
