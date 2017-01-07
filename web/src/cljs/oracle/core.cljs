@@ -6,21 +6,16 @@
             [taoensso.timbre :as timbre :refer-macros (tracef debugf infof warnf errorf)]
             [taoensso.sente :as sente :refer (cb-success?)]
             [taoensso.sente.packers.transit :as sente-transit]
-            ;; Material UI
             [cljs-react-material-ui.core :refer [get-mui-theme color]]
             [cljs-react-material-ui.icons :as ic]
             [cljs-react-material-ui.rum :as ui]
             [cljsjs.react-flexbox-grid]
-            ;; React
             [rum.core :as rum]
-            ;; Database
             [datascript.core :as d]
-            ;; Facebook
             [fb-sdk-cljs.core :as fb]
-            ;; Crypto
             [cljs-hash.goog :as gh]
-            ;; Format
-            [goog.string :as gstring]))
+            [goog.string :as gstring]
+            [oracle.common :as common]))
 
 
 ;;
@@ -449,7 +444,8 @@
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
                           :primary-text (gstring/format "Buy request for %s %s"
-                                                        (:amount req)
+                                                        (common/currency-as-float (:amount req)
+                                                                                  (:currency-sell req))
                                                         (clojure.string/upper-case (:currency-sell req)))
                           :secondary-text (if (:seller-id req)
                                             "PARTNER FOUND - WAITING SELLER ACTION"

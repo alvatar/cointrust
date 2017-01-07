@@ -12,6 +12,6 @@
        (case (keyword currency)
          :xbt (long (btc->satoshi bigdec))))))
 
-(defn currency-as-decimal [amount currency]
+(defn currency-as-float [amount currency]
   (case (keyword currency)
     :xbt (float (satoshi->btc amount))))
