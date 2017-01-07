@@ -38,7 +38,8 @@
                     :sell-offer (atom nil)
                     :offer-match (atom nil)
                     :buy-requests (atom nil)
-                    :contracts (atom nil)})
+                    :contracts (atom nil)
+                    :notifications (atom nil)})
 
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
@@ -60,7 +61,6 @@
 ;; Setup
 ;;
 
-
 (enable-console-print!)
 
 (defonce router_ (atom nil))
@@ -73,13 +73,7 @@
   (log* "Initializing Sente...")
   (let [packer (sente-transit/get-transit-packer)
         {:keys [chsk ch-recv send-fn state]}
-        (sente/make-channel-socket! "/chsk" { ;; :host (if *is-dev*
-                                             ;;         (do (js/console.log "Connecting to localhost")
-                                             ;;             "192.168.4.16:5000")
-                                             ;;         (do (js/console.log "Connecting to Heroku")
-                                             ;;             "ikidz.herokuapp.com"))
-                                             ;; :protocol (if *is-dev* "http:" "https:")
-                                             :client-id hashed-id
+        (sente/make-channel-socket! "/chsk" {:client-id hashed-id
                                              :type :auto
                                              :packer packer})]
     (def chsk chsk)
@@ -108,7 +102,7 @@
 ;; Actions
 ;;
 
-(defn logout [] (log* "LOGOUT TODO"))
+(defn logout [] (aset js/window "location" "/"))
 
 (defn get-friends2 []
   (chsk-send!
@@ -491,8 +485,9 @@
 
 (rum/defc footer
   []
-  [:div
-   [:p.footer.center (gstring/format "Cointrust © %d" (.getFullYear (js/Date.)))]])
+  [:div.footer
+   [:p.logout {:on-click logout} "Logout"]
+   [:p.year (gstring/format "Cointrust © %d" (.getFullYear (js/Date.)))]])
 
 (rum/defc main-comp
   []
