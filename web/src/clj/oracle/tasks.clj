@@ -4,6 +4,7 @@
             [taoensso.timbre :as log]
             [taoensso.carmine :as r]
             [taoensso.carmine.message-queue :as mq]
+            [taoensso.nippy :as nippy]
             [cheshire.core :as json]
             [clj-time.core :as time]
             [clj-time.coerce :as time-coerce]
@@ -42,17 +43,17 @@
 
 (defn initiate-buy-request [buyer-id amount currency-buy currency-sell]
   (log/debug (format "Initiated buy request from buyer ID %d for %d %s" buyer-id amount currency-buy))
-  (wcar* (mq/enqueue (get-in [:buy-requests-master :qname] workers)
+  (wcar* (mq/enqueue (get-in workers [:buy-requests-master :qname])
                      {:buyer-id buyer-id :amount amount
                       :currency-buy currency-buy :currency-sell currency-sell})))
 
 (defn initiate-contract [buy-request-id]
   (log/debug "Initiated contracts from buy request ID" buy-request-id)
-  (wcar* (mq/enqueue (get-in [:contracts-master-queue :qname] workers)
+  (wcar* (mq/enqueue (get-in workers [:contracts-master-queue :qname])
                      {:TODO :TODO})))
 
 (defn initiate-preemptive-task [tag data]
-  (wcar* (mq/enqueue (get-in [:common-preemptive :qname] workers)
+  (wcar* (mq/enqueue (get-in workers [:common-preemptive :qname])
                      {:tag tag :data data})))
 
 ;;
@@ -123,8 +124,8 @@
       stored
       (let [op-result (operation)]
         (wcar* (r/hset op-key field (cond (nil? op-result) "<output-nil>"
-                                          (map? op-result) op-result
-                                          :else "<output-not-serialized>")))
+                                          (nippy/freezable? op-result) op-result
+                                          :else "<output-not-serializable>")))
         op-result))))
 
 (defmacro idempotent-op [uid tag state & body]
@@ -155,7 +156,7 @@
                            (events/dispatch! seller-id :sell-offer-matched buy-request)
                            (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
             ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
-            (println (format "%s seconds have passed since this task was created." (\ (- (unix-now) (:started (:global state))) 1000)))
+            (log/debug (format "%s seconds have passed since this task was created." (float (/ (- (unix-now) (:started (:global state))) 1000))))
             (let [buy-request-status (get-buy-request-status buy-request-id)]
               (cond
                 ;; Buy request accepted
@@ -167,7 +168,7 @@
                 (do (idempotency-state-merge! mid {:started (unix-now) :pick-counterparty nil})
                     (blacklist-counterparty buyer-id seller-id)
                     (db/buy-request-unset-seller! buy-request-id)
-                    {:status :retry :backoff-ms 60000})
+                    {:status :retry :backoff-ms 1})
                 ;; Still within time window. Check again in 60 seconds.
                 (< (unix-now) (unix-after (time/days 1)))
                 {:status :retry :backoff-ms 60000}
@@ -177,9 +178,7 @@
                     (blacklist-counterparty buyer-id seller-id)
                     (events/dispatch! seller-id :buy-request-restarted buy-request)
                     {:status :retry :backoff-ms 1}))))
-        ;; Retry after 1 minute
         (do (log/debug "No seller match. Retrying in 5 minutes.")
-            ;; (log/debug (db/get-user-friends-of-friends buyer-id))
             {:status :retry :backoff-ms 300000})))))
 
 (defn contracts-master-handler
@@ -250,7 +249,7 @@
                       :contracts-master contracts-master-handler
                       :common-preemptive common-preemptive-handler})
 
-(defn- queue-status* [worker-id] (mq/queue-status redis-conn (get-in [worker-id :qname] workers)))
+(defn- queue-status* [worker-id] (mq/queue-status redis-conn (get-in workers [worker-id :qname])))
 (def buy-requests-status (partial queue-status* :buy-requests-master))
 (def contracts-status (partial queue-status* :contracts-master))
 (def preemptive-status (partial queue-status* :common-preemptive))
@@ -274,3 +273,5 @@
 (defn restart! [] (workers-stop!) (workers-start!))
 
 (defonce start-workers_ (workers-start!))
+
+(defn flushall!!! [] (wcar* (r/flushall)))

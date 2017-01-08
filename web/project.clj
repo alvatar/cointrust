@@ -15,6 +15,7 @@
                  [ring.middleware.logger "0.5.0"]
                  [aleph "0.4.2-alpha9"]
                  [compojure "1.5.1"]
+                 [com.taoensso/nippy "2.12.2"]
                  [com.taoensso/sente "1.11.0"]
                  [com.taoensso/encore "2.88.2"]
                  [com.taoensso/timbre "4.8.0"]
