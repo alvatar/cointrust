@@ -110,7 +110,7 @@
 ;; Workers
 ;;
 
-(defn reveal-idempotency-state [uid]
+(defn idempotency-state-reveal [uid]
   (let [ops-ttl (* 7 24 3600) ; 1 week
         op-key (str "idempotent-ops:" uid)
         [_ stored _] (wcar* (r/hsetnx op-key :global (let [now (unix-now)] {:created now :started now}))
@@ -130,7 +130,8 @@
       (json/parse-string-strict stored)
       (let [op-result (operation)]
         (wcar* (r/hset op-key field (try (json/generate-string op-result)
-                                         (catch Exception e "<output-not-serializable>"))))
+                                         ;; "null" is serialized as a null value, but found in Redis
+                                         (catch Exception e "null"))))
         op-result))))
 
 (defmacro idempotent-op [uid tag state & body]
@@ -143,7 +144,7 @@
 (defn buy-requests-master-handler
   [{:keys [mid message attempt] :as all}]
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message
-        state (reveal-idempotency-state mid)]
+        state (idempotency-state-reveal mid)]
     (log/debug "STATE:" state)
     ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
     (let [buy-request
@@ -152,6 +153,7 @@
                            (do (log/debug "Buy request created:" result) result)
                            (throw (Exception. "Couldn't create buy-request"))))
           buy-request-id (:id buy-request)]
+      (log/debug "Processing buy request ID" buy-request-id)
       (idempotent-op mid :event-buy-request-created state
                      (events/dispatch! buyer-id :buy-request-created buy-request))
       (Thread/sleep 5000) ;; FAKE
@@ -190,7 +192,7 @@
 (defn contracts-master-handler
   [{:keys [mid message attempt]}]
   #_(let [{:keys [id buyer-id seller-id amount currency]} message
-        state (reveal-idempotency-state mid)
+        state (idempotency-state-reveal mid)
         contract-stage (get-contract-state id)]
     (log/debug "STATE:" state)
     (case contract-stage
