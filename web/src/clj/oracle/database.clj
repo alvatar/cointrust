@@ -126,7 +126,6 @@ WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
 INSERT INTO sell_offer (user_id, min, max) VALUES (?, ?, ?)
 ON CONFLICT (user_id) DO UPDATE SET min = ?, max = ?
 " user-id minval maxval minval maxval])
-    'ok
     (catch Exception e (or (.getNextException e) e))))
 
 (defn sell-offer-get-by-user [user-id]
@@ -157,19 +156,28 @@ SELECT * FROM sell_offer;
 
 (defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate]
   (try
-    (->kebab-case
-     (first
-      (sql/query db ["
+    (-> (sql/query db ["
 INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate) VALUES (?, ?, ?, ?, ?)
 RETURNING *;
-" user-id amount currency-buy currency-sell exchange-rate])))
+" user-id amount currency-buy currency-sell exchange-rate])
+        first
+        ->kebab-case)
     (catch Exception e (log/debug (or (.getNextException e) e)) nil)))
 
 (defn get-buy-requests-by-user [user-id]
   (mapv ->kebab-case
         (sql/query db ["
-SELECT id, seller_id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request WHERE buyer_id = ?;
+SELECT id, seller_id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request
+WHERE buyer_id = ?;
 " user-id])))
+
+(defn get-buy-request-by-id [buy-request]
+  (-> (sql/query db ["
+SELECT id, seller_id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request
+WHERE id = ?;
+" buy-request])
+      first
+      ->kebab-case))
 
 (defn buy-request-set-seller! [buy-request seller-id]
   (try
@@ -307,6 +315,7 @@ CREATE TABLE sell_offer (
                             "
 CREATE TABLE buy_request (
   id                              SERIAL PRIMARY KEY,
+  created                         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   buyer_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
   seller_id                       INTEGER REFERENCES user_account(id) ON UPDATE CASCADE,
   amount                          BIGINT NOT NULL,
@@ -317,6 +326,7 @@ CREATE TABLE buy_request (
                             "
 CREATE TABLE contracts (
   id              SERIAL PRIMARY KEY,
+  created         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   hash            TEXT NOT NULL UNIQUE,
   buyer           INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
   seller          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,

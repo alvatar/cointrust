@@ -115,6 +115,57 @@
            (log* "Error in handle-enter:" resp)))
      (log* "Friends^2" (str @(:friends2 app-state))))))
 
+(defn try-enter [hashed-id hashed-friends]
+  (chsk-send!
+   [:user/enter {:hashed-user hashed-id :hashed-friends hashed-friends}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (reset! (:user-id app-state) (:found-user resp))
+       (do (reset! app-error "There was an error with your login. Please try again.")
+           (log* "Error in try-enter:" resp))))))
+
+(defn- set-facebook-ids []
+  (fb/get-login-status
+   (fn [response]
+     (if (= (:status response) "connected")
+       (let [user-fbid (get-in response [:authResponse :userID])
+             hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))
+             friend-fbids (fb/api "/me/friends" {} identity)
+             hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
+         (reset! (:user-fbid app-state) user-fbid)
+         (reset! (:user-hash app-state) hashed-id)
+         (reset! (:friend-fbids app-state) friend-fbids)
+         (reset! (:friend-hashes app-state) hashed-friends)
+         (log* "Connected with Facebook userID: " user-fbid)
+         (log* "Hashed user: " hashed-id)
+         (log* "Friend IDs: " (str friend-fbids))
+         (log* "Hashed friends: " (str hashed-friends))
+         (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
+         (init-sente! hashed-id))
+       (log* "Not logged in: " (clj->js response))))))
+
+(defn get-user-requests []
+  (chsk-send!
+   [:user/buy-requests {:user-id @(:user-id app-state)}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (when-let [requests (:buy-requests resp)]
+         (log* "Received requests" requests)
+         (reset! (:buy-requests app-state) requests))
+       (do (reset! app-error "There was an error retrieving your previous buy requests. Please try again.")
+           (log* "Error in get-user-requests:" resp))))))
+
+(defn get-user-contracts []
+  (chsk-send!
+   [:user/contracts {:user-id @(:user-id app-state)}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (when-let [contracts (:contracts resp)]
+         (log* "Received contracts" contracts)
+         (reset! (:contracts app-state) contracts))
+       (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
+           (log* "Error in get-user-contract:" resp))))))
+
 (defn open-sell-offer [{:as vals :keys [min max]}]
   (chsk-send!
    [:offer/open (assoc vals :user-id @(:user-id app-state))] 5000
@@ -154,62 +205,23 @@
            (log* "Error in create-buy-request:" resp)))
      (callback))))
 
-(defn get-user-requests []
+(defn accept-buy-request [buy-request-id]
   (chsk-send!
-   [:user/buy-requests {:user-id @(:user-id app-state)}] 5000
+   [:buy-request/accept {:id buy-request-id}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (when-let [requests (:buy-requests resp)]
-         (log* "Received requests" requests)
-         (reset! (:buy-requests app-state) requests))
-       (do (reset! app-error "There was an error retrieving your previous buy requests. Please try again.")
-           (log* "Error in get-user-requests:" resp))))))
-
-(defn accept-buy-request [buy-request-id]
-  )
+       (log* (gstring/format "Buy request ID %d accepted" buy-request-id))
+       (do (log* (gstring/format "Error accepting buy request ID %d" buy-request-id))
+           (reset! app-error "There was an error accepting the buy request. Please try again."))))))
 
 (defn decline-buy-request [buy-request-id]
-  )
-
-(defn get-user-contracts []
   (chsk-send!
-   [:user/contracts {:user-id @(:user-id app-state)}] 5000
+   [:buy-request/decline {:id buy-request-id}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (when-let [contracts (:contracts resp)]
-         (log* "Received contracts" contracts)
-         (reset! (:contracts app-state) contracts))
-       (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
-           (log* "Error in get-user-contract:" resp))))))
-
-(defn try-enter [hashed-id hashed-friends]
-  (chsk-send!
-   [:user/enter {:hashed-user hashed-id :hashed-friends hashed-friends}] 5000
-   (fn [resp]
-     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:user-id app-state) (:found-user resp))
-       (do (reset! app-error "There was an error with your login. Please try again.")
-           (log* "Error in try-enter:" resp))))))
-
-(defn set-facebook-ids []
-  (fb/get-login-status
-   (fn [response]
-     (if (= (:status response) "connected")
-       (let [user-fbid (get-in response [:authResponse :userID])
-             hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))
-             friend-fbids (fb/api "/me/friends" {} identity)
-             hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
-         (reset! (:user-fbid app-state) user-fbid)
-         (reset! (:user-hash app-state) hashed-id)
-         (reset! (:friend-fbids app-state) friend-fbids)
-         (reset! (:friend-hashes app-state) hashed-friends)
-         (log* "Connected with Facebook userID: " user-fbid)
-         (log* "Hashed user: " hashed-id)
-         (log* "Friend IDs: " (str friend-fbids))
-         (log* "Hashed friends: " (str hashed-friends))
-         (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
-         (init-sente! hashed-id))
-       (log* "Not logged in: " (clj->js response))))))
+       (log* (gstring/format "Buy request ID %d declined" buy-request-id))
+       (do (log* (gstring/format "Error declining buy request ID %d" buy-request-id))
+           (reset! app-error "There was an error declining the buy request. Please try again."))))))
 
 ;;
 ;; Event Handlers
@@ -526,7 +538,7 @@
                                              :disabled (rum/react decline-lock)
                                              :on-touch-tap (fn []
                                                              (decline-buy-request (:id current))
-                                                             (close-sell-offer #(reset! (:sell-offer-matches app-state) nil)))})]}
+                                                             (close-sell-offer #(swap! (:sell-offer-matches app-state) pop)))})]}
                  [:div
                   [:p (gstring/format "A buyer wants to purchase %f %s"
                                       (:amount current)

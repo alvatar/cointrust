@@ -12,24 +12,17 @@
 ;; Sente event handlers
 ;;
 
-(defmulti -event-msg-handler
-  "Multimethod to handle Sente `event-msg`s"
-  ;; Dispatch on event-id
-  :id)
+(defmulti -event-msg-handler "Multimethod to handle Sente `event-msg`s" :id)
 
 (defn event-msg-handler
   "Wraps `-event-msg-handler` with logging, error catching, etc."
   [{:as ev-msg :keys [id ?data event]}]
-  (-event-msg-handler ev-msg) ; Handle event-msgs on a single thread
   ;; (future (-event-msg-handler ev-msg)) ; Handle event-msgs on a thread pool
-  )
+  (-event-msg-handler ev-msg))
 
 (defmethod -event-msg-handler :default ; Default/fallback case (no other matching handler)
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (let [session (:session ring-req)
-        uid (:uid session)]
-    (when ?reply-fn
-      (?reply-fn {:umatched-event-as-echoed-from-from-server event}))))
+  (when ?reply-fn (?reply-fn {:umatched-event-as-echoed-from-from-server event})))
 
 (defmethod -event-msg-handler :user/enter
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
@@ -38,48 +31,35 @@
          (?reply-fn {:status :ok
                      :found-user user
                      :found-friends friends}))
-       (catch Exception e
-         (pprint e)
-         (?reply-fn {:status :error}))))
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :user/friends-of-friends
-  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  [{:keys [?data ?reply-fn]}]
   (try (?reply-fn {:status :ok
                    :friends2 (db/get-user-friends-of-friends (:user-id ?data))})
-       (catch Exception e
-         (?reply-fn {:status :error}))))
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :user/buy-requests
-  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  [{:keys [?data ?reply-fn]}]
   (try (?reply-fn {:status :ok
                    :buy-requests (db/get-buy-requests-by-user (:user-id ?data))})
-       (catch Exception e
-         (pprint e)
-         (?reply-fn {:status :error}))))
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :user/contracts
-  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  [{:keys [?data ?reply-fn]}]
   (try (?reply-fn {:status :ok
                    :contracts (for [c (db/get-user-contracts (:user-id ?data))]
                                 (merge c (db/get-contract-last-event (:id c))))})
-       (catch Exception e
-         (pprint e)
-         (?reply-fn {:status :error}))))
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/open
-  [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
-  (try (let [res (db/sell-offer-set! (:user-id ?data) (:min ?data) (:max ?data))]
-         (if (= res 'ok)
-           (?reply-fn {:status :ok
-                       :min (:min ?data)
-                       :max (:max ?data)})
-           (pprint res)))
-       (catch Exception e
-         (pprint e)
-         (?reply-fn {:status :error}))))
+  [{:keys [?data ?reply-fn]}]
+  (try (db/sell-offer-set! (:user-id ?data) (:min ?data) (:max ?data))
+       (?reply-fn {:status :ok :min (:min ?data) :max (:max ?data)})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/get
-  [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
+  [{:keys [?data ?reply-fn]}]
   (try (let [{:keys [min max]} (db/sell-offer-get-by-user (:user-id ?data))]
          (cond
            (and min max)
@@ -88,30 +68,34 @@
            (?reply-fn {:status :ok})
            :else
            (?reply-fn (?reply-fn {:status :error :id :internal-mismatch-in-offer}))))
-       (catch Exception e
-         (pprint e)
-         (?reply-fn {:status :error}))))
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/close
-  [{:as ev-msg :keys [event uid id ?data ring-req ?reply-fn send-fn]}]
-  (try (let [res (db/sell-offer-unset! (:user-id ?data))]
-         (if (= res 'ok)
-           (?reply-fn {:status :ok})
-           (pprint res)))
-       (catch Exception e
-         (pprint e)
-         (?reply-fn {:status :error}))))
+  [{:keys [?data ?reply-fn]}]
+  (try (db/sell-offer-unset! (:user-id ?data))
+       (?reply-fn {:status :ok})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :buy-request/create
-  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  [{:keys [?data ?reply-fn]}]
   (try (tasks/initiate-buy-request (:user-id ?data) (common/currency-as-long
                                                      (:amount ?data)
                                                      (:currency-sell ?data))
                                    (:currency-buy ?data) (:currency-sell ?data))
        (?reply-fn {:status :ok})
-       (catch Exception e
-         (pprint e)
-         (?reply-fn {:status :error}))))
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+
+(defmethod -event-msg-handler :buy-request/accept
+  [{:keys [?data ?reply-fn]}]
+  (try (tasks/initiate-preemptive-task :buy-request/accepted {:id (:id ?data)})
+       (?reply-fn {:status :ok})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+
+(defmethod -event-msg-handler :buy-request/decline
+  [{:keys [?data ?reply-fn]}]
+  (try (tasks/initiate-preemptive-task :buy-request/declined {:id (:id ?data)})
+       (?reply-fn {:status :ok})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 ;;
 ;; Sente event router (`event-msg-handler` loop)

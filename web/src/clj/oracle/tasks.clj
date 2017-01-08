@@ -19,27 +19,61 @@
 (defmacro wcar* [& body] `(r/wcar redis-conn ~@body))
 
 ;;
+;; Utils
+;;
+
+(defn unix-now [] (time-coerce/to-long (time/now)))
+
+(defn unix-after [duration] (time-coerce/to-long (time/plus (time/now) duration)))
+
+;;
+;; Interface
+;;
+
+(defonce workers {:buy-requests-master {:qname "buy-requests-master-queue"
+                                        :handler (ref nil)
+                                        :worker (ref nil)}
+                  :contracts-master {:qname "contracts-master-queue"
+                                     :handler (ref nil)
+                                     :worker (ref nil)}
+                  :common-preemptive {:qname "common-preemptive-queue"
+                                     :handler (ref nil)
+                                     :worker (ref nil)}})
+
+(defn initiate-buy-request [buyer-id amount currency-buy currency-sell]
+  (log/debug (format "Initiated buy request from buyer ID %d for %d %s" buyer-id amount currency-buy))
+  (wcar* (mq/enqueue (get-in [:buy-requests-master :qname] workers)
+                     {:buyer-id buyer-id :amount amount
+                      :currency-buy currency-buy :currency-sell currency-sell})))
+
+(defn initiate-contract [buy-request-id]
+  (log/debug "Initiated contracts from buy request ID" buy-request-id)
+  (wcar* (mq/enqueue (get-in [:contracts-master-queue :qname] workers)
+                     {:TODO :TODO})))
+
+(defn initiate-preemptive-task [tag data]
+  (wcar* (mq/enqueue (get-in [:common-preemptive :qname] workers)
+                     {:tag tag :data data})))
+
+;;
 ;; Matching
 ;;
 
 ;; This is the core of Cointrust. When a request to buy is received,
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
-(defn pick-counterparty [user-id amount currency-sell]
-  (rand-nth (db/get-user-friends-of-friends user-id)))
+(defn pick-counterparty [buyer-id amount currency-sell]
+  (rand-nth (db/get-user-friends-of-friends buyer-id)))
 
-;;
-;; Tasks
-;;
+(defn blacklist-counterparty [buyer-id seller-id]
+  )
 
-(defn initiate-buy-request [buyer-id amount currency-buy currency-sell]
-  (wcar* (mq/enqueue "buy-requests-queue"
-                     {:buyer-id buyer-id :amount amount
-                      :currency-buy currency-buy :currency-sell currency-sell})))
+;; This is kept in Redis, since it survives the buy request deletion in SQL
+(defn set-buy-request-status [id status]
+  (wcar* (r/hset "buy-request->status" id status)))
 
-(defn initiate-contract [buyer-id seller-id amount currency-buy currency-sell exchange-rate]
-  (wcar* (mq/enqueue "contracts-queue"
-                     {:buyer-id buyer-id :seller-id seller-id})))
+(defn get-buy-request-status [id]
+  (wcar* (r/hget "buy-request->status" id)))
 
 ;; 1. Pick counterparty (or multiple), and wait for response
 ;; counterparty (pick-counterparty buyer-id)
@@ -65,32 +99,42 @@
 ;; 6. Notify/Set-aync-notification combo
 ;; 7. Set as stage "notified"
 
-(defn unix-now [] (time-coerce/to-long (time/now)))
-
-(defn unix-after [duration] (time-coerce/to-long (time/plus (time/now) duration)))
+;;
+;; Workers
+;;
 
 (defn reveal-idempotency-state [uid]
-  (let [ops-ttl (* 7 24 3600)
+  (let [ops-ttl (* 7 24 3600) ; 1 week
         op-key (str "idempotent-ops:" uid)
-        [_ stored _] (wcar* (r/hsetnx op-key "global" {:created (unix-now)})
+        [_ stored _] (wcar* (r/hsetnx op-key :global (let [now (unix-now)] {:created now :started now}))
                             (r/hgetall op-key)
                             (r/expire op-key ops-ttl))]
     (into {} (for [[k v] (partition 2 stored)] [(keyword k) v]))))
+
+(defn idempotency-state-merge! [uid new-map]
+  (let [op-key (str "idempotent-ops:" uid)
+        global (wcar* (r/hget op-key :global))]
+    (wcar* (r/hset op-key :global (merge global new-map)))))
 
 (defn idempotent-op* [uid tag state operation]
   (let [op-key (str "idempotent-ops:" uid)
         field (name tag)]
     (if-let [stored (tag state)]
-      (json/parse-string stored)
-      (let [op-result (operation)
-            store-result (if (map? op-result) op-result "<output-not-map>")]
-        (wcar* (r/hset op-key field (json/generate-string store-result)))
+      stored
+      (let [op-result (operation)]
+        (wcar* (r/hset op-key field (cond (nil? op-result) "<output-nil>"
+                                          (map? op-result) op-result
+                                          :else "<output-not-serialized>")))
         op-result))))
 
 (defmacro idempotent-op [uid tag state & body]
   `(idempotent-op* ~uid ~tag ~state (fn [] ~@body)))
 
-(defn buy-requests-handler
+;;
+;; Master task queues: they track progress of an entity. They have time and state.
+;;
+
+(defn buy-requests-master-handler
   [{:keys [mid message attempt] :as all}]
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message
         state (reveal-idempotency-state mid)]
@@ -100,55 +144,47 @@
           (idempotent-op mid :buy-request-create state
                          (if-let [result (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
                            (do (log/debug "Buy request created:" result) result)
-                           (throw (Exception. "Couldn't create buy-request"))))]
+                           (throw (Exception. "Couldn't create buy-request"))))
+          buy-request-id (:id buy-request)]
       (idempotent-op mid :event-buy-request-created state
                      (events/dispatch! buyer-id :buy-request-created buy-request))
       (Thread/sleep 5000) ;; FAKE
       (if-let [seller-id (idempotent-op mid :pick-counterparty state
-                                        (db/buy-request-set-seller! (:id buy-request) (pick-counterparty buyer-id amount currency-sell)))]
+                                        (db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell)))]
         (do (idempotent-op mid :sell-offer-matched state
                            (events/dispatch! seller-id :sell-offer-matched buy-request)
-                           (events/dispatch! buyer-id :buy-request-matched {:id (:id buy-request) :seller-id seller-id}))
+                           (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
             ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
-            (println (format "%s seconds have passed since this task was created." (\ (- (unix-now) (:created (:global state))) 1000)))
-            (let [buy-request-status (get-buy-request-status (:id buy-request))]
+            (println (format "%s seconds have passed since this task was created." (\ (- (unix-now) (:started (:global state))) 1000)))
+            (let [buy-request-status (get-buy-request-status buy-request-id)]
               (cond
-                (= buy-request-status "accepted") ; Buy request accepted
-                (do
-                  ;; --- Do as preemptive event. Micro task.
-                  (initiate-contract buyer-id seller-id ...) ; XXX
-                  (db/buy-request-delete! (:id buy-request)) ; XXX
-                  (events/dispatch! seller-id :buy-request-accepted buy-request)  ; XXX
-                  ;; ---
-                  {:status :success}
-                  )
-                (= buy-request-status "declined") ; Buy request declined
-                (do
-                  (db/buy-request-unset-seller! (:id buy-request))
-                  (blacklist-counterparty buyer-id seller-id) ; XXX
-                  (events/dispatch! seller-id :buy-request-declined buy-request) ; XXX
-                  {:status :retry :backoff-ms 1})
-                (< (unix-now) (unix-after (time/days 1))) ; Still within time window. Check again in 20 seconds
-                {:status :retry :backoff-ms 20000}
-                :else ; Time has passed. Search another seller immediately.
-                (do
-                  (db/buy-request-unset-seller! (:id buy-request))
-                  (blacklist-counterparty buyer-id seller-id) ; XXX
-                  (events/dispatch! seller-id :buy-request-restarted buy-request)
-                  {:status :retry :backoff-ms 1}))))
+                ;; Buy request accepted
+                (= buy-request-status "<accepted>")
+                (do (db/buy-request-delete! buy-request-id)
+                    {:status :success})
+                ;; Buy request declined
+                (= buy-request-status "<declined>")
+                (do (idempotency-state-merge! mid {:started (unix-now) :pick-counterparty nil})
+                    (blacklist-counterparty buyer-id seller-id)
+                    (db/buy-request-unset-seller! buy-request-id)
+                    {:status :retry :backoff-ms 60000})
+                ;; Still within time window. Check again in 60 seconds.
+                (< (unix-now) (unix-after (time/days 1)))
+                {:status :retry :backoff-ms 60000}
+                ;; Time has passed. Search another seller immediately.
+                :else
+                (do (db/buy-request-unset-seller! buy-request-id)
+                    (blacklist-counterparty buyer-id seller-id)
+                    (events/dispatch! seller-id :buy-request-restarted buy-request)
+                    {:status :retry :backoff-ms 1}))))
         ;; Retry after 1 minute
         (do (log/debug "No seller match. Retrying in 5 minutes.")
             ;; (log/debug (db/get-user-friends-of-friends buyer-id))
             {:status :retry :backoff-ms 300000})))))
 
-;; TODO:
-;; Preemptive events: micro tasks (one single micro-task handler). They mark
-;;   the accomplished micro-task, for the master task to drive the progress.
-;; Checks: master tasks
-
-(defn contracts-handler
+(defn contracts-master-handler
   [{:keys [mid message attempt]}]
-  (let [{:keys [id buyer-id seller-id amount currency]} message
+  #_(let [{:keys [id buyer-id seller-id amount currency]} message
         state (reveal-idempotency-state mid)
         contract-stage (get-contract-state id)]
     (log/debug "STATE:" state)
@@ -176,21 +212,49 @@
     {:status :retry :backoff-ms 20000}))
 
 ;;
+;; Preemptive task queues: They mark the accomplished micro-task, for the master
+;; task to drive the progress.
+;; Important: inside these tasks, only thing that *need to be performed ASAP* should
+;; be placed. Everything else should go in the master tasks.
+;;
+
+(defmulti common-preemptive-handler
+  (fn [{:keys [mid message attempt]}] (:tag message)))
+
+(defmethod common-preemptive-handler :buy-request/accepted
+  [{:keys [mid message attempt]}]
+  (let [{:keys [tag data]} message
+        buy-request-id (:id data)
+        buy-request (db/get-buy-request-by-id buy-request-id)]
+    (log/debug message)
+    (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
+    (events/dispatch! (:seller-id buy-request) :buy-request-accepted buy-request) ; Repeat OK
+    (initiate-contract buy-request)
+    {:status :success}))
+
+(defmethod common-preemptive-handler :buy-request/declined
+  [{:keys [mid message attempt]}]
+  (let [{:keys [tag data]} message
+        buy-request-id (:id data)
+        buy-request (db/get-buy-request-by-id buy-request-id)]
+    (log/debug message)
+    (set-buy-request-status buy-request-id "<declined>") ; Idempotent
+    (events/dispatch! (:seller-id buy-request) :buy-request-declined buy-request)
+    {:status :success}))
+
+;;
 ;; Lifecyle
 ;;
 
-(defonce workers {:buy-requests {:qname "buy-requests-queue"
-                                 :handler (ref nil)
-                                 :worker (ref nil)}
-                  :contracts {:qname "contracts-queue"
-                              :handler (ref nil)
-                              :worker (ref nil)}})
+(def worker-handlers {:buy-requests-master buy-requests-master-handler
+                      :contracts-master contracts-master-handler
+                      :common-preemptive common-preemptive-handler})
 
-(def worker-handlers {:buy-requests buy-requests-handler
-                      :contracts contracts-handler})
-
-(defn buy-requests-queue-state [] (mq/queue-status redis-conn (get-in [:buy-requests :qname] workers)))
-(defn contracts-queue-state [] (mq/queue-status redis-conn (get-in [:contracts :qname] workers)))
+(defn- queue-status* [worker-id] (mq/queue-status redis-conn (get-in [worker-id :qname] workers)))
+(def buy-requests-status (partial queue-status* :buy-requests-master))
+(def contracts-status (partial queue-status* :contracts-master))
+(def preemptive-status (partial queue-status* :common-preemptive))
+(defn queues-status [] (for [[id data] workers] (queue-status* id)))
 
 (defn workers-stop! []
   (dosync
