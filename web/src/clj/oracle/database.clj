@@ -177,10 +177,18 @@ SELECT id, seller_id, amount, currency_buy, currency_sell, exchange_rate FROM bu
 UPDATE buy_request SET seller_id = ?
 WHERE id = ?
 " seller-id buy-request])
-    'ok
+    seller-id
     (catch Exception e (or (.getNextException e) e))))
 
-(defn buy-request-remove! [buy-request]
+(defn buy-request-unset-seller! [buy-request]
+  (try
+    (sql/execute! db ["
+UPDATE buy_request SET seller_id = NULL
+WHERE id = ?
+" buy-request])
+    (catch Exception e (or (.getNextException e) e))))
+
+(defn buy-request-delete! [buy-request]
   (try
     (sql/execute! db ["
 DELETE FROM buy_request WHERE id = ?;

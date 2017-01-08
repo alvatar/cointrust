@@ -165,6 +165,12 @@
        (do (reset! app-error "There was an error retrieving your previous buy requests. Please try again.")
            (log* "Error in get-user-requests:" resp))))))
 
+(defn accept-buy-request [buy-request-id]
+  )
+
+(defn decline-buy-request [buy-request-id]
+  )
+
 (defn get-user-contracts []
   (chsk-send!
    [:user/contracts {:user-id @(:user-id app-state)}] 5000
@@ -245,6 +251,15 @@
       (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
           (log* "Error in buy-request/matched" msg)))))
 
+(defmethod app-msg-handler :buy-request/restarted
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :buy-request/restarted" msg)
+    (if-let [found-idx (first (keep-indexed #(when (= (:id %2) (:id msg)) %1) @(:buy-requests app-state)))]
+      (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
+      (do (reset! app-error "There was an error when restarting the buy request. Please inform us of this event.")
+          (log* "Error in buy-request/restarted" msg)))))
+
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
   (if (:error msg)
@@ -317,7 +332,7 @@
         btc-usd @(:btc-usd app-state)
         total (* btc-usd (:amount (rum/react input)))
         open? (= (rum/react (:ui-mode app-state)) :buy-dialog)]
-    (if (<= (count @(:buy-requests app-state)) 3)
+    (if (<= (count @(:buy-requests app-state)) 10)
       (ui/dialog {:title "Buy Bitcoins"
                   :open open?
                   :modal true
@@ -429,7 +444,7 @@
         [:div "Retrieving requests..."
          (ui/linear-progress {:size 60 :mode "indeterminate"})]
         (empty? requests)
-        [:p.center "No requests in history"]
+        [:p.center "No active requests"]
         :else
         (ui/list
          (for [req requests]
@@ -472,7 +487,7 @@
         [:div "Retrieving contracts..."
          (ui/linear-progress {:size 60 :mode "indeterminate"})]
         (empty? contracts)
-        [:p.center "No contracts in history"]
+        [:p.center "No active contracts"]
         :else
         (for [contract contracts]
           [:div {:key (:hash contract)} (str "Contract Hash ID: " (:hash contract))
@@ -504,10 +519,14 @@
                   :modal true
                   :actions [(ui/flat-button {:label "Accept"
                                              :primary true
-                                             :on-touch-tap #(swap! (:sell-offer-matches app-state) pop)})
+                                             :on-touch-tap (fn []
+                                                             (accept-buy-request (:id current))
+                                                             (swap! (:sell-offer-matches app-state) pop))})
                             (ui/flat-button {:label "Decline"
                                              :disabled (rum/react decline-lock)
-                                             :on-touch-tap (fn [] (close-sell-offer #(reset! (:sell-offer-matches app-state) nil)))})]}
+                                             :on-touch-tap (fn []
+                                                             (decline-buy-request (:id current))
+                                                             (close-sell-offer #(reset! (:sell-offer-matches app-state) nil)))})]}
                  [:div
                   [:p (gstring/format "A buyer wants to purchase %f %s"
                                       (:amount current)

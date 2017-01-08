@@ -26,8 +26,10 @@
                          :message "We found a trusted partner for your transaction. We are now waiting for its response."}]))
      :sell-offer-matched
      (future
-       (chsk-send! uid [:sell-offer/matched args])
-       #_(chsk-send! uid [:notification/create
-                        {:title "Buyer offer"
-                         :message (format "We found a trusted partner interested in buying %s %s. We are now waiting for its response."
-                                          )}])))))
+       (chsk-send! uid [:sell-offer/matched args]))
+     :buy-request-restarted
+     (future
+       (chsk-send! uid [:buy-request/restarted args])
+       (chsk-send! uid [:notification/create
+                        {:title "Buy request restarted"
+                         :message "Your transaction partner is not reponding without the provided time. We are looking for a new partner for you."}])))))

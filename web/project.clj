@@ -27,6 +27,7 @@
                  ;; Misc
                  [crypto-random "1.2.0"]
                  [cheshire "5.6.3"]
+                 [clj-time "0.13.0"]
                  ;; Cljs
                  [rum "0.10.7" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljs-react-material-ui "0.2.35"]
