@@ -1,5 +1,6 @@
 (ns oracle.tasks
   (:require [clojure.pprint :refer [pprint]]
+            [clojure.data :refer [diff]]
             [environ.core :refer [env]]
             [taoensso.timbre :as log]
             [taoensso.carmine :as r]
@@ -64,10 +65,15 @@
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
 (defn pick-counterparty [buyer-id amount currency-sell]
-  (rand-nth (db/get-user-friends-of-friends buyer-id)))
+  (let [[available _ _] (diff (db/get-user-friends-of-friends buyer-id)
+                              (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))]
+    (rand-nth available)))
 
 (defn blacklist-counterparty [buyer-id seller-id]
-  )
+  (wcar* (r/sadd (str "buyer->blacklist:" buyer-id) seller-id)))
+
+(defn clear-user-blacklist [buyer-id]
+  (wcar* (r/del (str "buyer->blacklist:" buyer-id))))
 
 ;; This is kept in Redis, since it survives the buy request deletion in SQL
 (defn set-buy-request-status [id status]
@@ -121,11 +127,10 @@
   (let [op-key (str "idempotent-ops:" uid)
         field (name tag)]
     (if-let [stored (tag state)]
-      stored
+      (json/parse-string-strict stored)
       (let [op-result (operation)]
-        (wcar* (r/hset op-key field (cond (nil? op-result) "<output-nil>"
-                                          (nippy/freezable? op-result) op-result
-                                          :else "<output-not-serializable>")))
+        (wcar* (r/hset op-key field (try (json/generate-string op-result)
+                                         (catch Exception e "<output-not-serializable>"))))
         op-result))))
 
 (defmacro idempotent-op [uid tag state & body]
@@ -162,6 +167,7 @@
                 ;; Buy request accepted
                 (= buy-request-status "<accepted>")
                 (do (db/buy-request-delete! buy-request-id)
+                    (clear-user-blacklist buyer-id)
                     {:status :success})
                 ;; Buy request declined
                 (= buy-request-status "<declined>")
