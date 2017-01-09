@@ -48,7 +48,7 @@
 (defmethod -event-msg-handler :user/contracts
   [{:keys [?data ?reply-fn]}]
   (try (?reply-fn {:status :ok
-                   :contracts (for [c (db/get-user-contracts (:user-id ?data))]
+                   :contracts (for [c (db/get-contracts-by-user (:user-id ?data))]
                                 (merge c (db/get-contract-last-event (:id c))))})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 

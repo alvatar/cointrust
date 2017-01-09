@@ -122,10 +122,13 @@ WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
 
 (defn sell-offer-set! [user-id minval maxval]
   (try
-    (sql/execute! db ["
+    (sql/with-db-transaction
+      [tr db]
+      (sql/execute! db ["
 INSERT INTO sell_offer (user_id, min, max) VALUES (?, ?, ?)
 ON CONFLICT (user_id) DO UPDATE SET min = ?, max = ?
 " user-id minval maxval minval maxval])
+      (log! "sell-offer-set" {:user-id user-id :min minval :max maxval}))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn sell-offer-get-by-user [user-id]
@@ -136,10 +139,12 @@ SELECT min, max FROM sell_offer WHERE user_id = ?;
 
 (defn sell-offer-unset! [user-id]
   (try
-    (sql/execute! db ["
+    (sql/with-db-transaction
+      [tr db]
+      (sql/execute! db ["
 DELETE FROM sell_offer WHERE user_id = ?;
 " user-id])
-    'ok
+      (log! "sell-offer-unset" {:user-id user-id}))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-all-sell-offers []
@@ -156,10 +161,17 @@ SELECT * FROM sell_offer;
 
 (defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate]
   (try
-    (-> (sql/query db ["
+    (-> (sql/with-db-transaction
+          [tr db]
+          (sql/query db ["
 INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate) VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 " user-id amount currency-buy currency-sell exchange-rate])
+          (log! "buy-request-create" {:user-id user-id
+                                      :amount amount
+                                      :currency-buy currency-buy
+                                      :currency-sell currency-sell
+                                      :exchange-rate exchange-rate}))
         first
         ->kebab-case)
     (catch Exception e (log/debug (or (.getNextException e) e)) nil)))
@@ -180,10 +192,13 @@ WHERE id = ?;
 
 (defn buy-request-set-seller! [buy-request seller-id]
   (try
-    (sql/execute! db ["
+    (sql/with-db-transaction
+      [tr db]
+      (sql/execute! db ["
 UPDATE buy_request SET seller_id = ?
 WHERE id = ?
 " seller-id buy-request])
+      (log! "buy-request-set-seller" {:id buy-request :seller-id seller-id}))
     seller-id
     (catch Exception e (or (.getNextException e) e))))
 
@@ -214,7 +229,7 @@ SELECT * FROM buy_request;
 ;;
 
 (defn contract-create!
-  ([buyer-id seller-id amount & [currency]]
+  ([{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate] :as params}]
    (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
      (try
        (sql/with-db-transaction
@@ -222,15 +237,14 @@ SELECT * FROM buy_request;
          (let [contract
                (first
                 (sql/query tx ["
-INSERT INTO contracts (hash, buyer, seller, amount, currency) VALUES (?, ?, ?, ?) RETURNING *;
-" (crypto/base64 27) buyer-id seller-id amount currency]))]
+INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+" (crypto/base64 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
            (sql/execute! tx ["
 INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
 " (:id contract) 0 "waiting"])
-           (log! tx "user-insert" {:buyer-id buyer-id
-                                   :seller-id seller-id
-                                   :amount amount
-                                   :currency currency})
+           (log! tx "contract-create" params)
            contract))
        (catch Exception e (or (.getNextException e) e)))))
   ([buyer-id seller-id amount]
@@ -242,37 +256,47 @@ INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
       [tx db]
       (sql/execute! tx ["
 INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
-" contract-id stage status]))
+" contract-id stage status])
+      (log! tx "contract-add-event" {:id contract-id :stage stage :status status}))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-contract-events [contract-id]
   (into []
         (sql/query db ["
-SELECT time, stage, status FROM contracts
+SELECT time, stage, status FROM contract
 INNER JOIN contract_events
-ON contracts.id = contract_events.contract_id;
+ON contract.id = contract_events.contract_id;
 "])))
 
 (defn get-contract-last-event [contract-id]
-  (first
-   (sql/query db ["
-SELECT time, stage, status FROM contracts
+  (-> (sql/query db ["
+SELECT time, stage, status FROM contract
 INNER JOIN contract_events
-ON contracts.id = contract_events.contract_id
+ON contract.id = contract_events.contract_id
 WHERE contract_events.time = (SELECT MAX(contract_events.time) FROM contract_events);
-"])))
+"])
+      first
+      ->kebab-case))
 
-(defn get-user-contracts [user-id]
-  (into []
+(defn get-contracts-by-user [user-id]
+  (mapv ->kebab-case
         (sql/query db ["
-SELECT * FROM contracts
+SELECT * FROM contract
 WHERE buyer = ? OR seller = ?
 " user-id user-id])))
+
+(defn get-contract-by-id [id]
+  (-> (sql/query db ["
+SELECT * FROM contract
+WHERE id = ?
+" id])
+      first
+      ->kebab-case))
 
 (defn get-all-contracts []
   (into []
         (sql/query db ["
-SELECT * FROM contracts
+SELECT * FROM contract
 "])))
 
 ;;
@@ -283,7 +307,7 @@ SELECT * FROM contracts
   (try
     (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
                             "DROP TABLE IF EXISTS contract_events;"
-                            "DROP TABLE IF EXISTS contracts;"
+                            "DROP TABLE IF EXISTS contract;"
                             "DROP TABLE IF EXISTS sell_offer;"
                             "DROP TABLE IF EXISTS buy_request;"
                             "DROP TABLE IF EXISTS friends;"
@@ -318,25 +342,27 @@ CREATE TABLE buy_request (
   buyer_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
   seller_id                       INTEGER REFERENCES user_account(id) ON UPDATE CASCADE,
   amount                          BIGINT NOT NULL,
-  currency_buy                    TEXT DEFAULT 'usd' NOT NULL,
-  currency_sell                   TEXT DEFAULT 'xbt' NOT NULL,
+  currency_buy                    TEXT DEFAULT 'xbt' NOT NULL,
+  currency_sell                   TEXT DEFAULT 'usd' NOT NULL,
   exchange_rate                   DECIMAL(26,6)
 );"
                             "
-CREATE TABLE contracts (
-  id              SERIAL PRIMARY KEY,
-  created         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  hash            TEXT NOT NULL UNIQUE,
-  buyer           INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
-  seller          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
-  amount          TEXT NOT NULL,
-  currency        TEXT DEFAULT 'xbt' NOT NULL
+CREATE TABLE contract (
+  id                              SERIAL PRIMARY KEY,
+  hash                            TEXT NOT NULL UNIQUE,
+  created                         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  buyer_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  seller_id                       INTEGER REFERENCES user_account(id) ON UPDATE CASCADE,
+  amount                          BIGINT NOT NULL,
+  currency_buy                    TEXT DEFAULT 'xbt' NOT NULL,
+  currency_sell                   TEXT DEFAULT 'usd' NOT NULL,
+  exchange_rate                   DECIMAL(26,6)
 );"
                             "
 CREATE TABLE contract_events (
   id              SERIAL PRIMARY KEY,
   time            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  contract_id     INTEGER REFERENCES contracts(id) ON UPDATE CASCADE NOT NULL,
+  contract_id     INTEGER REFERENCES contract(id) ON UPDATE CASCADE NOT NULL,
   stage           SMALLINT NOT NULL,
   status          TEXT NOT NULL
 );"

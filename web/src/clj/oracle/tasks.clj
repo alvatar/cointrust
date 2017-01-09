@@ -48,11 +48,12 @@
                      {:buyer-id buyer-id :amount amount
                       :currency-buy currency-buy :currency-sell currency-sell})))
 
-(defn initiate-contract [buy-request-id]
-  (log/debug "Initiated contracts from buy request ID" buy-request-id)
-  ;;(throw (Exception. "NOT IMPLEMENTED"))
+(defn initiate-contract [buy-request]
+  (log/debug "Initiated contracts from buy request ID" (:id buy-request))
   (wcar* (mq/enqueue (get-in workers [:contracts-master-queue :qname])
-                     {:TODO :TODO})))
+                     buy-request
+                     ;; Avoid the same buy request generating more than one contract
+                     (str "contract-from-buy-request:" (:id buy-request)))))
 
 (defn initiate-preemptive-task [tag data]
   (wcar* (mq/enqueue (get-in workers [:common-preemptive :qname])
@@ -195,11 +196,14 @@
 
 (defn contracts-master-handler
   [{:keys [mid message attempt]}]
-  #_(let [{:keys [id buyer-id seller-id amount currency]} message
+  (let [{:keys [id] :as buy-request} message
         state (idempotency-state-reveal mid)
-        contract-stage (get-contract-state id)]
+        contract (idempotent-op mid :contract-create state
+                                (if-let [result (db/contract-create! buy-request)]
+                                  (do (log/debug "Contract created:" result) result)
+                                  (throw (Exception. "Couldn't create contract"))))]
     (log/debug "STATE:" state)
-    (case contract-stage
+    (case (:stage contract)
       ;; Price is frozen
       ;; We provide the buyer with A) the transfer info B) the instructions
       ;; We inform the seller of the expected transaction and the freezing of price
@@ -239,11 +243,11 @@
         buy-request (db/get-buy-request-by-id buy-request-id)]
     (log/debug message)
     (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
+    (events/dispatch! (:buyer-id buy-request) :buy-request-accepted buy-request) ; Repeat OK
+    (initiate-contract buy-request) ; Idempotent
     ;; Keep in mind that we are deleting the request here, so we rely on the master task
     ;; to retrieve the buy request info from the idempotency cache in Redis
-    (db/buy-request-delete! buy-request-id) ; Idempotent
-    (events/dispatch! (:buyer-id buy-request) :buy-request-accepted buy-request) ; Repeat OK
-    (initiate-contract buy-request)
+    (db/buy-request-delete! buy-request-id) ; Idempotent, must be done at the end
     {:status :success}))
 
 (defmethod common-preemptive-handler :buy-request/declined
