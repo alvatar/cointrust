@@ -282,7 +282,7 @@ WHERE contract_events.time = (SELECT MAX(contract_events.time) FROM contract_eve
   (mapv ->kebab-case
         (sql/query db ["
 SELECT * FROM contract
-WHERE buyer = ? OR seller = ?
+WHERE buyer_id = ? OR seller_id = ?
 " user-id user-id])))
 
 (defn get-contract-by-id [id]

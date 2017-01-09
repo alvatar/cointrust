@@ -468,7 +468,7 @@
   < rum/reactive
   []
   [:div
-   [:h4 {:style {:text-align "center"}} "Requests to buy"]
+   [:h4 {:style {:text-align "center"}} "Buy requests"]
    [:div
     (let [requests (rum/react (:buy-requests app-state))]
       (cond

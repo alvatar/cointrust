@@ -50,7 +50,7 @@
 
 (defn initiate-contract [buy-request]
   (log/debug "Initiated contracts from buy request ID" (:id buy-request))
-  (wcar* (mq/enqueue (get-in workers [:contracts-master-queue :qname])
+  (wcar* (mq/enqueue (get-in workers [:contracts-master :qname])
                      buy-request
                      ;; Avoid the same buy request generating more than one contract
                      (str "contract-from-buy-request:" (:id buy-request)))))
@@ -147,7 +147,7 @@
 ;;
 
 (defn buy-requests-master-handler
-  [{:keys [mid message attempt] :as all}]
+  [{:keys [mid message attempt]}]
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message
         state (idempotency-state-reveal mid)]
     (log/debug "STATE:" state)
@@ -224,7 +224,7 @@
       "stage-E"
       (do))
     ;; Retry in 20 seconds
-    {:status :retry :backoff-ms 20000}))
+    {:status :retry :backoff-ms 1000}))
 
 ;;
 ;; Preemptive task queues: They mark the accomplished micro-task, for the master
