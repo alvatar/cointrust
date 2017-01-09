@@ -38,7 +38,7 @@
                     :btc-usd (atom 1025.0)
                     :sell-offer (atom nil)
                     :sell-offer-matches (atom cljs.core/PersistentQueue.EMPTY)
-                    :buy-requests (atom cljs.core/PersistentQueue.EMPTY)
+                    :buy-requests (atom [])
                     :contracts (atom nil)
                     :notifications (atom cljs.core/PersistentQueue.EMPTY)})
 
@@ -282,6 +282,15 @@
          (catch :default e
            (reset! app-error "There was an error when accepting the buy request. Please inform us of this event.")
            (log* "Error in buy-request/accepted:" e)))))
+
+(defmethod app-msg-handler :buy-request/declined
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :buy-request/declined" msg)
+    (if-let [found-idx (find-buy-request (:id msg))]
+      (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
+      (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
+          (log* "Error in buy-request/matched" msg)))))
 
 (defmethod app-msg-handler :notification/create
   [[_ msg]]

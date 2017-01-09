@@ -40,7 +40,8 @@
                         {:title "Buy request accepted"
                          :message "A contract will be created briefly. You will be notified when the seller funds the Escrow account for the contract."}]))
      :buy-request-declined
-     ;; TODO
-     (throw (Exception. "NOT IMPLEMENTED"))
-     #_(future
-       (chsk-send! uid [:sell-offer/declined args])))))
+     (future
+       (chsk-send! uid [:buy-request/declined args])
+       (chsk-send! uid [:notification/create
+                        {:title "Buy request declined"
+                         :message "We regret to inform you that the assigned counterparty has failed to correctly initiate the contract. We are looking for a new transaction partner."}])))))
