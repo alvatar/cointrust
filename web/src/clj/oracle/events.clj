@@ -34,9 +34,11 @@
                         {:title "Buy request restarted"
                          :message "Your transaction partner is not reponding without the provided time. We are looking for a new partner for you."}]))
      :buy-request-accepted
-     (throw (Exception. "NOT IMPLEMENTED"))
-     #_(future
-       (chsk-send! uid [:sell-offer/accepted args]))
+     (future
+       (chsk-send! uid [:buy-request/accepted args])
+       (chsk-send! uid [:notification/create
+                        {:title "Buy request accepted"
+                         :message "A contract will be created briefly. You will be notified when the seller funds the Escrow account for the contract."}]))
      :buy-request-declined
      ;; TODO
      (throw (Exception. "NOT IMPLEMENTED"))

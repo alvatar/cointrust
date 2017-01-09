@@ -254,11 +254,13 @@
     (log* "Error in :buy-request/created" msg)
     (swap! (:buy-requests app-state) conj msg)))
 
+(defn find-buy-request [id] (first (keep-indexed #(when (= (:id %2) id) %1) @(:buy-requests app-state))))
+
 (defmethod app-msg-handler :buy-request/matched
   [[_ msg]]
   (if (:error msg)
     (log* "Error in :buy-request/matched" msg)
-    (if-let [found-idx (first (keep-indexed #(when (= (:id %2) (:id msg)) %1) @(:buy-requests app-state)))]
+    (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] (:seller-id msg))
       (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
           (log* "Error in buy-request/matched" msg)))))
@@ -267,10 +269,19 @@
   [[_ msg]]
   (if (:error msg)
     (log* "Error in :buy-request/restarted" msg)
-    (if-let [found-idx (first (keep-indexed #(when (= (:id %2) (:id msg)) %1) @(:buy-requests app-state)))]
+    (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
       (do (reset! app-error "There was an error when restarting the buy request. Please inform us of this event.")
           (log* "Error in buy-request/restarted" msg)))))
+
+(defmethod app-msg-handler :buy-request/accepted
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :buy-request/accepted" msg)
+    (try (swap! (:buy-requests app-state) (fn [q] (remove #(= (:id msg)) q)))
+         (catch :default e
+           (reset! app-error "There was an error when accepting the buy request. Please inform us of this event.")
+           (log* "Error in buy-request/accepted:" e)))))
 
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
@@ -462,12 +473,13 @@
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
                           :primary-text (gstring/format "Buy request for %s %s"
-                                                        (common/currency-as-float (:amount req)
-                                                                                  (:currency-sell req))
+                                                        (common/currency-as-float (:amount req) (:currency-sell req))
                                                         (clojure.string/upper-case (:currency-sell req)))
-                          :secondary-text (if (:seller-id req)
-                                            "PARTNER FOUND - WAITING SELLER ACTION"
-                                            "LOOKING FOR A PARTNER...")})))))]])
+                          :secondary-text (gstring/format "ID: %d - %s"
+                                                          (:id req)
+                                                          (if (:seller-id req)
+                                                            "PARTNER FOUND - WAITING SELLER ACTION"
+                                                            "LOOKING FOR A PARTNER..."))})))))]])
 
 (rum/defc contract-stage-comp
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}

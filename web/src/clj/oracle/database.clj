@@ -167,13 +167,12 @@ RETURNING *;
 (defn get-buy-requests-by-user [user-id]
   (mapv ->kebab-case
         (sql/query db ["
-SELECT id, seller_id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request
-WHERE buyer_id = ?;
+SELECT * FROM buy_request WHERE buyer_id = ?;
 " user-id])))
 
 (defn get-buy-request-by-id [buy-request]
   (-> (sql/query db ["
-SELECT id, seller_id, amount, currency_buy, currency_sell, exchange_rate FROM buy_request
+SELECT * FROM buy_request
 WHERE id = ?;
 " buy-request])
       first

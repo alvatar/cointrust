@@ -50,7 +50,7 @@
 
 (defn initiate-contract [buy-request-id]
   (log/debug "Initiated contracts from buy request ID" buy-request-id)
-  (throw (Exception. "NOT IMPLEMENTED"))
+  ;;(throw (Exception. "NOT IMPLEMENTED"))
   (wcar* (mq/enqueue (get-in workers [:contracts-master-queue :qname])
                      {:TODO :TODO})))
 
@@ -173,8 +173,7 @@
               (cond
                 ;; Buy request accepted
                 (= buy-request-status "<accepted>")
-                (do (db/buy-request-delete! buy-request-id)
-                    (clear-user-blacklist buyer-id)
+                (do (clear-user-blacklist buyer-id)
                     {:status :success})
                 ;; Buy request declined
                 (= buy-request-status "<declined>")
@@ -240,7 +239,10 @@
         buy-request (db/get-buy-request-by-id buy-request-id)]
     (log/debug message)
     (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
-    (events/dispatch! (:seller-id buy-request) :buy-request-accepted buy-request) ; Repeat OK
+    ;; Keep in mind that we are deleting the request here, so we rely on the master task
+    ;; to retrieve the buy request info from the idempotency cache in Redis
+    (db/buy-request-delete! buy-request-id) ; Idempotent
+    (events/dispatch! (:buyer-id buy-request) :buy-request-accepted buy-request) ; Repeat OK
     (initiate-contract buy-request)
     {:status :success}))
 
@@ -251,7 +253,7 @@
         buy-request (db/get-buy-request-by-id buy-request-id)]
     (log/debug message)
     (set-buy-request-status buy-request-id "<declined>") ; Idempotent
-    (events/dispatch! (:seller-id buy-request) :buy-request-declined buy-request)
+    (events/dispatch! (:buyer-id buy-request) :buy-request-declined buy-request)
     {:status :success}))
 
 ;;
