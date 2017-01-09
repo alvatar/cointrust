@@ -35,16 +35,16 @@ INSERT INTO logs (type, data) VALUES (?, ?) RETURNING *;
   ;; TODO: We are currently storing ID too. Just keep hash
   (try
     (sql/with-db-transaction
-      [tr db]
+      [tx db]
       (let [friend-ids
             (mapv :id
                   (first
                    (for [f friend-hashes]
-                     (sql/query db ["
+                     (sql/query tx ["
 SELECT id FROM user_account WHERE hash = ?;
 " f]))))
             user-id
-            (-> (sql/query db ["
+            (-> (sql/query tx ["
 INSERT INTO user_account (hash) VALUES (?)
 ON CONFLICT (hash) DO UPDATE SET hash = ?
 RETURNING id;
@@ -56,13 +56,13 @@ RETURNING id;
             (mapv (fn [fid] ; order guarantess uniqueness of edges
                     (let [[user-id1 user-id2] (sort [fid user-id])]
                       (first
-                       (sql/execute! tr ["
+                       (sql/execute! tx ["
 INSERT INTO friends (user_id1, user_id2)
 VALUES (?, ?)
 ON CONFLICT DO NOTHING
 " user-id1 user-id2]))))
                   friend-ids)]
-        (log! tr "user-insert" {:user-hash user-hash
+        (log! tx "user-insert" {:user-hash user-hash
                                 :friend-hashes friend-hashes})
         {:user user-id
          :friends friend-ids}))
@@ -123,12 +123,12 @@ WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
 (defn sell-offer-set! [user-id minval maxval]
   (try
     (sql/with-db-transaction
-      [tr db]
-      (sql/execute! db ["
+      [tx db]
+      (sql/execute! tx ["
 INSERT INTO sell_offer (user_id, min, max) VALUES (?, ?, ?)
 ON CONFLICT (user_id) DO UPDATE SET min = ?, max = ?
 " user-id minval maxval minval maxval])
-      (log! "sell-offer-set" {:user-id user-id :min minval :max maxval}))
+      (log! tx "sell-offer-set" {:user-id user-id :min minval :max maxval}))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn sell-offer-get-by-user [user-id]
@@ -140,11 +140,11 @@ SELECT min, max FROM sell_offer WHERE user_id = ?;
 (defn sell-offer-unset! [user-id]
   (try
     (sql/with-db-transaction
-      [tr db]
-      (sql/execute! db ["
+      [tx db]
+      (sql/execute! tx ["
 DELETE FROM sell_offer WHERE user_id = ?;
 " user-id])
-      (log! "sell-offer-unset" {:user-id user-id}))
+      (log! tx "sell-offer-unset" {:user-id user-id}))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-all-sell-offers []
@@ -162,16 +162,18 @@ SELECT * FROM sell_offer;
 (defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate]
   (try
     (-> (sql/with-db-transaction
-          [tr db]
-          (sql/query db ["
-INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate) VALUES (?, ?, ?, ?, ?)
+          [tx db]
+          (let [buy-request (sql/query tx ["
+INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate)
+VALUES (?, ?, ?, ?, ?)
 RETURNING *;
-" user-id amount currency-buy currency-sell exchange-rate])
-          (log! "buy-request-create" {:user-id user-id
-                                      :amount amount
-                                      :currency-buy currency-buy
-                                      :currency-sell currency-sell
-                                      :exchange-rate exchange-rate}))
+" user-id amount currency-buy currency-sell exchange-rate])]
+            (log! tx "buy-request-create" {:user-id user-id
+                                           :amount amount
+                                           :currency-buy currency-buy
+                                           :currency-sell currency-sell
+                                           :exchange-rate exchange-rate})
+            buy-request))
         first
         ->kebab-case)
     (catch Exception e (log/debug (or (.getNextException e) e)) nil)))
@@ -193,12 +195,12 @@ WHERE id = ?;
 (defn buy-request-set-seller! [buy-request seller-id]
   (try
     (sql/with-db-transaction
-      [tr db]
-      (sql/execute! db ["
+      [tx db]
+      (sql/execute! tx ["
 UPDATE buy_request SET seller_id = ?
 WHERE id = ?
 " seller-id buy-request])
-      (log! "buy-request-set-seller" {:id buy-request :seller-id seller-id}))
+      (log! tx "buy-request-set-seller" {:id buy-request :seller-id seller-id}))
     seller-id
     (catch Exception e (or (.getNextException e) e))))
 

@@ -147,7 +147,7 @@
 ;;
 
 (defn buy-requests-master-handler
-  [{:keys [mid message attempt]}]
+  [{:keys [qname mid message attempt]}]
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message
         state (idempotency-state-reveal mid)]
     (log/debug "STATE:" state)
@@ -195,7 +195,7 @@
             {:status :retry :backoff-ms 300000})))))
 
 (defn contracts-master-handler
-  [{:keys [mid message attempt]}]
+  [{:keys [qname mid message attempt] :as all}]
   (let [{:keys [id] :as buy-request} message
         state (idempotency-state-reveal mid)
         contract (idempotent-op mid :contract-create state
@@ -234,7 +234,7 @@
 ;;
 
 (defmulti common-preemptive-handler
-  (fn [{:keys [mid message attempt]}] (:tag message)))
+  (fn [{:keys [qname mid message attempt]}] (:tag message)))
 
 (defmethod common-preemptive-handler :buy-request/accepted
   [{:keys [mid message attempt]}]

@@ -200,7 +200,7 @@
                          :currency-sell "xbt"}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (log* "Contract requested successfully")
+       (log* "Buy request created successfully")
        (do (reset! app-error "There was an error creating the buy request. Please try again.")
            (log* "Error in create-buy-request:" resp)))
      (callback))))
