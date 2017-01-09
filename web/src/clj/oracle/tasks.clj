@@ -83,6 +83,9 @@
 (defn get-buy-request-status [id]
   (wcar* (r/hget "buy-request->status" id)))
 
+(defn clear-buy-request-status [id]
+  (wcar* (r/hdel "buy-request->status" id)))
+
 ;; 1. Pick counterparty (or multiple), and wait for response
 ;; counterparty (pick-counterparty buyer-id)
 ;; 2. If no response, pick another one
