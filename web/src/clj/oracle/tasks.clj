@@ -50,6 +50,7 @@
 
 (defn initiate-contract [buy-request-id]
   (log/debug "Initiated contracts from buy request ID" buy-request-id)
+  (throw (Exception. "NOT IMPLEMENTED"))
   (wcar* (mq/enqueue (get-in workers [:contracts-master-queue :qname])
                      {:TODO :TODO})))
 
@@ -127,7 +128,7 @@
   (let [op-key (str "idempotent-ops:" uid)
         field (name tag)]
     (if-let [stored (tag state)]
-      (json/parse-string-strict stored)
+      (json/parse-string stored true)
       (let [op-result (operation)]
         (wcar* (r/hset op-key field (try (json/generate-string op-result)
                                          ;; "null" is serialized as a null value, but found in Redis
@@ -159,7 +160,8 @@
       (Thread/sleep 5000) ;; FAKE
       (if-let [seller-id (idempotent-op mid :pick-counterparty state
                                         (db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell)))]
-        (do (idempotent-op mid :sell-offer-matched state
+        (do (log/debug (format "Request ID %d is matched with seller ID %d" buy-request-id seller-id))
+            (idempotent-op mid :sell-offer-matched state
                            (events/dispatch! seller-id :sell-offer-matched buy-request)
                            (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
             ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.

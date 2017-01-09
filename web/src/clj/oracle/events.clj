@@ -32,4 +32,13 @@
        (chsk-send! uid [:buy-request/restarted args])
        (chsk-send! uid [:notification/create
                         {:title "Buy request restarted"
-                         :message "Your transaction partner is not reponding without the provided time. We are looking for a new partner for you."}])))))
+                         :message "Your transaction partner is not reponding without the provided time. We are looking for a new partner for you."}]))
+     :buy-request-accepted
+     (throw (Exception. "NOT IMPLEMENTED"))
+     #_(future
+       (chsk-send! uid [:sell-offer/accepted args]))
+     :buy-request-declined
+     ;; TODO
+     (throw (Exception. "NOT IMPLEMENTED"))
+     #_(future
+       (chsk-send! uid [:sell-offer/declined args])))))
