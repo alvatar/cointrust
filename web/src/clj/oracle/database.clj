@@ -8,6 +8,7 @@
 
 ;; CURRENCY-BUY: the currency on the side of the buyer before the transaction (what the buyer *has*)
 ;; CURRENCY-SELL: the currency on the side of the seller before the transaction (what the seller *has*)
+;; AMOUNT: in currency-sell units
 
 ;; References:
 ;; http://clojure-doc.org/articles/ecosystem/java_jdbc/using_sql.html
@@ -189,8 +190,7 @@ SELECT * FROM buy_request WHERE buyer_id = ?;
 
 (defn get-buy-request-by-id [buy-request]
   (-> (sql/query db ["
-SELECT * FROM buy_request
-WHERE id = ?;
+SELECT * FROM buy_request WHERE id = ?;
 " buy-request])
       first
       ->kebab-case))
@@ -247,39 +247,38 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 " (crypto/base64 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
           (sql/execute! tx ["
-INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
-" (:id contract) 0 "waiting"])
+INSERT INTO contract_events (contract_id, stage) VALUES (?, 'waiting-escrow');
+" (:id contract)])
           (log! tx "contract-create" params)
           contract))
       (catch Exception e (or (.getNextException e) e)))))
 
-(defn contract-add-event! [contract-id stage status]
+(defn contract-add-event! [contract-id stage]
   (try
     (sql/with-db-transaction
       [tx db]
       (sql/execute! tx ["
-INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
-" contract-id stage status])
-      (log! tx "contract-add-event" {:id contract-id :stage stage :status status}))
+INSERT INTO contract_events (contract_id, stage) VALUES (?, ?);
+" contract-id stage])
+      (log! tx "contract-add-event" {:id contract-id :stage stage}))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-contract-events [contract-id]
   (into []
         (sql/query db ["
-SELECT time, stage, status FROM contract
+SELECT time, stage FROM contract
 INNER JOIN contract_events
 ON contract.id = contract_events.contract_id;
 "])))
 
 (defn get-contract-last-event [contract-id]
-  (-> (sql/query db ["
-SELECT time, stage, status FROM contract
+  (first
+   (sql/query db ["
+SELECT time, stage FROM contract
 INNER JOIN contract_events
 ON contract.id = contract_events.contract_id
 WHERE contract_events.time = (SELECT MAX(contract_events.time) FROM contract_events);
-"])
-      first
-      ->kebab-case))
+"])))
 
 (defn get-contracts-by-user [user-id]
   (mapv ->kebab-case
@@ -317,64 +316,60 @@ SELECT * FROM contract
                             "DROP TABLE IF EXISTS user_account CASCADE;"
                             "
 CREATE TABLE user_account (
-  id              SERIAL PRIMARY KEY,
-  created         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  hash            TEXT NOT NULL UNIQUE
+  id                               SERIAL PRIMARY KEY,
+  created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  hash                             TEXT NOT NULL UNIQUE
 );"
                             "
 CREATE TABLE friends (
-  user_id1        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
-  user_id2        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  user_id1                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  user_id2                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   PRIMARY KEY (user_id1, user_id2)
 );"
                             "
 CREATE TABLE sell_offer (
-  user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
+  user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
   min                              BIGINT NOT NULL,
   max                              BIGINT NOT NULL,
-  currency                         TEXT DEFAULT 'xbt' NOT NULL
+  currency                         TEXT NOT NULL
 );"
-
-                            ;; TODO: CHECK THESE ON UPDATE CASCADES
-
                             "
 CREATE TABLE buy_request (
-  id                              SERIAL PRIMARY KEY,
-  created                         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  buyer_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
-  seller_id                       INTEGER REFERENCES user_account(id) ON UPDATE CASCADE,
-  amount                          BIGINT NOT NULL,
-  currency_buy                    TEXT DEFAULT 'xbt' NOT NULL,
-  currency_sell                   TEXT DEFAULT 'usd' NOT NULL,
-  exchange_rate                   DECIMAL(26,6)
+  id                               SERIAL PRIMARY KEY,
+  created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  amount                           BIGINT NOT NULL,
+  currency_buy                     TEXT NOT NULL,
+  currency_sell                    TEXT NOT NULL,
+  exchange_rate                    DECIMAL(26,6) NOT NULL
 );"
                             "
 CREATE TABLE contract (
-  id                              SERIAL PRIMARY KEY,
-  hash                            TEXT NOT NULL UNIQUE,
-  created                         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  buyer_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE NOT NULL,
-  seller_id                       INTEGER REFERENCES user_account(id) ON UPDATE CASCADE,
-  amount                          BIGINT NOT NULL,
-  currency_buy                    TEXT DEFAULT 'xbt' NOT NULL,
-  currency_sell                   TEXT DEFAULT 'usd' NOT NULL,
-  exchange_rate                   DECIMAL(26,6)
+  id                               SERIAL PRIMARY KEY,
+  hash                             TEXT NOT NULL UNIQUE,
+  created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  amount                           BIGINT NOT NULL,
+  currency_buy                     TEXT NOT NULL,
+  currency_sell                    TEXT NOT NULL,
+  exchange_rate                    DECIMAL(26,6)
 );"
                             "
 CREATE TABLE contract_events (
-  id              SERIAL PRIMARY KEY,
-  time            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  contract_id     INTEGER REFERENCES contract(id) ON UPDATE CASCADE NOT NULL,
-  stage           SMALLINT NOT NULL,
-  status          TEXT NOT NULL
+  id                               SERIAL PRIMARY KEY,
+  time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  contract_id                      INTEGER REFERENCES contract(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  stage                            TEXT NOT NULL
 );"
                             "
 CREATE TABLE logs (
-  id              SERIAL PRIMARY KEY,
-  time            TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  type            TEXT NOT NULL,
-  data            TEXT NOT NULL
+  id                               SERIAL PRIMARY KEY,
+  time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  type                             TEXT NOT NULL,
+  data                             TEXT NOT NULL
 );"
                             ])
     (catch Exception e (or (.getNextException e) e))))

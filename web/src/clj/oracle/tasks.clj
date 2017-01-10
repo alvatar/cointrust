@@ -87,30 +87,6 @@
 (defn clear-buy-request-status [id]
   (wcar* (r/hdel "buy-request->status" id)))
 
-;; 1. Pick counterparty (or multiple), and wait for response
-;; counterparty (pick-counterparty buyer-id)
-;; 2. If no response, pick another one
-;; 3. When counterparty accepts, trigger contract creation
-;; (db/contract-create! buyer-id counterparty (:btc ?data))
-;; Notifications are done here
-
-;; - REQUEST
-;; 1. Recover counterparty, or run matching algorithm if buyer not matched.
-;;    If no counterparty, abort.
-;; 2. Do notifications: seller via web push, email with a click-to-accept link, and
-;;    set "pending" status somehow so if the seller logs in, gets notified.
-;; 3. Accept/decline in any of the notifications (and immediately request data from next stage)
-;; 4. If declined/timed-out, mark counterparty as blacklisted, and retry immediately.
-;; 5. If accepted, create contract
-;; - RUNNING CONTRACT
-;; 1. Get current stage
-;; 2. Check if stage "notified". If not, do it.
-;; 3. Check for conditions to change stage. If not met, retry later.
-;; 4. Update SQL db.
-;; 5. Set new stage
-;; 6. Notify/Set-aync-notification combo
-;; 7. Set as stage "notified"
-
 ;;
 ;; Workers
 ;;
@@ -146,6 +122,11 @@
 ;; Master task queues: they track progress of an entity. They have time and state.
 ;;
 
+;; Buy request master handler
+;; 1. Pick counterparty (or multiple), and wait for response
+;; counterparty (pick-counterparty buyer-id)
+;; 2. If no response, pick another one (mark non-responding seller as blacklisted)
+;; 3. When counterparty accepts, trigger contract creation
 (defn buy-requests-master-handler
   [{:keys [qname mid message attempt]}]
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message
@@ -194,6 +175,12 @@
         (do (log/debug "No seller match. Retrying in 5 minutes.")
             {:status :retry :backoff-ms 300000})))))
 
+;; Contract master handler
+;; 1. Get current stage
+;; 2. Check for conditions to change stage. If not met, retry later.
+;; 3. Update SQL db: set new stage
+;; 4. Notify/Set-aync-notification combo
+;; 5. Set as stage "notified"
 (defn contracts-master-handler
   [{:keys [qname mid message attempt] :as all}]
   (let [{:keys [id] :as buy-request} message
@@ -201,30 +188,62 @@
         contract (idempotent-op mid :contract-create state
                                 (if-let [result (db/contract-create! buy-request)]
                                   (do (log/debug "Contract created:" result) result)
-                                  (throw (Exception. "Couldn't create contract"))))]
+                                  (throw (Exception. "Couldn't create contract"))))
+        contract-id (:id contract)]
     (log/debug "STATE:" state)
-    (case (:stage contract)
-      ;; Price is frozen
+    (case (db/get-contract-last-event contract-id)
+      ;; Contract can be cancelled anytime
+      "contract-broken"
+      {:status :success}
+      ;; We inform of the expected transaction and the freezing of price.
+      ;; We wait for the seller to fund the escrow and provide the transfer details.
+      "waiting-escrow"
+      (do (idempotent-op mid :contract-waiting-escrow
+                         (events/dispatch! (:seller-id contract) :contract-waiting-escrow contract))
+          (cond (escrow-funded? contract) ; Observing the blockchain
+                (do ;; !!!!!! TODO make sure these db operations are atomic with the redis commit of idempotency
+                  (db/contract-add-event! contract-id "waiting-transfer")
+                  {:status :retry :backoff-ms 1})
+                (waiting-escrow-period-finished? contract)
+                (do (db/contract-add-event! contract-id "contract-broken")
+                    ;; TODO: add reasons to contract broken
+                    {:status :retry :backoff-ms 1})
+                :else
+                {:status :retry :backoff-ms 10000}))
       ;; We provide the buyer with A) the transfer info B) the instructions
-      ;; We inform the seller of the expected transaction and the freezing of price
-      "stage-A"
-      (do)
       ;; Buyer informs of transfer performed to the system
       ;; The seller is informed of the transfer initiated
-      "stage-B"
-      (do)
-      ;; Seller informs of transfer performed
+      "waiting-transfer"
+      (do (idempotent-op mid :contract-waiting-transfer
+                         (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract))
+          (cond
+            (seller-acknowledged-transfer? contract)
+            (do (db/contract-add-event! contract-id "holding-period")
+                {:status :retry :backoff-ms 1})
+            (waiting-transfer-period-finished? contract)
+            (do (db/contract-add-event! contract-id "contract-broken")
+                {:status :retry :backoff-ms 1})
+            :else
+            {:status :retry :backoff-ms 60000}))
+      ;; Seller informs of transfer received
       ;; The buyer is informed of the transfer received
-      "stage-C"
-      (do)
-      ;; 100 days holding period (chargeback protection)
-      "stage-D"
-      (do)
-      ;; Inform both the buyer and seller of the end of the holding period
-      "stage-E"
-      (do))
-    ;; Retry in 20 seconds
-    {:status :retry :backoff-ms 1000}))
+      "holding-period"
+      (do (idempotent-op mid :contract-holding-period
+                         (events/dispatch! (:buyer-id contract) :contract-holding-period contract)
+                         (events/dispatch! (:seller-id contract) :contract-holding-period contract))
+          (cond
+            (contract-broken? contract)
+            (do (idempotent-op mid :contract-broken
+                               (db/contract-add-event! contract-id "contract-broken"))
+                (events/dispatch! (:seller-id contract) :contract-broken contract)
+                (events/dispatch! (:buyer-id contract) :contract-broken contract)
+                {:status :retry :backoff-ms 1})
+            (holding-period-finished? contract)
+            (do (idempotent-op mid :contract-success
+                               (db/contract-add-event! contract-id "contract-success"))
+                (set-escrow-open-for! contract (:buyer-id contract)) ; Idempotent
+                {:status :success})
+            {:status :retry :backoffs-ms 360000})))))
 
 ;;
 ;; Preemptive task queues: They mark the accomplished micro-task, for the master
@@ -258,6 +277,27 @@
     (log/debug message)
     (set-buy-request-status buy-request-id "<declined>") ; Idempotent
     (events/dispatch! (:buyer-id buy-request) :buy-request-declined buy-request)
+    {:status :success}))
+
+(defmethod common-preemptive-handler :contract/break
+  [{:keys [mid message attempt]}]
+  (let [{:keys [tag data]} message
+        contract-id (:id data)]
+    (log/debug message)
+    (idempotent-op mid :preemptive-contract-broken
+                   (db/contract-add-event! contract-id "contract-broken"))
+    (events/dispatch! (:seller-id contract) :contract-broken contract)
+    (events/dispatch! (:buyer-id contract) :contract-broken contract)
+    (set-escrow-open-for! contract (:seller-id contract))
+    {:status :success}))
+
+(defmethod common-preemptive-handler :contract/buyer-mark-transferred
+  [{:keys [mid message attempt]}]
+  (let [{:keys [tag data]} message
+        contract-id (:id data)]
+    (log/debug message)
+    (idempotent-op mid :preemptive-contract-buyer-marked-transferred
+                   (events/dispatch! (:seller-id contract) :contract-buyer-marked-transferred contract))
     {:status :success}))
 
 ;;

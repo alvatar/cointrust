@@ -8,6 +8,10 @@
 (defn init! [chsk-send!_]
   (def chsk-send! chsk-send!_))
 
+;;
+;; TODO: notifications should be acknowledged and stored otherwise
+;;
+
 (defn dispatch! [user-id type & [args]]
   (log/debug (format "SENDING MESSAGE %s: %s" type args))
   (let [uid (db/get-user-by-id user-id)]
@@ -44,4 +48,14 @@
         (chsk-send! uid [:buy-request/declined args])
         (chsk-send! uid [:notification/create
                          {:title "Buy request declined"
-                          :message "We regret to inform you that the assigned counterparty has failed to correctly initiate the contract. We are looking for a new transaction partner."}])))))
+                          :message "We regret to inform you that the assigned counterparty has failed to correctly initiate the contract. We are looking for a new transaction partner."}]))
+      :contract-broken
+      (throw (Exception. "NOT IMPLEMENTED"))
+      :contract-waiting-escrow
+      (throw (Exception. "NOT IMPLEMENTED"))
+      :contract-waiting-transfer
+      (throw (Exception. "NOT IMPLEMENTED"))
+      :contract-buyer-marked-transferred
+      (throw (Exception. "NOT IMPLEMENTED"))
+      :contract-holding-period
+      (throw (Exception. "NOT IMPLEMENTED")))))
