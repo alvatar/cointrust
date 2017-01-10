@@ -3,8 +3,11 @@
             [taoensso.timbre :as log]
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
-            [clojure.data.json :as json]
+            [cheshire.core :as json]
             [camel-snake-kebab.core :as case-shift]))
+
+;; CURRENCY-BUY: the currency on the side of the buyer before the transaction (what the buyer *has*)
+;; CURRENCY-SELL: the currency on the side of the seller before the transaction (what the seller *has*)
 
 ;; References:
 ;; http://clojure-doc.org/articles/ecosystem/java_jdbc/using_sql.html
@@ -22,7 +25,7 @@
 (defn log! [tx type datamap]
   (sql/execute! tx ["
 INSERT INTO logs (type, data) VALUES (?, ?) RETURNING *;
-" type (json/write-str datamap)]))
+" type (json/generate-string datamap)]))
 
 (defn logs-get-all [limit]
   (sql/query db ["SELECT * FROM events LIMIT ?" limit]))
@@ -231,26 +234,24 @@ SELECT * FROM buy_request;
 ;;
 
 (defn contract-create!
-  ([{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate] :as params}]
-   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
-     (try
-       (sql/with-db-transaction
-         [tx db]
-         (let [contract
-               (first
-                (sql/query tx ["
+  [{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate] :as params}]
+  (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
+    (try
+      (sql/with-db-transaction
+        [tx db]
+        (let [contract
+              (first
+               (sql/query tx ["
 INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 " (crypto/base64 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
-           (sql/execute! tx ["
+          (sql/execute! tx ["
 INSERT INTO contract_events (contract_id, stage, status) VALUES (?, ?, ?);
 " (:id contract) 0 "waiting"])
-           (log! tx "contract-create" params)
-           contract))
-       (catch Exception e (or (.getNextException e) e)))))
-  ([buyer-id seller-id amount]
-   (contract-create! buyer-id seller-id amount "xbt")))
+          (log! tx "contract-create" params)
+          contract))
+      (catch Exception e (or (.getNextException e) e)))))
 
 (defn contract-add-event! [contract-id stage status]
   (try
