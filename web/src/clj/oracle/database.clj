@@ -163,7 +163,7 @@ SELECT * FROM sell_offer;
 
 (defn ->kebab-case [r] (reduce-kv #(assoc %1 (case-shift/->kebab-case %2) %3) {} r))
 
-(defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate]
+(defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate & [txcb]]
   (try
     (-> (sql/with-db-transaction
           [tx db]
@@ -177,6 +177,7 @@ RETURNING *;
                                            :currency-buy currency-buy
                                            :currency-sell currency-sell
                                            :exchange-rate exchange-rate})
+            (when txcb (txcb buy-request))
             buy-request))
         first
         ->kebab-case)
@@ -195,7 +196,7 @@ SELECT * FROM buy_request WHERE id = ?;
       first
       ->kebab-case))
 
-(defn buy-request-set-seller! [buy-request seller-id]
+(defn buy-request-set-seller! [buy-request seller-id & [txcb]]
   (try
     (sql/with-db-transaction
       [tx db]
@@ -203,7 +204,8 @@ SELECT * FROM buy_request WHERE id = ?;
 UPDATE buy_request SET seller_id = ?
 WHERE id = ?
 " seller-id buy-request])
-      (log! tx "buy-request-set-seller" {:id buy-request :seller-id seller-id}))
+      (log! tx "buy-request-set-seller" {:id buy-request :seller-id seller-id})
+      (when txcb (txcb seller-id)))
     seller-id
     (catch Exception e (or (.getNextException e) e))))
 
@@ -234,7 +236,7 @@ SELECT * FROM buy_request;
 ;;
 
 (defn contract-create!
-  [{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate] :as params}]
+  [{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate] :as params} & [txcb]]
   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
     (try
       (sql/with-db-transaction
@@ -250,23 +252,25 @@ RETURNING *;
 INSERT INTO contract_events (contract_id, stage) VALUES (?, 'waiting-escrow');
 " (:id contract)])
           (log! tx "contract-create" params)
+          (when txcb (txcb contract))
           contract))
       (catch Exception e (or (.getNextException e) e)))))
 
-(defn contract-add-event! [contract-id stage]
+(defn contract-add-event! [contract-id stage & [data txcb]]
   (try
     (sql/with-db-transaction
       [tx db]
       (sql/execute! tx ["
-INSERT INTO contract_events (contract_id, stage) VALUES (?, ?);
-" contract-id stage])
-      (log! tx "contract-add-event" {:id contract-id :stage stage}))
+INSERT INTO contract_events (contract_id, stage, data) VALUES (?, ?, ?);
+" contract-id stage (or data "")])
+      (log! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
+      (when txcb (txcb nil)))
     (catch Exception e (or (.getNextException e) e))))
 
 (defn get-contract-events [contract-id]
   (into []
         (sql/query db ["
-SELECT time, stage FROM contract
+SELECT * FROM contract
 INNER JOIN contract_events
 ON contract.id = contract_events.contract_id;
 "])))
@@ -274,7 +278,7 @@ ON contract.id = contract_events.contract_id;
 (defn get-contract-last-event [contract-id]
   (first
    (sql/query db ["
-SELECT time, stage FROM contract
+SELECT * FROM contract
 INNER JOIN contract_events
 ON contract.id = contract_events.contract_id
 WHERE contract_events.time = (SELECT MAX(contract_events.time) FROM contract_events);
@@ -355,14 +359,18 @@ CREATE TABLE contract (
   amount                           BIGINT NOT NULL,
   currency_buy                     TEXT NOT NULL,
   currency_sell                    TEXT NOT NULL,
-  exchange_rate                    DECIMAL(26,6)
+  exchange_rate                    DECIMAL(26,6) NOT NULL,
+  escrow_address                   TEXT,
+  escrow_public_key                TEXT,
+  escrow_private_key               TEXT
 );"
                             "
 CREATE TABLE contract_events (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   contract_id                      INTEGER REFERENCES contract(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
-  stage                            TEXT NOT NULL
+  stage                            TEXT NOT NULL,
+  data                             TEXT
 );"
                             "
 CREATE TABLE logs (

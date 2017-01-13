@@ -115,8 +115,12 @@
                                          (catch Exception e "null"))))
         op-result))))
 
-(defmacro idempotent-op [uid tag state & body]
+(defmacro idempotent-ops [uid tag state & body]
   `(idempotent-op* ~uid ~tag ~state (fn [] ~@body)))
+
+(defn idempotent-tx [uid tag state operation]
+  (operation
+   (fn [tx-result] (idempotent-op* uid tag state (fn [] tx-result)))))
 
 ;;
 ;; Master task queues: they track progress of an entity. They have time and state.
@@ -134,21 +138,21 @@
     (log/debug "STATE:" state)
     ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
     (let [buy-request
-          (idempotent-op mid :buy-request-create state
-                         (if-let [result (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0)]
-                           (do (log/debug "Buy request created:" result) result)
-                           (throw (Exception. "Couldn't create buy-request"))))
+          (idempotent-tx mid :buy-request-create state
+                         #(if-let [result (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0 %)]
+                            (do (log/debug "Buy request created:" result) result)
+                            (throw (Exception. "Couldn't create buy-request"))))
           buy-request-id (:id buy-request)]
       (log/debug "Processing buy request ID" buy-request-id)
-      (idempotent-op mid :event-buy-request-created state
-                     (events/dispatch! buyer-id :buy-request-created buy-request))
+      (idempotent-ops mid :event-buy-request-created state
+                      (events/dispatch! buyer-id :buy-request-created buy-request))
       (Thread/sleep 5000) ;; FAKE
-      (if-let [seller-id (idempotent-op mid :pick-counterparty state
-                                        (db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell)))]
+      (if-let [seller-id (idempotent-tx mid :pick-counterparty state
+                                        #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell %)))]
         (do (log/debug (format "Request ID %d is matched with seller ID %d" buy-request-id seller-id))
-            (idempotent-op mid :sell-offer-matched state
-                           (events/dispatch! seller-id :sell-offer-matched buy-request)
-                           (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
+            (idempotent-ops mid :sell-offer-matched state
+                            (events/dispatch! seller-id :sell-offer-matched buy-request)
+                            (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
             ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
             (log/debug (format "%s seconds have passed since this task was created." (float (/ (- (unix-now) (:started (:global state))) 1000))))
             (let [buy-request-status (get-buy-request-status buy-request-id)]
@@ -161,7 +165,7 @@
                 (= buy-request-status "<declined>")
                 (do (idempotency-state-merge! mid {:started (unix-now) :pick-counterparty nil})
                     (blacklist-counterparty buyer-id seller-id)
-                    (db/buy-request-unset-seller! buy-request-id)
+                    (db/buy-request-unset-seller! buy-request-id) ; Idempotent
                     {:status :retry :backoff-ms 1})
                 ;; Still within time window. Check again in 60 seconds.
                 (< (unix-now) (unix-after (time/days 1)))
@@ -175,75 +179,94 @@
         (do (log/debug "No seller match. Retrying in 5 minutes.")
             {:status :retry :backoff-ms 300000})))))
 
+(defn escrow-funded? [contract])
+
+(defn seller-acknowledged-transfer? [contract])
+
+(defn escrow-waiting-period-finished? [contract-id now])
+
+(defn transfer-waiting-period-finished? [contract-id])
+
+(defn contract-broken? [contract-id])
+
+(defn holding-period-finished? [contract-id])
+
+(defn set-escrow-open-for! [contract-id])
+
 ;; Contract master handler
 ;; 1. Get current stage
 ;; 2. Check for conditions to change stage. If not met, retry later.
 ;; 3. Update SQL db: set new stage
 ;; 4. Notify/Set-aync-notification combo
 ;; 5. Set as stage "notified"
+;;
+;; Notes:
+;; - Remember that events should be changed at the end, since a retry will go through a
+;; different path afterwards, making idempotency irrelevant
 (defn contracts-master-handler
   [{:keys [qname mid message attempt] :as all}]
   (let [{:keys [id] :as buy-request} message
         state (idempotency-state-reveal mid)
-        contract (idempotent-op mid :contract-create state
-                                (if-let [result (db/contract-create! buy-request)]
-                                  (do (log/debug "Contract created:" result) result)
-                                  (throw (Exception. "Couldn't create contract"))))
-        contract-id (:id contract)]
+        contract (idempotent-tx mid :contract-create state
+                                #(if-let [result (db/contract-create! buy-request %)]
+                                   (do (log/debug "Contract created:" result) result)
+                                   (throw (Exception. "Couldn't create contract"))))
+        contract-id (:id contract)
+        now (unix-now)]
+    (idempotent-ops mid :contract-init
+                    (events/dispatch! (:seller-id contract) :contract-waiting-escrow contract))
     (log/debug "STATE:" state)
     (case (db/get-contract-last-event contract-id)
       ;; Contract can be cancelled anytime
       "contract-broken"
-      {:status :success}
+      (do (idempotent-ops mid :event-enter-contract-broken
+                          (events/dispatch! (:buyer-id contract) :contract-broken contract)
+                          (events/dispatch! (:seller-id contract) :contract-broken contract))
+          (set-escrow-open-for! contract (:seller-id contract))
+          {:status :success})
       ;; We inform of the expected transaction and the freezing of price.
       ;; We wait for the seller to fund the escrow and provide the transfer details.
       "waiting-escrow"
-      (do (idempotent-op mid :contract-waiting-escrow
-                         (events/dispatch! (:seller-id contract) :contract-waiting-escrow contract))
-          (cond (escrow-funded? contract) ; Observing the blockchain
-                (do ;; !!!!!! TODO make sure these db operations are atomic with the redis commit of idempotency
-                  (db/contract-add-event! contract-id "waiting-transfer")
-                  {:status :retry :backoff-ms 1})
-                (waiting-escrow-period-finished? contract)
-                (do (db/contract-add-event! contract-id "contract-broken")
-                    ;; TODO: add reasons to contract broken
-                    {:status :retry :backoff-ms 1})
-                :else
-                {:status :retry :backoff-ms 10000}))
+      (cond (escrow-funded? contract) ; Observing the blockchain
+            (do (idempotent-tx mid :contract-add-event-waiting-transfer
+                               #(db/contract-add-event! contract-id "waiting-transfer" nil %))
+                (idempotent-ops mid :event-enter-waiting-transfer
+                                (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract))
+                {:status :retry :backoff-ms 1})
+            (escrow-waiting-period-finished? contract now)
+            (do (idempotent-tx mid :contract-add-event-contract-boken
+                               #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
+                {:status :retry :backoff-ms 1})
+            :else
+            {:status :retry :backoff-ms 10000})
       ;; We provide the buyer with A) the transfer info B) the instructions
       ;; Buyer informs of transfer performed to the system
       ;; The seller is informed of the transfer initiated
       "waiting-transfer"
-      (do (idempotent-op mid :contract-waiting-transfer
-                         (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract))
-          (cond
-            (seller-acknowledged-transfer? contract)
-            (do (db/contract-add-event! contract-id "holding-period")
+      (cond (seller-acknowledged-transfer? contract)
+            (do (idempotent-tx mid :contract-add-event-holding-period
+                               #(db/contract-add-event! contract-id "holding-period" nil %))
+                (idempotent-ops mid :event-enter-holding-period
+                                (events/dispatch! (:buyer-id contract) :contract-holding-period contract)
+                                (events/dispatch! (:seller-id contract) :contract-holding-period contract))
                 {:status :retry :backoff-ms 1})
-            (waiting-transfer-period-finished? contract)
-            (do (db/contract-add-event! contract-id "contract-broken")
+            ;; The transfer waiting period includes both buyer sending and seller receiving notifications
+            (transfer-waiting-period-finished? contract)
+            (do (idempotent-tx mid :contract-add-event-contract-boken
+                               #(db/contract-add-event! contract-id "contract-broken" {:reason "transfer waiting period timed out"} %))
                 {:status :retry :backoff-ms 1})
             :else
-            {:status :retry :backoff-ms 60000}))
+            {:status :retry :backoff-ms 60000})
       ;; Seller informs of transfer received
       ;; The buyer is informed of the transfer received
       "holding-period"
-      (do (idempotent-op mid :contract-holding-period
-                         (events/dispatch! (:buyer-id contract) :contract-holding-period contract)
-                         (events/dispatch! (:seller-id contract) :contract-holding-period contract))
-          (cond
-            (contract-broken? contract)
-            (do (idempotent-op mid :contract-broken
-                               (db/contract-add-event! contract-id "contract-broken"))
-                (events/dispatch! (:seller-id contract) :contract-broken contract)
-                (events/dispatch! (:buyer-id contract) :contract-broken contract)
-                {:status :retry :backoff-ms 1})
-            (holding-period-finished? contract)
-            (do (idempotent-op mid :contract-success
-                               (db/contract-add-event! contract-id "contract-success"))
-                (set-escrow-open-for! contract (:buyer-id contract)) ; Idempotent
+      (cond (holding-period-finished? contract)
+            (do (set-escrow-open-for! contract (:buyer-id contract)) ; Idempotent
+                (idempotent-ops mid :contract-success
+                                (db/contract-add-event! contract-id "contract-success" nil))
                 {:status :success})
-            {:status :retry :backoffs-ms 360000})))))
+            :else
+            {:status :retry :backoffs-ms 360000}))))
 
 ;;
 ;; Preemptive task queues: They mark the accomplished micro-task, for the master
@@ -254,6 +277,8 @@
 
 (defmulti common-preemptive-handler
   (fn [{:keys [qname mid message attempt]}] (:tag message)))
+
+;; TODO: secure all these calls
 
 (defmethod common-preemptive-handler :buy-request/accepted
   [{:keys [mid message attempt]}]
@@ -282,22 +307,32 @@
 (defmethod common-preemptive-handler :contract/break
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
-        contract-id (:id data)]
+        contract-id (:id data)
+        contract (db/get-contract-by-id contract-id)]
     (log/debug message)
-    (idempotent-op mid :preemptive-contract-broken
-                   (db/contract-add-event! contract-id "contract-broken"))
-    (events/dispatch! (:seller-id contract) :contract-broken contract)
-    (events/dispatch! (:buyer-id contract) :contract-broken contract)
-    (set-escrow-open-for! contract (:seller-id contract))
+    ;; TODO: make sure this one is the last one somehow, or at least seen!
+    (idempotent-tx mid :preemptive-contract-broken
+                   #(db/contract-add-event! contract-id "contract-broken" nil %))
     {:status :success}))
 
-(defmethod common-preemptive-handler :contract/buyer-mark-transferred
+(defmethod common-preemptive-handler :contract/buyer-mark-transfer-sent
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
-        contract-id (:id data)]
+        contract-id (:id data)
+        contract (db/get-contract-by-id contract-id)]
     (log/debug message)
-    (idempotent-op mid :preemptive-contract-buyer-marked-transferred
-                   (events/dispatch! (:seller-id contract) :contract-buyer-marked-transferred contract))
+    (events/dispatch! (:seller-id contract) :contract-buyer-marked-transfer-sent contract) ; Allow repetition
+    (db/contract-set-transfer-sent! contract-id)
+    {:status :success}))
+
+(defmethod common-preemptive-handler :contract/seller-mark-transfer-received
+  [{:keys [mid message attempt]}]
+  (let [{:keys [tag data]} message
+        contract-id (:id data)
+        contract (db/get-contract-by-id contract-id)]
+    (log/debug message)
+    (events/dispatch! (:seller-id contract) :contract-seller-marked-transfer-received contract) ; Allow repetition
+    (db/contract-set-transfer-received! contract-id)
     {:status :success}))
 
 ;;

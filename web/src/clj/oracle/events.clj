@@ -55,7 +55,9 @@
       (throw (Exception. "NOT IMPLEMENTED"))
       :contract-waiting-transfer
       (throw (Exception. "NOT IMPLEMENTED"))
-      :contract-buyer-marked-transferred
+      :contract-buyer-marked-transfer-sent
+      (throw (Exception. "NOT IMPLEMENTED"))
+      :contract-seller-marked-transfer-received
       (throw (Exception. "NOT IMPLEMENTED"))
       :contract-holding-period
       (throw (Exception. "NOT IMPLEMENTED")))))
