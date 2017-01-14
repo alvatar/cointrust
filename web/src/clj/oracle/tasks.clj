@@ -97,7 +97,8 @@
         [_ stored _] (wcar* (r/hsetnx op-key :global (let [now (unix-now)] {:created now :started now}))
                             (r/hgetall op-key)
                             (r/expire op-key ops-ttl))]
-    (into {} (for [[k v] (partition 2 stored)] [(keyword k) v]))))
+    (assoc-in (into {} (for [[k v] (partition 2 stored)] [(keyword k) v]))
+              [:global :now] (unix-now))))
 
 (defn idempotency-state-merge! [uid key new-map]
   (let [op-key (str "idempotent-ops:" uid)
@@ -119,9 +120,15 @@
 (defmacro idempotent-ops [uid tag state & body]
   `(idempotent-op* ~uid ~tag ~state (fn [] ~@body)))
 
-(defn idempotent-tx [uid tag state operation]
-  (operation
-   (fn [tx-result] (idempotent-op* uid tag state (fn [] tx-result)))))
+(defn with-idempotent-tx [uid tag state transaction]
+  (let [op-key (str "idempotent-ops:" uid)
+        field (name tag)]
+    (if-let [stored (tag state)]
+      (json/parse-string stored true)
+      (transaction
+       (fn [result]
+         (wcar* (r/hset op-key field (try (json/generate-string result)
+                                          (catch Exception e "null")))))))))
 
 ;;
 ;; Master task queues: they track progress of an entity. They have time and state.
@@ -133,15 +140,16 @@
 ;; 2. If no response, pick another one (mark non-responding seller as blacklisted)
 ;; 3. When counterparty accepts, trigger contract creation
 (defn buy-requests-master-handler
-  [{:keys [qname mid message attempt]}]
+  [{:keys [qname mid message attempt] :as task}]
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message
-        state (idempotency-state-reveal mid)]
+        state (idempotency-state-reveal mid)
+        now (get-in state [:global :now])]
     (log/debug "STATE:" state)
     ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
     (let [buy-request
           (idempotent-tx mid :buy-request-create state
                          #(if-let [result (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0 %)]
-                            (do (log/debug "Buy request created:" result) result)
+                            (do (log/debug "Buy request created:" result))
                             (throw (Exception. "Couldn't create buy-request"))))
           buy-request-id (:id buy-request)]
       (log/debug "Processing buy request ID" buy-request-id)
@@ -155,7 +163,7 @@
                             (events/dispatch! seller-id :sell-offer-matched buy-request)
                             (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
             ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
-            (log/debug (format "%s seconds have passed since this task was created." (float (/ (- (unix-now) (:started (:global state))) 1000))))
+            (log/debug (format "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000))))
             (let [buy-request-status (get-buy-request-status buy-request-id)]
               (cond
                 ;; Buy request accepted
@@ -164,14 +172,12 @@
                     {:status :success})
                 ;; Buy request declined
                 (= buy-request-status "<declined>")
-                (do (idempotency-state-merge! mid :global {:started (unix-now) :pick-counterparty nil})
+                (do (idempotency-state-merge! mid :global {:started now :pick-counterparty nil})
                     (blacklist-counterparty buyer-id seller-id)
                     (db/buy-request-unset-seller! buy-request-id) ; Idempotent
                     {:status :retry :backoff-ms 1})
                 ;; Still within time window. Check again in 60 seconds.
-                ;; TODO: Extract now from task
-                ;; THIS IS WRONG
-                (< now (unix-after (time/days 1)))
+                false ;(> now (unix-after (:created contract) (time/days 1)))
                 {:status :retry :backoff-ms 60000}
                 ;; Time has passed. Search another seller immediately.
                 :else
@@ -196,14 +202,14 @@
   [{:keys [qname mid message attempt] :as all}]
   (let [{:keys [id] :as buy-request} message
         state (idempotency-state-reveal mid)
+        now (get-in state [:global :now])
         contract (idempotent-tx mid :contract state
                                 #(if-let [result (db/contract-create! buy-request %)]
                                    (do (log/debug "Contract created:" result) result)
                                    (throw (Exception. "Couldn't create contract"))))
         contract-id (:id contract)
         ;; Make sure we have the latest version of the contrast
-        contract (if (= attempt 1) contract (idempotency-state-merge! :contract (db/get-contract-by-id contract-id)))
-        now (unix-now)]
+        contract (if (= attempt 1) contract (idempotency-state-merge! :contract (db/get-contract-by-id contract-id)))]
     (log/debugf "Attempt %d for contract %s" attempt contract)
     ;; Task initialization
     (when (= attempt 1) (events/dispatch! (:seller-id contract) :contract-waiting-escrow contract))
@@ -356,4 +362,10 @@
 
 (defonce start-workers_ (workers-start!))
 
-(defn flushall!!! [] (wcar* (r/flushall)))
+(defn flush-redis!!! [] (wcar* (r/flushall)))
+
+(defn total-wipeout!!! []
+  (restart!)
+  (flush-redis!!!)
+  (db/reset-database!!!)
+  (db/populate-test-database!!!))

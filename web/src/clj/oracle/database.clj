@@ -167,11 +167,12 @@ SELECT * FROM sell_offer;
   (try
     (-> (sql/with-db-transaction
           [tx db]
-          (let [buy-request (sql/query tx ["
+          (let [buy-request (first
+                             (sql/query tx ["
 INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate)
 VALUES (?, ?, ?, ?, ?)
 RETURNING *;
-" user-id amount currency-buy currency-sell exchange-rate])]
+" user-id amount currency-buy currency-sell exchange-rate]))]
             (log! tx "buy-request-create" {:user-id user-id
                                            :amount amount
                                            :currency-buy currency-buy
@@ -179,7 +180,6 @@ RETURNING *;
                                            :exchange-rate exchange-rate})
             (when txcb (txcb buy-request))
             buy-request))
-        first
         ->kebab-case)
     (catch Exception e (log/debug (or (.getNextException e) e)) nil)))
 
