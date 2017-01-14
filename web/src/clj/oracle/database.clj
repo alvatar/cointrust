@@ -29,7 +29,7 @@ INSERT INTO logs (type, data) VALUES (?, ?) RETURNING *;
 " type (json/generate-string datamap)]))
 
 (defn logs-get-all [limit]
-  (sql/query db ["SELECT * FROM events LIMIT ?" limit]))
+  (sql/query db ["SELECT * FROM logs LIMIT ?" limit]))
 
 ;;
 ;; Users and friends
@@ -181,7 +181,7 @@ RETURNING *;
             (when txcb (txcb buy-request))
             buy-request))
         ->kebab-case)
-    (catch Exception e (log/debug (or (.getNextException e) e)) nil)))
+    (catch Exception e (or (.getNextException e) e))))
 
 (defn get-buy-requests-by-user [user-id]
   (mapv ->kebab-case
@@ -249,7 +249,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 " (crypto/base64 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
           (sql/execute! tx ["
-INSERT INTO contract_events (contract_id, stage) VALUES (?, 'waiting-escrow');
+INSERT INTO contract_event (contract_id, stage) VALUES (?, 'waiting-escrow');
 " (:id contract)])
           (log! tx "contract-create" params)
           (when txcb (txcb contract))
@@ -261,7 +261,7 @@ INSERT INTO contract_events (contract_id, stage) VALUES (?, 'waiting-escrow');
     (sql/with-db-transaction
       [tx db]
       (sql/execute! tx ["
-INSERT INTO contract_events (contract_id, stage, data) VALUES (?, ?, ?);
+INSERT INTO contract_event (contract_id, stage, data) VALUES (?, ?, ?);
 " contract-id stage (or data "")])
       (log! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
       (when txcb (txcb nil)))
@@ -270,18 +270,18 @@ INSERT INTO contract_events (contract_id, stage, data) VALUES (?, ?, ?);
 (defn get-contract-events [contract-id]
   (into []
         (sql/query db ["
-SELECT * FROM contract
-INNER JOIN contract_events
-ON contract.id = contract_events.contract_id;
+SELECT contract_event.* FROM contract_event
+INNER JOIN contract
+ON contract.id = contract_event.contract_id;
 "])))
 
 (defn get-contract-last-event [contract-id]
   (first
    (sql/query db ["
-SELECT * FROM contract
-INNER JOIN contract_events
-ON contract.id = contract_events.contract_id
-WHERE contract_events.time = (SELECT MAX(contract_events.time) FROM contract_events);
+SELECT contract_event.* FROM contract_event
+INNER JOIN contract
+ON contract.id = contract_event.contract_id
+WHERE contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
 "])))
 
 (defn get-contracts-by-user [user-id]
@@ -336,8 +336,8 @@ WHERE id = ?
 (defn reset-database!!! []
   (try
     (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
-                            "DROP TABLE IF EXISTS contract_events;"
-                            "DROP TABLE IF EXISTS contract;"
+                            "DROP TABLE IF EXISTS contract_event;"
+                            "DROP TABLE IF EXISTS contract CASCADE;"
                             "DROP TABLE IF EXISTS sell_offer;"
                             "DROP TABLE IF EXISTS buy_request;"
                             "DROP TABLE IF EXISTS friends;"
@@ -388,14 +388,14 @@ CREATE TABLE contract (
   escrow_public_key                TEXT,
   escrow_private_key               TEXT,
   escrow_funded                    BOOLEAN,
-  escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   transfer_sent                    BOOLEAN,
   transfer_received                BOOLEAN,
   waiting_transfer_start           TIMESTAMP,
   holding_period_start             TIMESTAMP
 );"
                             "
-CREATE TABLE contract_events (
+CREATE TABLE contract_event (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   contract_id                      INTEGER REFERENCES contract(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,

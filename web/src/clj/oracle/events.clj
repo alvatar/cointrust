@@ -13,7 +13,7 @@
 ;;
 
 (defn dispatch! [user-id type & [args]]
-  (log/debug (format "SENDING MESSAGE %s: %s" type args))
+  ;;(log/debug (format "SENDING MESSAGE %s: %s" type args))
   (let [uid (db/get-user-by-id user-id)]
     (case type
       :buy-request-created
@@ -50,14 +50,14 @@
                          {:title "Buy request declined"
                           :message "We regret to inform you that the assigned counterparty has failed to correctly initiate the contract. We are looking for a new transaction partner."}]))
       :contract-broken
-      (throw (Exception. "NOT IMPLEMENTED"))
+      "not implemented"
       :contract-waiting-escrow
-      (throw (Exception. "NOT IMPLEMENTED"))
+      "not implemented"
       :contract-waiting-transfer
-      (throw (Exception. "NOT IMPLEMENTED"))
+      "not implemented"
       :contract-buyer-marked-transfer-sent
-      (throw (Exception. "NOT IMPLEMENTED"))
+      "not implemented"
       :contract-seller-marked-transfer-received
-      (throw (Exception. "NOT IMPLEMENTED"))
+      "not implemented"
       :contract-holding-period
-      (throw (Exception. "NOT IMPLEMENTED")))))
+      "not implemented")))

@@ -84,8 +84,8 @@
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defn preemptive-task-handler
-  [{:keys [?data ?reply-fn]}]
-  (try (tasks/initiate-preemptive-task :buy-request/accepted {:id (:id ?data)})
+  [{:keys [?data ?reply-fn]} tag]
+  (try (tasks/initiate-preemptive-task tag {:id (:id ?data)})
        (?reply-fn {:status :ok})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
