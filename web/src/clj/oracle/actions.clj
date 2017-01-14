@@ -83,17 +83,31 @@
        (?reply-fn {:status :ok})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
-(defmethod -event-msg-handler :buy-request/accept
+(defn preemptive-task-handler
   [{:keys [?data ?reply-fn]}]
   (try (tasks/initiate-preemptive-task :buy-request/accepted {:id (:id ?data)})
        (?reply-fn {:status :ok})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
+(defmethod -event-msg-handler :buy-request/accept
+  [& args]
+  (preemptive-task-handler args :buy-request/accept))
+
 (defmethod -event-msg-handler :buy-request/decline
-  [{:keys [?data ?reply-fn]}]
-  (try (tasks/initiate-preemptive-task :buy-request/declined {:id (:id ?data)})
-       (?reply-fn {:status :ok})
-       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+  [& args]
+  (preemptive-task-handler args :buy-request/accept))
+
+(defmethod -event-msg-handler :contract/break
+  [& args]
+  (preemptive-task-handler args :contract/break))
+
+(defmethod -event-msg-handler :contract/buyer-mark-transfer-sent
+  [& args]
+  (preemptive-task-handler args :contract/buyer-mark-transfer-sent))
+
+(defmethod -event-msg-handler :contract/buyer-mark-transfer-received
+  [& args]
+  (preemptive-task-handler args :contract/buyer-mark-transfer-received))
 
 ;;
 ;; Sente event router (`event-msg-handler` loop)

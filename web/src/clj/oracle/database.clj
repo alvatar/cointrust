@@ -305,6 +305,30 @@ WHERE id = ?
 SELECT * FROM contract
 "])))
 
+(defn contract-set-escrow-open-for! [id user-id]
+  (try
+    (sql/execute! db ["
+UPDATE contract SET escrow_open_for = ?
+WHERE id = ?
+" user-id id])
+    (catch Exception e (or (.getNextException e) e))))
+
+(defn contract-set-transfer-sent! [id]
+  (try
+    (sql/execute! db ["
+UPDATE contract SET transfer_sent = true
+WHERE id = ?
+" id])
+    (catch Exception e (or (.getNextException e) e))))
+
+(defn contract-set-transfer-received! [id]
+  (try
+    (sql/execute! db ["
+UPDATE contract SET transfer_received = true
+WHERE id = ?
+" id])
+    (catch Exception e (or (.getNextException e) e))))
+
 ;;
 ;; Development utilities
 ;;
@@ -362,7 +386,13 @@ CREATE TABLE contract (
   exchange_rate                    DECIMAL(26,6) NOT NULL,
   escrow_address                   TEXT,
   escrow_public_key                TEXT,
-  escrow_private_key               TEXT
+  escrow_private_key               TEXT,
+  escrow_funded                    BOOLEAN,
+  escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  transfer_sent                    BOOLEAN,
+  transfer_received                BOOLEAN,
+  waiting_transfer_start           TIMESTAMP,
+  holding_period_start             TIMESTAMP
 );"
                             "
 CREATE TABLE contract_events (
