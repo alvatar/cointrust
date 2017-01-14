@@ -101,11 +101,11 @@
     (assoc-in (into {} (for [[k v] (partition 2 stored)] [(keyword k) v]))
               [:global :now] (unix-now))))
 
-(defn idempotency-state-merge! [uid key new-map]
+(defn idempotency-state-set! [uid key new-map]
   (let [op-key (str "idempotent-ops:" uid)
-        global (wcar* (r/hget op-key :global))]
-    (wcar* (r/hset op-key key (merge global new-map)))
-    new-map))
+        stored (some-> (wcar* (r/hget op-key key)) (json/parse-string true))]
+    (wcar* (r/hset op-key key (json/generate-string new-map)))
+    merged))
 
 (defn idempotent-op* [uid tag state operation]
   (let [op-key (str "idempotent-ops:" uid)
@@ -144,50 +144,49 @@
   [{:keys [qname mid message attempt] :as task}]
   (let [{:keys [buyer-id amount currency-buy currency-sell]} message
         state (idempotency-state-reveal mid)
-        now (get-in state [:global :now])]
-    (log/debug "STATE:" state)
+        now (get-in state [:global :now])
+        buy-request (with-idempotent-transaction mid :buy-request-create state
+                      #(if-let [result (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0 %)]
+                         (do (log/debug "Buy request created:" result) result)
+                         (throw (Exception. "Couldn't create buy-request"))))
+        buy-request-id (:id buy-request)]
     ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
-    (let [buy-request
-          (with-idempotent-transaction mid :buy-request-create state
-            #(if-let [result (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0 %)]
-               (do (log/debug "Buy request created:" result) result)
-               (throw (Exception. "Couldn't create buy-request"))))
-          buy-request-id (:id buy-request)]
-      (log/debug "Processing buy request ID" buy-request-id)
-      (idempotent-ops mid :event-buy-request-created state
-                      (events/dispatch! buyer-id :buy-request-created buy-request))
-      (Thread/sleep 3000) ;; FAKE
-      (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
-                           #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell) %))]
-        (do (log/debug (format "Request ID %d is matched with seller ID %d" buy-request-id seller-id))
-            (idempotent-ops mid :sell-offer-matched state
-                            (events/dispatch! seller-id :sell-offer-matched buy-request)
-                            (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
-            ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
-            (log/debug (format "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000))))
-            (let [buy-request-status (get-buy-request-status buy-request-id)]
-              (cond
-                ;; Buy request accepted
-                (= buy-request-status "<accepted>")
-                (do (clear-user-blacklist buyer-id)
-                    {:status :success})
-                ;; Buy request declined
-                (= buy-request-status "<declined>")
-                (do (idempotency-state-merge! mid :global {:started now :pick-counterparty nil})
-                    (blacklist-counterparty buyer-id seller-id)
-                    (db/buy-request-unset-seller! buy-request-id) ; Idempotent
-                    {:status :retry :backoff-ms 1})
-                ;; Time has passed. Search another seller immediately.
-                (> now (unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1)))
-                (do (log/debugf "Buy request ID %d has timedout since no action has been taken by the seller" buy-request-id)
-                    (db/buy-request-unset-seller! buy-request-id)
-                    (blacklist-counterparty buyer-id seller-id)
-                    (events/dispatch! seller-id :buy-request-restarted buy-request)
-                    {:status :retry :backoff-ms 1})
-                :else
-                {:status :retry :backoff-ms 60000})))
-        (do (log/debug "No seller match. Retrying in 5 minutes.")
-            {:status :retry :backoff-ms 300000})))))
+    ;; (log/debugf "STATE: %s" state)
+    (log/debug "Processing buy request ID" buy-request-id)
+    (idempotent-ops mid :event-buy-request-created state
+                    (events/dispatch! buyer-id :buy-request-created buy-request))
+    (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
+                         #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell) %))]
+      (do (idempotent-ops mid :event-sell-offer-matched state
+                          (events/dispatch! seller-id :sell-offer-matched buy-request)
+                          (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
+          ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
+          ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))
+          (let [buy-request-status (get-buy-request-status buy-request-id)]
+            (cond
+              ;; Buy request accepted
+              (= buy-request-status "<accepted>")
+              (do (clear-user-blacklist buyer-id)
+                  {:status :success})
+              ;; Buy request declined
+              (= buy-request-status "<declined>")
+              (do (idempotency-state-set! mid :global (merge (:global state) {:started now}))
+                  (idempotency-state-set! mid :pick-counterparty nil)
+                  (blacklist-counterparty buyer-id seller-id)
+                  (db/buy-request-unset-seller! buy-request-id) ; Idempotent
+                  (clear-buy-request-status buy-request-id)
+                  {:status :retry :backoff-ms 1})
+              ;; Time has passed. Search another seller immediately.
+              (> now (unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1)))
+              (do (log/debugf "Buy request ID %d has timedout since no action has been taken by the seller" buy-request-id)
+                  (db/buy-request-unset-seller! buy-request-id)
+                  (blacklist-counterparty buyer-id seller-id)
+                  (events/dispatch! seller-id :buy-request-restarted buy-request)
+                  {:status :retry :backoff-ms 1})
+              :else
+              {:status :retry :backoff-ms 4000})))
+      (do (log/debug "No seller match. Retrying in 5 minutes.")
+          {:status :retry :backoff-ms 300000}))))
 
 ;; Contract master handler
 ;; 1. Get current stage
@@ -210,7 +209,7 @@
                       (throw (Exception. "Couldn't create contract"))))
         contract-id (:id contract)
         ;; Make sure we have the latest version of the contrast
-        contract (if (= attempt 1) contract (idempotency-state-merge! :contract (db/get-contract-by-id contract-id)))]
+        contract (if (= attempt 1) contract (idempotency-state-set! :contract (db/get-contract-by-id contract-id)))]
     (log/debugf "Attempt %d for contract %s" attempt contract)
     ;; Task initialization
     (when (= attempt 1) (events/dispatch! (:seller-id contract) :contract-waiting-escrow contract))
@@ -286,7 +285,7 @@
     (initiate-contract buy-request) ; Idempotent
     ;; Keep in mind that we are deleting the request here, so we rely on the master task
     ;; to retrieve the buy request info from the idempotency cache in Redis
-    ;;(db/buy-request-delete! buy-request-id) ; Idempotent, must be done at the end
+    (db/buy-request-delete! buy-request-id) ; Idempotent, must be done at the end
     {:status :success}))
 
 (defmethod common-preemptive-handler :buy-request/decline
@@ -309,7 +308,7 @@
     (with-idempotent-transaction mid :preemptive-contract-broken
       #(db/contract-add-event! contract-id "contract-broken" nil %))
     {:status :success}))
-{}
+
 (defmethod common-preemptive-handler :contract/buyer-mark-transfer-sent
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
@@ -370,3 +369,6 @@
   (flush-redis!!!)
   (db/reset-database!!!)
   (db/populate-test-database!!!))
+
+
+;; (oracle.tasks/initiate-preemptive-task :buy-request/decline {:id 1})
