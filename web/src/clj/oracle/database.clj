@@ -367,7 +367,7 @@ CREATE TABLE buy_request (
   id                               SERIAL PRIMARY KEY,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
-  seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   amount                           BIGINT NOT NULL,
   currency_buy                     TEXT NOT NULL,
   currency_sell                    TEXT NOT NULL,

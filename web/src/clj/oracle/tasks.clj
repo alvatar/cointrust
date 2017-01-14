@@ -26,7 +26,7 @@
 
 (defn unix-now [] (time-coerce/to-long (time/now)))
 
-(defn unix-after [duration] (time-coerce/to-long (time/plus (time/now) duration)))
+(defn unix-after [reference duration] (time-coerce/to-long (time/plus reference duration)))
 
 ;;
 ;; Interface
@@ -149,7 +149,7 @@
                       (events/dispatch! buyer-id :buy-request-created buy-request))
       (Thread/sleep 5000) ;; FAKE
       (if-let [seller-id (idempotent-tx mid :pick-counterparty state
-                                        #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell %)))]
+                                        #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell) %))]
         (do (log/debug (format "Request ID %d is matched with seller ID %d" buy-request-id seller-id))
             (idempotent-ops mid :sell-offer-matched state
                             (events/dispatch! seller-id :sell-offer-matched buy-request)
@@ -169,7 +169,9 @@
                     (db/buy-request-unset-seller! buy-request-id) ; Idempotent
                     {:status :retry :backoff-ms 1})
                 ;; Still within time window. Check again in 60 seconds.
-                (< (unix-now) (unix-after (time/days 1)))
+                ;; TODO: Extract now from task
+                ;; THIS IS WRONG
+                (< now (unix-after (time/days 1)))
                 {:status :retry :backoff-ms 60000}
                 ;; Time has passed. Search another seller immediately.
                 :else
@@ -179,12 +181,6 @@
                     {:status :retry :backoff-ms 1}))))
         (do (log/debug "No seller match. Retrying in 5 minutes.")
             {:status :retry :backoff-ms 300000})))))
-
-(defn escrow-waiting-period-finished? [contract-id now])
-
-(defn transfer-waiting-period-finished? [contract-id])
-
-(defn holding-period-finished? [contract-id])
 
 ;; Contract master handler
 ;; 1. Get current stage
@@ -226,7 +222,7 @@
                                #(db/contract-add-event! contract-id "waiting-transfer" nil %))
                 (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract)
                 {:status :retry :backoff-ms 1})
-            (escrow-waiting-period-finished? (:created contract) now)
+            (> now (unix-after (:created contract) (time/days 1)))
             (do (idempotent-tx mid :contract-add-event-contract-boken
                                #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
                 {:status :retry :backoff-ms 1})
@@ -243,7 +239,7 @@
                 (events/dispatch! (:seller-id contract) :contract-holding-period contract)
                 {:status :retry :backoff-ms 1})
             ;; The transfer waiting period includes both buyer sending and seller receiving notifications
-            (transfer-waiting-period-finished? (:waiting-transfer-start (db/get-contract-by-id contract-id)) now)
+            (> now (unix-after (:waiting-transfer-start contract) (time/days 1)))
             (do (idempotent-tx mid :contract-add-event-contract-boken
                                #(db/contract-add-event! contract-id "contract-broken" {:reason "transfer waiting period timed out"} %))
                 {:status :retry :backoff-ms 1})
@@ -252,7 +248,7 @@
       ;; Seller informs of transfer received
       ;; The buyer is informed of the transfer received
       "holding-period"
-      (cond (holding-period-finished? contract)
+      (cond (> now (unix-after (:holding-period-start contract) (time/days 100)))
             (do (db/contract-set-escrow-open-for! contract (:buyer-id contract)) ; Idempotent
                 (idempotent-tx mid :contract-success
                                #(db/contract-add-event! contract-id "contract-success" nil %))
