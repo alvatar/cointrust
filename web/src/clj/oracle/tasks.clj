@@ -95,27 +95,27 @@
 (defn idempotency-state-reveal [uid]
   (let [ops-ttl (* 7 24 3600) ; 1 week
         op-key (str "idempotent-ops:" uid)
-        [_ stored _] (wcar* (r/hsetnx op-key :global (let [now (unix-now)] {:created now :started now}))
+        now (unix-now)
+        [_ stored _] (wcar* (r/hsetnx op-key :global (json/generate-string {:created now :started now}))
                             (r/hgetall op-key)
                             (r/expire op-key ops-ttl))]
-    (assoc-in (into {} (for [[k v] (partition 2 stored)] [(keyword k) v]))
-              [:global :now] (unix-now))))
+    (assoc-in (into {} (for [[k v] (partition 2 stored)] [(keyword k) (json/parse-string v true)]))
+              [:global :now] now)))
 
 (defn idempotency-state-set! [uid key new-map]
-  (let [op-key (str "idempotent-ops:" uid)
-        stored (some-> (wcar* (r/hget op-key key)) (json/parse-string true))]
+  (let [op-key (str "idempotent-ops:" uid)]
+    ;;stored (some-> (wcar* (r/hget op-key key)) (json/parse-string true))
     (wcar* (r/hset op-key key (json/generate-string new-map)))
-    merged))
+    new-map))
 
 (defn idempotent-op* [uid tag state operation]
   (let [op-key (str "idempotent-ops:" uid)
         field (name tag)]
     (if-let [stored (tag state)]
-      (json/parse-string stored true)
-      (let [op-result (operation)]
+      stored
+      (let [op-result (or (operation) "\"<null>\"")]
         (wcar* (r/hset op-key field (try (json/generate-string op-result)
-                                         ;; "null" is serialized as a null value, but found in Redis
-                                         (catch Exception e "null"))))
+                                         (catch Exception e "\"<null>\""))))
         op-result))))
 
 (defmacro idempotent-ops [uid tag state & body]
@@ -125,11 +125,11 @@
   (let [op-key (str "idempotent-ops:" uid)
         field (name tag)]
     (if-let [stored (tag state)]
-      (json/parse-string stored true)
+      stored
       (transaction
        (fn [result]
          (wcar* (r/hset op-key field (try (json/generate-string result)
-                                          (catch Exception e "null")))))))))
+                                          (catch Exception e "\"<null>\"")))))))))
 
 ;;
 ;; Master task queues: they track progress of an entity. They have time and state.
@@ -151,7 +151,7 @@
                          (throw (Exception. "Couldn't create buy-request"))))
         buy-request-id (:id buy-request)]
     ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
-    ;; (log/debugf "STATE: %s" state)
+    (log/debugf "STATE: %s" state)
     (log/debug "Processing buy request ID" buy-request-id)
     (idempotent-ops mid :event-buy-request-created state
                     (events/dispatch! buyer-id :buy-request-created buy-request))
@@ -172,6 +172,7 @@
               (= buy-request-status "<declined>")
               (do (idempotency-state-set! mid :global (merge (:global state) {:started now}))
                   (idempotency-state-set! mid :pick-counterparty nil)
+                  (idempotency-state-set! mid :event-sell-offer-matched nil)
                   (blacklist-counterparty buyer-id seller-id)
                   (db/buy-request-unset-seller! buy-request-id) ; Idempotent
                   (clear-buy-request-status buy-request-id)
