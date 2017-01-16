@@ -211,7 +211,7 @@
         contract-id (:id contract)
         ;; Make sure we have the latest version of the contrast
         contract (if (= attempt 1) contract (idempotency-state-set! :contract (db/get-contract-by-id contract-id)))]
-    (log/debugf "Attempt %d for contract %s" attempt contract)
+    (log/debugf "Attempt %d for contract %s" attempt contract) mid
     ;; Task initialization
     (when (= attempt 1) (events/dispatch! (:seller-id contract) :contract-waiting-escrow contract))
     (case (:stage (db/get-contract-last-event contract-id))
@@ -373,3 +373,6 @@
 
 
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/decline {:id 1})
+
+;; (oracle.database/buy-request-set-seller! 1 3)
+;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1})

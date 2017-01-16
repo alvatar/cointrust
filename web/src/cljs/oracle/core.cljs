@@ -15,6 +15,7 @@
             [fb-sdk-cljs.core :as fb]
             [cljs-hash.goog :as gh]
             [goog.string :as gstring]
+            cljsjs.rc-slider
             ;; -----
             [oracle.common :as common]))
 
@@ -279,6 +280,7 @@
   (if (:error msg)
     (log* "Error in :buy-request/accepted" msg)
     (try (swap! (:buy-requests app-state) (fn [q] (remove #(= (:id msg)) q)))
+         (swap! (:contracts app-state) conj msg)
          (catch :default e
            (reset! app-error "There was an error when accepting the buy request. Please inform us of this event.")
            (log* "Error in buy-request/accepted:" e)))))
@@ -399,6 +401,15 @@
                                              :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                  "Maximum number of simultaneous open BUY requests reached."))))
 
+(rum/defc slider [min-val max-val on-change]
+  (js/React.createElement js/Slider #js {:min min-val
+                                         :max max-val
+                                         :range true
+                                         :allowCross false
+                                         :defaultValue #js [min-val max-val]
+                                         :tipFormatter nil
+                                         :onChange on-change}))
+
 (rum/defcs sell-dialog
   < rum/reactive (rum/local {} ::ui-values)
   [state_]
@@ -423,14 +434,9 @@
                                            :primary true
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
-                [:p "Minimum amount of Bitcoins I'm willing to sell: " [:strong min-val]]
-                (ui/slider {:min 200 :max 20000
-                            :value min-val
-                            :on-change #(swap! ui-values assoc :min %2)})
-                [:p "Maximum amount of Bitcoins I'm willing to sell "  [:strong max-val]]
-                (ui/slider {:min 200 :max 20000
-                            :value max-val
-                            :on-change #(swap! ui-values assoc :max %2)})])))
+                [:p "An offer will be place to sell between " [:strong min-val]
+                 " and " [:strong max-val] " USD"]
+                (slider min-val max-val (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))])))
 
 (rum/defc menu-controls-comp
   < rum/reactive
@@ -493,20 +499,8 @@
 (rum/defc contract-stage-comp
   < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}
   [contract ix text]
-  (let [stage-color
-        (fn [contract stage]
-          (let [current-stage (:stage contract)]
-            (cond
-              (< current-stage stage) "#aaa"
-              (= current-stage stage) (case (:status contract)
-                                        "waiting" "#0fb"
-                                        "done" "#0f0"
-                                        "action-required" "#00f"
-                                        "error" "#f00")
-              (> current-stage stage) "#0f0")))]
-    [:div {:style {:background-color (stage-color contract ix)
-                   :width "100%" :height "2rem" :margin-top "0.5rem"}}
-     text]))
+  [:div {:style {:width "100%" :height "2rem" :margin-top "0.5rem"}}
+   text])
 
 (rum/defc contract-listing-comp
   < rum/reactive
@@ -524,9 +518,16 @@
         :else
         (for [contract contracts]
           [:div {:key (:hash contract)} (str "Contract Hash ID: " (:hash contract))
-           (map-indexed
-            (fn [ix text] (contract-stage-comp contract ix text))
-            ["Stage 1" "Stage 2" "Stage 3" "Stage 4"])])))]])
+           (ui/stepper {:active-step (case (:stage contract)
+                                       "waiting-escrow" 0
+                                       "waiting-transfer" 1
+                                       "holding-period" 2
+                                       "contract-success" 3)
+                        :orientation "horizontal"}
+                       (ui/step (ui/step-label "Escrow funding"))
+                       (ui/step (ui/step-label "Transfer sent"))
+                       (ui/step (ui/step-label "Transfer received"))
+                       (ui/step (ui/step-label "Holding period")))])))]])
 
 (rum/defc generic-notifications
   < rum/reactive

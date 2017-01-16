@@ -20,6 +20,20 @@
 
 
 ;;
+;; Utils
+;;
+
+(def allowed-chars "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+(def num-allowed-chars (count allowed-chars))
+
+(defn- random-string [n]
+  ;; selection is slightly biased towards the first items in `allowed-chars`,
+  ;; since 256 is not a multiple of (count allowed-chars). I don't expect this
+  ;; to make codes significantly more guessable in practice.
+  (apply str (for [b (crypto/bytes n)]
+               (nth allowed-chars (mod b num-allowed-chars)))))
+
+;;
 ;; Events
 ;;
 
@@ -247,7 +261,7 @@ SELECT * FROM buy_request;
 INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (crypto/base64 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
+" (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
           (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, 'waiting-escrow');
 " (:id contract)])
