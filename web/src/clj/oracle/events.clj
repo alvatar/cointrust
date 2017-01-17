@@ -57,6 +57,7 @@
         (chsk-send! uid [:contract/broken args]))
       :contract-waiting-transfer
       (future
+        (chsk-send! uid [:contract/waiting-transfer args])
         (chsk-send! uid [:notification/create
                          {:title "Waiting transfer"
                           :message "The seller is waiting for your transfer. Please proceed. When done, click the action button."}]))

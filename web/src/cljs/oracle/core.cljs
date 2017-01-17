@@ -302,6 +302,17 @@
            (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
                (log* "Error in contract/create" msg))))))
 
+(defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
+
+(defmethod app-msg-handler :contract/waiting-transfer
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/waiting-transfer" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer")
+      (do (reset! app-error "There was an error when matching the contract. Please inform us of this event.")
+          (log* "Error in contract/waiting-transfer" msg)))))
+
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
   (if (:error msg)
@@ -456,7 +467,7 @@
     ;; TODO: hints http://kushagragour.in/lab/hint/
     (ui/raised-button {:label "BUY Bitcoins"
                        :disabled false #_(not (let [contracts (rum/react (:contracts app-state))]
-                                        (or (= contracts :unknown) (empty? contracts))))
+                                                (or (= contracts :unknown) (empty? contracts))))
                        :style {:margin "1rem"}
                        :on-touch-tap #(reset! (:ui-mode app-state) :buy-dialog)})
     (ui/raised-button {:label (if (rum/react (:sell-offer app-state)) "Change sell offer" "SELL Bitcoins")
@@ -471,12 +482,7 @@
    [:div
     [:h4 {:style {:text-align "center"}} "Sell offer"]
     [:p.center "You are currently offering to sell: "
-     [:strong (:min sell-offer)] " (min.) - " [:strong (:max sell-offer)] " BTC (max.)"]
-    ;; [:div (ui/stepper {:active-step 1}
-    ;;                   (ui/step (ui/step-label "Make Offer"))
-    ;;                   (ui/step (ui/step-label "Wait for Match"))
-    ;;                   (ui/step (ui/step-label "Initiate Contract")))]
-    ]))
+     [:strong (:min sell-offer)] " (min.) - " [:strong (:max sell-offer)] " BTC (max.)"]]))
 
 (rum/defc request-listing-comp
   < rum/reactive
