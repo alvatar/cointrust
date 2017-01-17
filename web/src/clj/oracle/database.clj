@@ -51,40 +51,38 @@ INSERT INTO logs (type, data) VALUES (?, ?) RETURNING *;
 
 (defn user-insert! [user-hash friend-hashes]
   ;; TODO: We are currently storing ID too. Just keep hash
-  (try
-    (sql/with-db-transaction
-      [tx db]
-      (let [friend-ids
-            (mapv :id
-                  (first
-                   (for [f friend-hashes]
-                     (sql/query tx ["
+  (sql/with-db-transaction
+    [tx db]
+    (let [friend-ids
+          (mapv :id
+                (first
+                 (for [f friend-hashes]
+                   (sql/query tx ["
 SELECT id FROM user_account WHERE hash = ?;
 " f]))))
-            user-id
-            (-> (sql/query tx ["
+          user-id
+          (-> (sql/query tx ["
 INSERT INTO user_account (hash) VALUES (?)
 ON CONFLICT (hash) DO UPDATE SET hash = ?
 RETURNING id;
 " user-hash user-hash])
-                first
-                :id)
-            friends-insert
-            ;; TODO: This doesn't remove old friend hashes. What to do about it?
-            (mapv (fn [fid] ; order guarantess uniqueness of edges
-                    (let [[user-id1 user-id2] (sort [fid user-id])]
-                      (first
-                       (sql/execute! tx ["
+              first
+              :id)
+          friends-insert
+          ;; TODO: This doesn't remove old friend hashes. What to do about it?
+          (mapv (fn [fid] ; order guarantess uniqueness of edges
+                  (let [[user-id1 user-id2] (sort [fid user-id])]
+                    (first
+                     (sql/execute! tx ["
 INSERT INTO friends (user_id1, user_id2)
 VALUES (?, ?)
 ON CONFLICT DO NOTHING
 " user-id1 user-id2]))))
-                  friend-ids)]
-        (log! tx "user-insert" {:user-hash user-hash
-                                :friend-hashes friend-hashes})
-        {:user user-id
-         :friends friend-ids}))
-    (catch Exception e (or (.getNextException e) e))))
+                friend-ids)]
+      (log! tx "user-insert" {:user-hash user-hash
+                              :friend-hashes friend-hashes})
+      {:user user-id
+       :friends friend-ids})))
 
 (defn get-users []
   (sql/query db ["SELECT * FROM user_account;"]))
@@ -138,16 +136,14 @@ WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
 ;; Sell Offers
 ;;
 
-(defn sell-offer-set! [user-id minval maxval]
-  (try
-    (sql/with-db-transaction
-      [tx db]
-      (sql/execute! tx ["
-INSERT INTO sell_offer (user_id, min, max) VALUES (?, ?, ?)
-ON CONFLICT (user_id) DO UPDATE SET min = ?, max = ?
-" user-id minval maxval minval maxval])
-      (log! tx "sell-offer-set" {:user-id user-id :min minval :max maxval}))
-    (catch Exception e (or (.getNextException e) e))))
+(defn sell-offer-set! [user-id currency minval maxval]
+  (sql/with-db-transaction
+    [tx db]
+    (sql/execute! tx ["
+INSERT INTO sell_offer (user_id, currency, min, max) VALUES (?, ?, ?, ?)
+ON CONFLICT (user_id) DO UPDATE SET currency = ?, min = ?, max = ?
+" user-id currency minval maxval currency minval maxval])
+    (log! tx "sell-offer-set" {:user-id user-id :min minval :max maxval})))
 
 (defn sell-offer-get-by-user [user-id]
   (first
@@ -156,14 +152,12 @@ SELECT min, max FROM sell_offer WHERE user_id = ?;
 " user-id])))
 
 (defn sell-offer-unset! [user-id]
-  (try
-    (sql/with-db-transaction
-      [tx db]
-      (sql/execute! tx ["
+  (sql/with-db-transaction
+    [tx db]
+    (sql/execute! tx ["
 DELETE FROM sell_offer WHERE user_id = ?;
 " user-id])
-      (log! tx "sell-offer-unset" {:user-id user-id}))
-    (catch Exception e (or (.getNextException e) e))))
+    (log! tx "sell-offer-unset" {:user-id user-id})))
 
 (defn get-all-sell-offers []
   (into []
@@ -178,24 +172,22 @@ SELECT * FROM sell_offer;
 (defn ->kebab-case [r] (reduce-kv #(assoc %1 (case-shift/->kebab-case %2) %3) {} r))
 
 (defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate & [txcb]]
-  (try
-    (-> (sql/with-db-transaction
-          [tx db]
-          (let [buy-request (first
-                             (sql/query tx ["
+  (-> (sql/with-db-transaction
+        [tx db]
+        (let [buy-request (first
+                           (sql/query tx ["
 INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate)
 VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 " user-id amount currency-buy currency-sell exchange-rate]))]
-            (log! tx "buy-request-create" {:user-id user-id
-                                           :amount amount
-                                           :currency-buy currency-buy
-                                           :currency-sell currency-sell
-                                           :exchange-rate exchange-rate})
-            (when txcb (txcb buy-request))
-            buy-request))
-        ->kebab-case)
-    (catch Exception e (or (.getNextException e) e))))
+          (log! tx "buy-request-create" {:user-id user-id
+                                         :amount amount
+                                         :currency-buy currency-buy
+                                         :currency-sell currency-sell
+                                         :exchange-rate exchange-rate})
+          (when txcb (txcb buy-request))
+          buy-request))
+      ->kebab-case))
 
 (defn get-buy-requests-by-user [user-id]
   (mapv ->kebab-case
@@ -211,33 +203,27 @@ SELECT * FROM buy_request WHERE id = ?;
       ->kebab-case))
 
 (defn buy-request-set-seller! [buy-request seller-id & [txcb]]
-  (try
-    (sql/with-db-transaction
-      [tx db]
-      (sql/execute! tx ["
+  (sql/with-db-transaction
+    [tx db]
+    (sql/execute! tx ["
 UPDATE buy_request SET seller_id = ?
 WHERE id = ?
 " seller-id buy-request])
-      (log! tx "buy-request-set-seller" {:id buy-request :seller-id seller-id})
-      (when txcb (txcb seller-id)))
-    seller-id
-    (catch Exception e (or (.getNextException e) e))))
+    (log! tx "buy-request-set-seller" {:id buy-request :seller-id seller-id})
+    (when txcb (txcb seller-id)))
+  seller-id)
 
 (defn buy-request-unset-seller! [buy-request]
-  (try
-    (sql/execute! db ["
+  (sql/execute! db ["
 UPDATE buy_request SET seller_id = NULL
 WHERE id = ?
-" buy-request])
-    (catch Exception e (or (.getNextException e) e))))
+" buy-request]))
 
 (defn buy-request-delete! [buy-request]
-  (try
-    (sql/execute! db ["
+  (sql/execute! db ["
 DELETE FROM buy_request WHERE id = ?;
 " buy-request])
-    'ok
-    (catch Exception e (or (.getNextException e) e))))
+  'ok)
 
 (defn get-all-buy-requests []
   (mapv ->kebab-case
@@ -252,33 +238,29 @@ SELECT * FROM buy_request;
 (defn contract-create!
   [{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate] :as params} & [txcb]]
   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
-    (try
-      (sql/with-db-transaction
-        [tx db]
-        (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
+    (sql/with-db-transaction
+      [tx db]
+      (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
 INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 " (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
-          (sql/execute! tx ["
+        (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
-          (let [contract (merge contract {:stage init-stage})]
-            (log! tx "contract-create" params)
-            (when txcb (txcb contract))
-            contract)))
-      (catch Exception e (or (.getNextException e) e)))))
+        (let [contract (merge contract {:stage init-stage})]
+          (log! tx "contract-create" params)
+          (when txcb (txcb contract))
+          contract)))))
 
 (defn contract-add-event! [contract-id stage & [data txcb]]
-  (try
-    (sql/with-db-transaction
-      [tx db]
-      (sql/execute! tx ["
+  (sql/with-db-transaction
+    [tx db]
+    (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage, data) VALUES (?, ?, ?);
 " contract-id stage (or data "")])
-      (log! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
-      (when txcb (txcb nil)))
-    (catch Exception e (or (.getNextException e) e))))
+    (log! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
+    (when txcb (txcb nil))))
 
 (defn get-contract-events [contract-id]
   (into []
@@ -347,63 +329,54 @@ SELECT * FROM contract_event;
 ;; TODO: IS THIS SECURE?
 
 (defn contract-set-escrow-funded! [id transfer-info]
-  (try
-    (sql/execute! db ["
+  (sql/execute! db ["
 UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, transfer_info = ?
 WHERE id = ?
-" transfer-info id])
-    (catch Exception e (or (.getNextException e) e))))
+" transfer-info id]))
 
 (defn contract-set-escrow-open-for! [id user-id]
-  (try
-    (sql/execute! db ["
+  (sql/execute! db ["
 UPDATE contract SET escrow_open_for = ?
 WHERE id = ?
-" user-id id])
-    (catch Exception e (or (.getNextException e) e))))
+" user-id id]))
 
 (defn contract-set-transfer-sent! [id]
-  (try
-    (sql/execute! db ["
+  (sql/execute! db ["
 UPDATE contract SET transfer_sent = true
 WHERE id = ?
-" id])
-    (catch Exception e (or (.getNextException e) e))))
+" id]))
 
 (defn contract-set-transfer-received! [id]
-  (try
-    (sql/execute! db ["
+  (sql/execute! db ["
 UPDATE contract SET transfer_received = true, waiting_transfer_start = CURRENT_TIMESTAMP
 WHERE id = ?
-" id])
-    (catch Exception e (or (.getNextException e) e))))
+" id]))
 
 ;;
 ;; Development utilities
 ;;
 
 (defn reset-database!!! []
-  (try
-    (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
-                            "DROP TABLE IF EXISTS contract_event;"
-                            "DROP TABLE IF EXISTS contract CASCADE;"
-                            "DROP TABLE IF EXISTS sell_offer;"
-                            "DROP TABLE IF EXISTS buy_request;"
-                            "DROP TABLE IF EXISTS friends;"
-                            "DROP TABLE IF EXISTS user_account CASCADE;"
-                            "
+  (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
+                          "DROP TABLE IF EXISTS contract_event;"
+                          "DROP TABLE IF EXISTS contract CASCADE;"
+                          "DROP TABLE IF EXISTS sell_offer;"
+                          "DROP TABLE IF EXISTS buy_request;"
+                          "DROP TABLE IF EXISTS friends;"
+                          "DROP TABLE IF EXISTS user_account CASCADE;"
+                          "
 CREATE TABLE user_account (
   id                               SERIAL PRIMARY KEY,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   hash                             TEXT NOT NULL UNIQUE
 );"
-                            "
+                          "
 CREATE TABLE friends (
   user_id1                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   user_id2                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   PRIMARY KEY (user_id1, user_id2)
 );"
-                            "
+                          "
 CREATE TABLE sell_offer (
   user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
@@ -411,7 +384,7 @@ CREATE TABLE sell_offer (
   max                              BIGINT NOT NULL,
   currency                         TEXT NOT NULL
 );"
-                            "
+                          "
 CREATE TABLE buy_request (
   id                               SERIAL PRIMARY KEY,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -422,7 +395,7 @@ CREATE TABLE buy_request (
   currency_sell                    TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL
 );"
-                            "
+                          "
 CREATE TABLE contract (
   id                               SERIAL PRIMARY KEY,
   hash                             TEXT NOT NULL UNIQUE,
@@ -444,7 +417,7 @@ CREATE TABLE contract (
   waiting_transfer_start           TIMESTAMP,
   holding_period_start             TIMESTAMP
 );"
-                            "
+                          "
 CREATE TABLE contract_event (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -452,15 +425,14 @@ CREATE TABLE contract_event (
   stage                            TEXT NOT NULL,
   data                             TEXT
 );"
-                            "
+                          "
 CREATE TABLE logs (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   type                             TEXT NOT NULL,
   data                             TEXT NOT NULL
 );"
-                            ])
-    (catch Exception e (or (.getNextException e) e))))
+                          ]))
 
 (defn populate-test-database!!! []
   (user-insert! "asdf" [])

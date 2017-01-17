@@ -167,7 +167,7 @@
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
            (log* "Error in get-user-contract:" resp))))))
 
-(defn open-sell-offer [{:as vals :keys [min max]}]
+(defn open-sell-offer [{:as vals :keys [currency min max]}]
   (chsk-send!
    [:offer/open (assoc vals :user-id @(:user-id app-state))] 5000
    (fn [resp]
@@ -409,12 +409,12 @@
                                              :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                  "Maximum number of simultaneous open BUY requests reached."))))
 
-(rum/defc slider [min-val max-val on-change]
-  (js/React.createElement js/Slider #js {:min min-val
-                                         :max max-val
+(rum/defc sell-slider [currency [min-val max-val] on-change]
+  (js/React.createElement js/Slider #js {:min 200
+                                         :max 20000
                                          :range true
                                          :allowCross false
-                                         :defaultValue #js [min-val max-val]
+                                         :value #js [min-val max-val]
                                          :tipFormatter nil
                                          :onChange on-change}))
 
@@ -436,7 +436,7 @@
                                                                 #(reset! (:ui-mode app-state) :none))))}))
                           (ui/flat-button {:label (if offer-active? "Update" "Sell")
                                            :on-touch-tap (fn []
-                                                           (open-sell-offer {:min min-val :max max-val})
+                                                           (open-sell-offer {:currency "usd" :min min-val :max max-val})
                                                            (reset! (:ui-mode app-state) :none))})
                           (ui/flat-button {:label "Back"
                                            :primary true
@@ -444,7 +444,7 @@
                [:div
                 [:p "An offer will be place to sell between " [:strong min-val]
                  " and " [:strong max-val] " USD"]
-                (slider min-val max-val (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))])))
+                (sell-slider "usd" [min-val max-val] (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))])))
 
 (rum/defc menu-controls-comp
   < rum/reactive

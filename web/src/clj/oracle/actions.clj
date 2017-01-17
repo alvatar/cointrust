@@ -54,7 +54,7 @@
 
 (defmethod -event-msg-handler :offer/open
   [{:keys [?data ?reply-fn]}]
-  (try (db/sell-offer-set! (:user-id ?data) (:min ?data) (:max ?data))
+  (try (db/sell-offer-set! (:user-id ?data) (:currency ?data) (:min ?data) (:max ?data))
        (?reply-fn {:status :ok :min (:min ?data) :max (:max ?data)})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
