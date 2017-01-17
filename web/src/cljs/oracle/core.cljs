@@ -224,6 +224,24 @@
        (do (log* (gstring/format "Error declining buy request ID %d" buy-request-id))
            (reset! app-error "There was an error declining the buy request. Please try again."))))))
 
+(defn mark-contract-sent [contract-id]
+  (chsk-send!
+   [:contract/mark-transfer-sent {:id contract-id}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (log* (gstring/format "Contract ID %d marked as transfer SENT" contract-id))
+       (do (log* (gstring/format "Error marking contract ID %d as transfer SENT" contract-id))
+           (reset! app-error "There was an error marking the contract. Please try again."))))))
+
+(defn mark-contract-received [contract-id]
+  (chsk-send!
+   [:contract/mark-transfer-received {:id contract-id}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (log* (gstring/format "Contract ID %d marked as transfer RECEIVED" contract-id))
+       (do (log* (gstring/format "Error marking contract ID %d as transfer RECEIVED" contract-id))
+           (reset! app-error "There was an error marking the contract. Please try again."))))))
+
 ;;
 ;; Event Handlers
 ;;
@@ -299,7 +317,7 @@
     (log* "Error in :contract/create" msg)
     (try (swap! (:contracts app-state) conj msg)
          (catch :default e
-           (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
+           (do (reset! app-error "There was an error when creating the contract. Please inform us of this event.")
                (log* "Error in contract/create" msg))))))
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
@@ -310,8 +328,35 @@
     (log* "Error in :contract/waiting-transfer" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer")
-      (do (reset! app-error "There was an error when matching the contract. Please inform us of this event.")
+      (do (reset! app-error "There was an error in the contract waiting-transfer stage. Please inform us of this event.")
           (log* "Error in contract/waiting-transfer" msg)))))
+
+(defmethod app-msg-handler :contract/mark-transfer-sent-ack
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/mark-transfer-sent-ack" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :transfer-sent] true)
+      (do (reset! app-error "There was an error when marking the transfer as sent. Please inform us of this event.")
+          (log* "Error in contract/mark-transfer-sent-ack" msg)))))
+
+(defmethod app-msg-handler :contract/mark-transfer-received-ack
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/mark-transfer-received-ack" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :transfer-received] true)
+      (do (reset! app-error "There was an error when marking the transfer as received. Please inform us of this event.")
+          (log* "Error in contract/mark-transfer-received-ack" msg)))))
+
+(defmethod app-msg-handler :contract/holding-period
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/holding-period" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :stage] "holding-period")
+      (do (reset! app-error "There was an error when starting the contract holding period. Please inform us of this event.")
+          (log* "Error in contract/holding-period" msg)))))
 
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
@@ -538,19 +583,27 @@
                        (ui/step (ui/step-label "Holding period")))
            [:div.center {:style {:margin-bottom "5rem"}}
             (let [am-i-buyer? #(= @(:user-id app-state) (:buyer-id %))
+                  waiting-transfer? #(= (:stage %) "waiting-transfer")
                   action-text (fn [c]
-                                (if (= (:stage c) "waiting-transfer")
+                                (if (waiting-transfer? c)
                                   (if (am-i-buyer? c)
                                     (if (:transfer-sent c) "Waiting for seller" "I've transferred the funds")
                                     (if (:transfer-sent c) "I've received the funds" "Waiting for buyer"))
                                   "Waiting"))]
               (ui/raised-button {:label (action-text contract)
-                                 :disabled (or (not= (:stage contract) "waiting-transfer")
+                                 :disabled (or (not (waiting-transfer? contract))
                                                (if (am-i-buyer? contract)
                                                  (and (:transfer-sent contract) (not (:transfer-received contract)))
                                                  (not (:transfer-sent contract))))
                                  :style {:margin "0 1rem 0 1rem"}
-                                 :on-touch-tap #(js/confirm "Confirm action")}))
+                                 :on-touch-tap #(when (waiting-transfer? contract)
+                                                  (cond
+                                                    (and (not (:transfer-sent contract)) (am-i-buyer? contract))
+                                                    (mark-contract-sent (:id contract))
+                                                    (and (:transfer-sent contract) (not (am-i-buyer? contract)))
+                                                    (mark-contract-received (:id contract))
+                                                    :else
+                                                    (log* "Inconsistent state of contract action button")))}))
             (ui/raised-button {:label "Break contract"
                                :style {:margin "0 1rem 0 1rem"}
                                :on-touch-tap #(js/confirm "Are you sure?")})]])))]])

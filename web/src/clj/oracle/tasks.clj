@@ -249,7 +249,9 @@
       "waiting-transfer"
       (cond (:transfer-received contract)
             (do (with-idempotent-transaction mid :contract-add-event-holding-period state
-                  #(db/contract-add-event! contract-id "holding-period" nil %))
+                  (fn [idemp]
+                    (log/debug "Contract stage changed to \"holding-period\"")
+                    (db/contract-add-event! contract-id "holding-period" nil idemp)))
                 (events/dispatch! (:buyer-id contract) :contract-holding-period contract)
                 (events/dispatch! (:seller-id contract) :contract-holding-period contract)
                 {:status :retry :backoff-ms 1})
@@ -318,24 +320,26 @@
       #(db/contract-add-event! contract-id "contract-broken" nil %))
     {:status :success}))
 
-(defmethod common-preemptive-handler :contract/buyer-mark-transfer-sent
+(defmethod common-preemptive-handler :contract/mark-transfer-sent
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
         contract-id (:id data)
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
-    (events/dispatch! (:seller-id contract) :contract-buyer-marked-transfer-sent contract) ; Allow repetition
     (db/contract-set-transfer-sent! contract-id)
+    (events/dispatch! (:seller-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
+    (events/dispatch! (:buyer-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
     {:status :success}))
 
-(defmethod common-preemptive-handler :contract/seller-mark-transfer-received
+(defmethod common-preemptive-handler :contract/mark-transfer-received
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
         contract-id (:id data)
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
-    (events/dispatch! (:seller-id contract) :contract-seller-marked-transfer-received contract) ; Allow repetition
     (db/contract-set-transfer-received! contract-id)
+    (events/dispatch! (:buyer-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
+    (events/dispatch! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     {:status :success}))
 
 ;;
@@ -374,10 +378,11 @@
 (defn flush-redis!!! [] (wcar* (r/flushall)))
 
 (defn total-wipeout!!! []
-  (restart!)
+  (workers-stop!)
   (flush-redis!!!)
   (db/reset-database!!!)
-  (db/populate-test-database!!!))
+  (db/populate-test-database!!!)
+  (workers-start!))
 
 
 ;; Decline buy request
@@ -392,3 +397,6 @@
 
 ;; Seller sends money to escrow
 ;; (oracle.database/contract-set-escrow-funded! 1 "put it here")
+
+;; Seller marks transfer received
+;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})

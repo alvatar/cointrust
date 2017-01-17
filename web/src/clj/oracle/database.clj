@@ -328,9 +328,11 @@ SELECT * FROM contract_event;
 
 ;; TODO: IS THIS SECURE?
 
+;; TODO: instead of setting the timestamp here, use the timestamp from latest event
+
 (defn contract-set-escrow-funded! [id transfer-info]
   (sql/execute! db ["
-UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, transfer_info = ?
+UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, holding_period_start = CURRENT_TIMESTAMP, transfer_info = ?
 WHERE id = ?
 " transfer-info id]))
 

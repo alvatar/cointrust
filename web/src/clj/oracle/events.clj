@@ -61,18 +61,23 @@
         (chsk-send! uid [:notification/create
                          {:title "Waiting transfer"
                           :message "The seller is waiting for your transfer. Please proceed. When done, click the action button."}]))
-      :contract-buyer-marked-transfer-sent
+      :contract-mark-transfer-sent-ack
       (future
+        (chsk-send! uid [:contract/mark-transfer-sent-ack args])
         (chsk-send! uid [:notification/create
                          {:title "Transfer sent"
-                          :message "The buyer has notified the system of an initiated transfer of funds. We will wait for your confirmation."}]))
-      :contract-seller-marked-transfer-received
+                          :message (if (= (:seller-id args) user-id)
+                                     "The buyer has notified the system of an initiated transfer of funds. We will wait for your confirmation."
+                                     "The seller has been notified of the transfer sent.")}]))
+      :contract-mark-transfer-received-ack
       (future
+        (chsk-send! uid [:contract/mark-transfer-received-ack args])
         (chsk-send! uid [:notification/create
-                         {:title "Transfer confirmed"
+                         {:title "Transfer received"
                           :message "The seller has confirmed the reception of the funds."}]))
       :contract-holding-period
       (future
+        (chsk-send! uid [:contract/holding-period args])
         (chsk-send! uid [:notification/create
                          {:title "Holding period"
                           :message "The contract has achieved it's final stage. For buyer and seller protection, the escrow account will hold the cryptocurrency for 100 days."}])))))
