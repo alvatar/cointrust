@@ -255,19 +255,18 @@ SELECT * FROM buy_request;
     (try
       (sql/with-db-transaction
         [tx db]
-        (let [contract
-              (first
-               (sql/query tx ["
+        (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
 INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 " (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
           (sql/execute! tx ["
-INSERT INTO contract_event (contract_id, stage) VALUES (?, 'waiting-escrow');
-" (:id contract)])
-          (log! tx "contract-create" params)
-          (when txcb (txcb contract))
-          contract))
+INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
+" (:id contract) init-stage])
+          (let [contract (merge contract {:stage init-stage})]
+            (log! tx "contract-create" params)
+            (when txcb (txcb contract))
+            contract)))
       (catch Exception e (or (.getNextException e) e)))))
 
 (defn contract-add-event! [contract-id stage & [data txcb]]
@@ -286,8 +285,9 @@ INSERT INTO contract_event (contract_id, stage, data) VALUES (?, ?, ?);
         (sql/query db ["
 SELECT contract_event.* FROM contract_event
 INNER JOIN contract
-ON contract.id = contract_event.contract_id;
-"])))
+ON contract.id = contract_event.contract_id
+WHERE contract.id = ?;
+" contract-id])))
 
 (defn get-contract-last-event [contract-id]
   (first
@@ -295,14 +295,24 @@ ON contract.id = contract_event.contract_id;
 SELECT contract_event.* FROM contract_event
 INNER JOIN contract
 ON contract.id = contract_event.contract_id
-WHERE contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
-"])))
+WHERE contract.id = ? AND contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
+" contract-id])))
 
 (defn get-contracts-by-user [user-id]
   (mapv ->kebab-case
         (sql/query db ["
 SELECT * FROM contract
 WHERE buyer_id = ? OR seller_id = ?
+" user-id user-id])))
+
+(defn get-contracts-by-user-with-last-event [user-id]
+  (mapv ->kebab-case
+        (sql/query db ["
+SELECT contract.*, contract_event.stage FROM contract_event
+INNER JOIN contract
+ON contract.id = contract_event.contract_id
+WHERE (buyer_id = ? OR seller_id = ?)
+      AND contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
 " user-id user-id])))
 
 (defn get-contract-by-id [id]
@@ -313,11 +323,36 @@ WHERE id = ?
       first
       ->kebab-case))
 
+(defn get-contract-by-id-with-last-event [id]
+  (-> (sql/query db ["
+SELECT contract.*, contract_event.stage FROM contract_event
+INNER JOIN contract
+ON contract.id = contract_event.contract_id
+WHERE contract.id = ? AND contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
+" id])
+      first
+      ->kebab-case))
+
 (defn get-all-contracts []
   (into []
         (sql/query db ["
 SELECT * FROM contract
 "])))
+
+(defn get-all-events []
+  (sql/query db ["
+SELECT * FROM contract_event;
+"]))
+
+;; TODO: IS THIS SECURE?
+
+(defn contract-set-escrow-funded! [id transfer-info]
+  (try
+    (sql/execute! db ["
+UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, transfer_info = ?
+WHERE id = ?
+" transfer-info id])
+    (catch Exception e (or (.getNextException e) e))))
 
 (defn contract-set-escrow-open-for! [id user-id]
   (try
@@ -338,7 +373,7 @@ WHERE id = ?
 (defn contract-set-transfer-received! [id]
   (try
     (sql/execute! db ["
-UPDATE contract SET transfer_received = true
+UPDATE contract SET transfer_received = true, waiting_transfer_start = CURRENT_TIMESTAMP
 WHERE id = ?
 " id])
     (catch Exception e (or (.getNextException e) e))))
@@ -403,6 +438,7 @@ CREATE TABLE contract (
   escrow_private_key               TEXT,
   escrow_funded                    BOOLEAN,
   escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  transfer_info                    TEXT,
   transfer_sent                    BOOLEAN,
   transfer_received                BOOLEAN,
   waiting_transfer_start           TIMESTAMP,

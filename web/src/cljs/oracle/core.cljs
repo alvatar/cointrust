@@ -242,45 +242,44 @@
           (for [c @(:contracts app-state)]
             (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
 
-;; (chsk-send! "asdf" [:sell-offer/matched {:status :ok :amount 300}])
-(defmethod app-msg-handler :sell-offer/matched
+;; (chsk-send! "asdf" [:sell-offer/match {:status :ok :amount 300}])
+(defmethod app-msg-handler :sell-offer/match
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :sell-offer/matched message")
+    (log* "Error in :sell-offer/match message")
     (swap! (:sell-offer-matches app-state) conj msg)))
 
-(defmethod app-msg-handler :buy-request/created
+(defmethod app-msg-handler :buy-request/create
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :buy-request/created" msg)
+    (log* "Error in :buy-request/create" msg)
     (swap! (:buy-requests app-state) conj msg)))
 
 (defn find-buy-request [id] (first (keep-indexed #(when (= (:id %2) id) %1) @(:buy-requests app-state))))
 
-(defmethod app-msg-handler :buy-request/matched
+(defmethod app-msg-handler :buy-request/match
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :buy-request/matched" msg)
+    (log* "Error in :buy-request/match" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] (:seller-id msg))
       (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
-          (log* "Error in buy-request/matched" msg)))))
+          (log* "Error in buy-request/match" msg)))))
 
-(defmethod app-msg-handler :buy-request/restarted
+(defmethod app-msg-handler :buy-request/restart
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :buy-request/restarted" msg)
+    (log* "Error in :buy-request/restart" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
       (do (reset! app-error "There was an error when restarting the buy request. Please inform us of this event.")
-          (log* "Error in buy-request/restarted" msg)))))
+          (log* "Error in buy-request/restart" msg)))))
 
 (defmethod app-msg-handler :buy-request/accepted
   [[_ msg]]
   (if (:error msg)
     (log* "Error in :buy-request/accepted" msg)
     (try (swap! (:buy-requests app-state) (fn [q] (remove #(= (:id msg)) q)))
-         (swap! (:contracts app-state) conj msg)
          (catch :default e
            (reset! app-error "There was an error when accepting the buy request. Please inform us of this event.")
            (log* "Error in buy-request/accepted:" e)))))
@@ -292,7 +291,16 @@
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
       (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
-          (log* "Error in buy-request/matched" msg)))))
+          (log* "Error in buy-request/declined" msg)))))
+
+(defmethod app-msg-handler :contract/create
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/create" msg)
+    (try (swap! (:contracts app-state) conj msg)
+         (catch :default e
+           (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
+               (log* "Error in contract/create" msg))))))
 
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
@@ -496,12 +504,6 @@
                                                             "PARTNER FOUND - WAITING SELLER ACTION"
                                                             "LOOKING FOR A PARTNER..."))})))))]])
 
-(rum/defc contract-stage-comp
-  < {:key-fn (fn [_ ix _] (str "stage-display-" ix))}
-  [contract ix text]
-  [:div {:style {:width "100%" :height "2rem" :margin-top "0.5rem"}}
-   text])
-
 (rum/defc contract-listing-comp
   < rum/reactive
   []
@@ -520,14 +522,32 @@
           [:div {:key (:hash contract)} (str "Contract Hash ID: " (:hash contract))
            (ui/stepper {:active-step (case (:stage contract)
                                        "waiting-escrow" 0
-                                       "waiting-transfer" 1
-                                       "holding-period" 2
-                                       "contract-success" 3)
+                                       "waiting-transfer" (if (:transfer-sent contract) 2 1)
+                                       "holding-period" 3
+                                       "contract-success" 4)
                         :orientation "horizontal"}
                        (ui/step (ui/step-label "Escrow funding"))
-                       (ui/step (ui/step-label "Transfer sent"))
-                       (ui/step (ui/step-label "Transfer received"))
-                       (ui/step (ui/step-label "Holding period")))])))]])
+                       (ui/step (ui/step-label "Send transfer"))
+                       (ui/step (ui/step-label "Receive transfer"))
+                       (ui/step (ui/step-label "Holding period")))
+           [:div.center {:style {:margin-bottom "5rem"}}
+            (let [am-i-buyer? #(= @(:user-id app-state) (:buyer-id %))
+                  action-text (fn [c]
+                                (if (= (:stage c) "waiting-transfer")
+                                  (if (am-i-buyer? c)
+                                    (if (:transfer-sent c) "Waiting for seller" "I've transferred the funds")
+                                    (if (:transfer-sent c) "I've received the funds" "Waiting for buyer"))
+                                  "Waiting"))]
+              (ui/raised-button {:label (action-text contract)
+                                 :disabled (or (not= (:stage contract) "waiting-transfer")
+                                               (if (am-i-buyer? contract)
+                                                 (and (:transfer-sent contract) (not (:transfer-received contract)))
+                                                 (not (:transfer-sent contract))))
+                                 :style {:margin "0 1rem 0 1rem"}
+                                 :on-touch-tap #(js/confirm "Confirm action")}))
+            (ui/raised-button {:label "Break contract"
+                               :style {:margin "0 1rem 0 1rem"}
+                               :on-touch-tap #(js/confirm "Are you sure?")})]])))]])
 
 (rum/defc generic-notifications
   < rum/reactive

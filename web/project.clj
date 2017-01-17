@@ -30,7 +30,7 @@
                  [cheshire "5.7.0"]
                  [clj-time "0.13.0"]
                  ;; Cljs
-                 [rum "0.10.7" :exclusions [cljsjs/react cljsjs/react-dom]]
+                 [rum "0.10.8" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljs-react-material-ui "0.2.35"]
                  [cljsjs/react-flexbox-grid "0.10.2-1" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljsjs/react-slider "0.6.1-0"]
