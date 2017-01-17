@@ -192,6 +192,15 @@
       (do (log/debug "No seller match. Retrying in 5 minutes.")
           {:status :retry :backoff-ms 300000}))))
 
+;;
+;;
+;;TODO: HANDLE EXCEPTIONS PROPERLY IN TASKS
+;; RECOVER THEM, ETC
+;;
+;;
+
+
+
 ;; Contract master handler
 ;; 1. Get current stage
 ;; 2. Check for conditions to change stage. If not met, retry later.
@@ -220,6 +229,9 @@
       (events/dispatch! (:buyer-id contract) :contract-create contract)
       (events/dispatch! (:seller-id contract) :contract-create contract))
     (case (:stage contract)
+      ;; Currently only used for testing
+      "contract-success"
+      {:status :success}
       ;; Contract can be cancelled anytime
       "contract-broken"
       (do (events/dispatch! (:buyer-id contract) :contract-broken contract)
@@ -400,3 +412,6 @@
 
 ;; Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
+
+;; Force contract success
+;; (db/contract-add-event! 1 "contract-success" nil)

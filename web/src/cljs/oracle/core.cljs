@@ -358,6 +358,24 @@
       (do (reset! app-error "There was an error when starting the contract holding period. Please inform us of this event.")
           (log* "Error in contract/holding-period" msg)))))
 
+(defmethod app-msg-handler :contract/success
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/success" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-success")
+      (do (reset! app-error "There was an error setting the contract as successful. Please inform us of this event.")
+          (log* "Error in contract/holding-period" msg)))))
+
+(defmethod app-msg-handler :contract/broken
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/broken" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-broken")
+      (do (reset! app-error "There was an error setting the contract as broken. Please inform us of this event.")
+          (log* "Error in contract/broken" msg)))))
+
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
   (if (:error msg)
@@ -605,6 +623,8 @@
                                                     :else
                                                     (log* "Inconsistent state of contract action button")))}))
             (ui/raised-button {:label "Break contract"
+                               :disabled (or (= (:stage contract) "contract-success")
+                                             (= (:stage contract) "contract-broken"))
                                :style {:margin "0 1rem 0 1rem"}
                                :on-touch-tap #(js/confirm "Are you sure?")})]])))]])
 

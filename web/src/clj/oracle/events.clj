@@ -52,9 +52,6 @@
       :contract-create
       (future
         (chsk-send! uid [:contract/create args]))
-      :contract-broken
-      (future
-        (chsk-send! uid [:contract/broken args]))
       :contract-waiting-transfer
       (future
         (chsk-send! uid [:contract/waiting-transfer args])
@@ -80,4 +77,18 @@
         (chsk-send! uid [:contract/holding-period args])
         (chsk-send! uid [:notification/create
                          {:title "Holding period"
-                          :message "The contract has achieved it's final stage. For buyer and seller protection, the escrow account will hold the cryptocurrency for 100 days."}])))))
+                          :message "The contract has achieved it's final stage. For buyer and seller protection, the escrow account will hold the cryptocurrency for 100 days."}]))
+      :contract-success
+      (future
+        (chsk-send! uid [:contract/success args])
+        (chsk-send! uid [:notification/create
+                         {:title "Contract success!"
+                          :message (if (= (:seller-id args) user-id)
+                                     "The contract has correctly finalized"
+                                     "The contract has correctly finalized. You can now withdraw your cryptocurrency from the escrow account!")}]))
+      :contract-broken
+      (future
+        (chsk-send! uid [:contract/broken args])
+        (chsk-send! uid [:notification/create
+                         {:title "Contract broken"
+                          :message "The contract was broken. We will proceed accordingly."}])))))
