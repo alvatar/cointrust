@@ -397,19 +397,32 @@
   (workers-start!))
 
 
+;;
+;; Seller tests
+;;
+
+;; Create a buy request
+
+;; (initiate-buy-request 2 100 "usd" "xbt")
+
+
+
+;;
+;; Buyer tests
+;;
+
 ;; Decline buy request
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/decline {:id 1})
 
 ;; Accept buy request
-;; (oracle.database/buy-request-set-seller! 1 3)
+;; (oracle.database/buy-request-set-seller! 1 2)
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1})
 
 ;; Directly create contract
 ;; (oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 4, :amount 100000000, :currency-buy "usd", :currency-sell "xbt", :exchange-rate 1000.000000M})
 
 ;; Seller sends money to escrow
-;; (oracle.database/contract-set-escrow-funded! 1 "put it here")
-
+;; (oracle.database/contract-set-escrow-funded! 1 "Hakuna Matata Bank. Gloryvee Cordero. The Cyman Islands. IBAN 12341234123431234 SWIFT YUPYUP12")
 ;; Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
 

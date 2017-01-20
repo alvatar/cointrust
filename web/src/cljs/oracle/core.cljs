@@ -638,7 +638,7 @@
                :actions [(ui/flat-button {:label "OK"
                                           :primary true
                                           :on-touch-tap #(swap! (:notifications app-state) pop)})]}
-              (:message current))))
+              [:code (:message current)])))
 
 (rum/defcs sell-offer-matched-notification
   < rum/reactive (rum/local true ::decline-lock)

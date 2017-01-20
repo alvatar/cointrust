@@ -439,10 +439,10 @@ CREATE TABLE logs (
 (defn populate-test-database!!! []
   (user-insert! "asdf" [])
   (user-insert! "ffff" ["asdf"])
-  (user-insert! "aaaa" ["ffff"])
-  (user-insert! "bbbb" ["asdf"])
-  (user-insert! "cccc" [])
-  (user-insert! "dddd" ["ffff"])
+  ;; (user-insert! "aaaa" ["ffff"])
+  ;; (user-insert! "bbbb" ["asdf"])
+  ;; (user-insert! "cccc" [])
+  ;; (user-insert! "dddd" ["ffff"])
   'ok)
 
 ;; Only one entry lock:
