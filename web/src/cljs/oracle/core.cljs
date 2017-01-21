@@ -167,6 +167,17 @@
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
            (log* "Error in get-user-contract:" resp))))))
 
+(defn get-user-pending-notifications []
+  (chsk-send!
+   [:notification/get-pending {:user-hash @(:user-hash app-state)}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp))
+       (when-let [notifications (:notifications resp)]
+         (log* "Received notifications" notifications)
+         (doseq [notif notifications] (swap! (:notifications app-state) conj (second notif))))
+       (do (reset! app-error "There was an error retrieving your pending notifications. Please try again.")
+           (log* "Error in get-user-pending-notifications:" resp))))))
+
 (defn open-sell-offer [{:as vals :keys [currency min max]}]
   (chsk-send!
    [:offer/open (assoc vals :user-id @(:user-id app-state))] 5000
@@ -651,7 +662,12 @@
                :open (boolean (not-empty notifications))
                :actions [(ui/flat-button {:label "OK"
                                           :primary true
-                                          :on-touch-tap #(swap! (:notifications app-state) pop)})]}
+                                          :on-touch-tap (fn [] (chsk-send!
+                                                                [:notification/ack {:user-hash @(:user-hash app-state)
+                                                                                    :uuid (:uuid current)}]
+                                                                5000
+                                                                #(when (sente/cb-success? %)
+                                                                   (swap! (:notifications app-state) pop))))})]}
               [:div
                (for [chunk (clojure.string/split (:message current) #"\n")]
                  [:p chunk])])))
@@ -733,4 +749,5 @@
               (get-friends2)
               (get-active-sell-offer)
               (get-user-requests)
-              (get-user-contracts)))
+              (get-user-contracts)
+              (get-user-pending-notifications)))

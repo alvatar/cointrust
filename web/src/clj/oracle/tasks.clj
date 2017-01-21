@@ -5,20 +5,14 @@
             [taoensso.timbre :as log]
             [taoensso.carmine :as r]
             [taoensso.carmine.message-queue :as mq]
-            [taoensso.nippy :as nippy]
             [cheshire.core :as json]
             [clj-time.core :as time]
             [clj-time.coerce :as time-coerce]
             ;; -----
+            [oracle.redis :as redis]
             [oracle.database :as db]
-            [oracle.events :as events]))
-
-;;
-;; Redis
-;;
-
-(def redis-conn {})
-(defmacro wcar* [& body] `(r/wcar redis-conn ~@body))
+            [oracle.events :as events]
+            [oracle.redis :refer :all]))
 
 ;;
 ;; Utils
@@ -101,7 +95,7 @@
         [_ stored _] (wcar* (r/hsetnx op-key :global (json/generate-string {:created now :started now}))
                             (r/hgetall op-key)
                             (r/expire op-key ops-ttl))]
-    (assoc-in (into {} (for [[k v] (partition 2 stored)] [(keyword k) (json/parse-string v true)]))
+    (assoc-in (redis->json stored)
               [:global :now] now)))
 
 (defn idempotency-state-set! [uid key new-map]
@@ -161,7 +155,7 @@
     (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
                          #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell) %))]
       (do (idempotent-ops mid :event-sell-offer-matched state
-                          (events/dispatch! seller-id :sell-offer-matched buy-request)
+                          (events/dispatch! seller-id :sell-offer-matched) buy-request
                           (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
           ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
           ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))

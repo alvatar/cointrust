@@ -6,7 +6,8 @@
             [taoensso.sente.packers.transit :as sente-transit]
             [oracle.database :as db]
             [oracle.common :as common]
-            [oracle.tasks :as tasks]))
+            [oracle.tasks :as tasks]
+            [oracle.events :as events]))
 
 ;;
 ;; Sente event handlers
@@ -107,6 +108,15 @@
 (defmethod -event-msg-handler :contract/mark-transfer-received
   [args]
   (preemptive-task-handler args :contract/mark-transfer-received))
+
+(defmethod -event-msg-handler :notification/ack
+  [{:keys [?data ?reply-fn]}]
+  (events/ack-notification (:user-hash ?data) (:uuid ?data))
+  (?reply-fn {:status :ok}))
+
+(defmethod -event-msg-handler :notification/get-pending
+  [{:keys [?data ?reply-fn]}]
+  (?reply-fn {:notifications (events/get-notifications (:user-hash ?data))}))
 
 ;;
 ;; Sente event router (`event-msg-handler` loop)
