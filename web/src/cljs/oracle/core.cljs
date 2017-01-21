@@ -174,7 +174,7 @@
      (if (and (sente/cb-success? resp))
        (when-let [notifications (:notifications resp)]
          (log* "Received notifications" notifications)
-         (doseq [notif notifications] (swap! (:notifications app-state) conj (second notif))))
+         (doseq [[uuid notif] notifications] (swap! (:notifications app-state) conj notif)))
        (do (reset! app-error "There was an error retrieving your pending notifications. Please try again.")
            (log* "Error in get-user-pending-notifications:" resp))))))
 
@@ -203,6 +203,17 @@
        (do (reset! (:sell-offer app-state) nil)
            (callback))
        (reset! app-error "There was an error closing the sell offer. Please try again.")))))
+
+(defn get-sell-offer-matches []
+  (chsk-send!
+   [:offer/get-matches {:user-id @(:user-id app-state)}] 5000
+   (fn [resp]
+     (if (sente/cb-success? resp)
+       (let [offer-matches (:offer-matches resp)]
+         (do (log* "Received offer matches" offer-matches)
+             (doseq [m offer-matches] (swap! (:sell-offer-matches app-state) conj m))
+             (js/console.log "AAAYEYEYEYEYEY **** " (str @(:sell-offer-matches app-state)))))
+       (reset! app-error "There was an error retrieving the sell offer matches.")))))
 
 (defn create-buy-request [amount callback]
   (chsk-send!
@@ -271,7 +282,6 @@
           (for [c @(:contracts app-state)]
             (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
 
-;; (chsk-send! "asdf" [:sell-offer/match {:status :ok :amount 300}])
 (defmethod app-msg-handler :sell-offer/match
   [[_ msg]]
   (if (:error msg)
@@ -748,6 +758,7 @@
            #(when %4
               (get-friends2)
               (get-active-sell-offer)
+              (get-sell-offer-matches)
               (get-user-requests)
               (get-user-contracts)
               (get-user-pending-notifications)))

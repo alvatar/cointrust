@@ -195,6 +195,12 @@ RETURNING *;
 SELECT * FROM buy_request WHERE buyer_id = ?;
 " user-id])))
 
+(defn get-buy-requests-by-counterparty [counterparty]
+  (mapv ->kebab-case
+        (sql/query db ["
+SELECT * FROM buy_request WHERE seller_id = ?;
+" counterparty])))
+
 (defn get-buy-request-by-id [buy-request]
   (-> (sql/query db ["
 SELECT * FROM buy_request WHERE id = ?;

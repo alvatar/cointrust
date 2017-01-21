@@ -155,7 +155,7 @@
     (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
                          #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell) %))]
       (do (idempotent-ops mid :event-sell-offer-matched state
-                          (events/dispatch! seller-id :sell-offer-matched) buy-request
+                          (events/dispatch! seller-id :sell-offer-matched buy-request)
                           (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
           ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
           ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))
@@ -417,10 +417,10 @@ IBAN 12341234123431234 SWIFT YUPYUP12")
 ;; Buyer tests
 ;;
 
-;; Decline buy request
+;; Seller declines buy request
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/decline {:id 1})
 
-;; Accept buy request
+;; Seller accepts buy request
 ;; (oracle.database/buy-request-set-seller! 1 2)
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1})
 

@@ -76,6 +76,11 @@
        (?reply-fn {:status :ok})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
+(defmethod -event-msg-handler :offer/get-matches
+  [{:keys [?data ?reply-fn]}]
+  (try (?reply-fn {:offer-matches (db/get-buy-requests-by-counterparty (:user-id ?data))})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+
 (defmethod -event-msg-handler :buy-request/create
   [{:keys [?data ?reply-fn]}]
   (try (tasks/initiate-buy-request (:user-id ?data) (common/currency-as-long (:amount ?data) (:currency-sell ?data))
