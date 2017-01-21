@@ -4,6 +4,7 @@
             [taoensso.sente :as sente]
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
+            [taoensso.timbre :as log]
             [oracle.database :as db]
             [oracle.common :as common]
             [oracle.tasks :as tasks]

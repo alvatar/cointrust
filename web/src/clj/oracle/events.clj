@@ -15,7 +15,7 @@
 
 (defn init! [chsk-send!_] (def chsk-send! chsk-send!_))
 
-(defn uuid [] (java.util.UUID/randomUUID))
+(defn uuid [] (str (java.util.UUID/randomUUID)))
 
 (defn store-notification [uid notif-uuid args]
   (wcar* (r/hset (str "user->notifications:" uid)
@@ -32,7 +32,8 @@
     (chsk-send! uid [:notification/create {:uuid notif-uuid :title title :message message}])))
 
 (defn get-notifications [uid]
-  (redis->json (wcar* (r/hgetall (str "user->notifications:" uid)))))
+  (for [[uuid notif] (redis->json (wcar* (r/hgetall (str "user->notifications:" uid))))]
+    (merge notif {:uuid (name uuid)})))
 
 ;;
 ;; Dispatcher

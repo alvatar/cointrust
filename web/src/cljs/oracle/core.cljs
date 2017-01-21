@@ -174,7 +174,8 @@
      (if (and (sente/cb-success? resp))
        (when-let [notifications (:notifications resp)]
          (log* "Received notifications" notifications)
-         (doseq [[uuid notif] notifications] (swap! (:notifications app-state) conj notif)))
+         (doseq [notif notifications]
+           (swap! (:notifications app-state) conj notif)))
        (do (reset! app-error "There was an error retrieving your pending notifications. Please try again.")
            (log* "Error in get-user-pending-notifications:" resp))))))
 
@@ -211,8 +212,7 @@
      (if (sente/cb-success? resp)
        (let [offer-matches (:offer-matches resp)]
          (do (log* "Received offer matches" offer-matches)
-             (doseq [m offer-matches] (swap! (:sell-offer-matches app-state) conj m))
-             (js/console.log "AAAYEYEYEYEYEY **** " (str @(:sell-offer-matches app-state)))))
+             (doseq [m offer-matches] (swap! (:sell-offer-matches app-state) conj m))))
        (reset! app-error "There was an error retrieving the sell offer matches.")))))
 
 (defn create-buy-request [amount callback]
