@@ -322,6 +322,15 @@
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
 
+(defmethod app-msg-handler :contract/escrow-funded
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/escrow-funded" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer")
+      (do (reset! app-error "There was an error in funding the Escrow. Please inform us of this event.")
+          (log* "Error in contract/escrow-funded" msg)))))
+
 (defmethod app-msg-handler :contract/waiting-transfer
   [[_ msg]]
   (if (:error msg)
@@ -593,40 +602,45 @@
                                        "waiting-escrow" 0
                                        "waiting-transfer" (if (:transfer-sent contract) 2 1)
                                        "holding-period" 3
-                                       "contract-success" 4)
+                                       ("contract-success" "contract-broken") 4)
                         :orientation "horizontal"}
                        (ui/step (ui/step-label "Escrow funding"))
                        (ui/step (ui/step-label "Send transfer"))
                        (ui/step (ui/step-label "Receive transfer"))
                        (ui/step (ui/step-label "Holding period")))
-           [:div.center {:style {:margin-bottom "5rem"}}
-            (let [am-i-buyer? #(= @(:user-id app-state) (:buyer-id %))
-                  waiting-transfer? #(= (:stage %) "waiting-transfer")
-                  action-text (fn [c]
-                                (if (waiting-transfer? c)
-                                  (if (am-i-buyer? c)
-                                    (if (:transfer-sent c) "Waiting for seller" "I've transferred the funds")
-                                    (if (:transfer-sent c) "I've received the funds" "Waiting for buyer"))
-                                  "Waiting"))]
-              (ui/raised-button {:label (action-text contract)
-                                 :disabled (or (not (waiting-transfer? contract))
-                                               (if (am-i-buyer? contract)
-                                                 (and (:transfer-sent contract) (not (:transfer-received contract)))
-                                                 (not (:transfer-sent contract))))
+           (case (:stage contract)
+             "contract-success"
+             [:div.contract-done [:div.contract-done-text "CONTRACT FINALIZED"]]
+             "contract-broken"
+             [:div.contract-done [:h6 "CONTRACT BROKEN"]]
+             [:div.center {:style {:margin-bottom "5rem"}}
+              (let [am-i-buyer? #(= @(:user-id app-state) (:buyer-id %))
+                    waiting-transfer? #(= (:stage %) "waiting-transfer")
+                    action-text (fn [c]
+                                  (if (waiting-transfer? c)
+                                    (if (am-i-buyer? c)
+                                      (if (:transfer-sent c) "Waiting for seller" "I've transferred the funds")
+                                      (if (:transfer-sent c) "I've received the funds" "Waiting for buyer"))
+                                    "Waiting"))]
+                (ui/raised-button {:label (action-text contract)
+                                   :disabled (or (not (waiting-transfer? contract))
+                                                 (if (am-i-buyer? contract)
+                                                   (and (:transfer-sent contract) (not (:transfer-received contract)))
+                                                   (not (:transfer-sent contract))))
+                                   :style {:margin "0 1rem 0 1rem"}
+                                   :on-touch-tap #(when (waiting-transfer? contract)
+                                                    (cond
+                                                      (and (not (:transfer-sent contract)) (am-i-buyer? contract))
+                                                      (mark-contract-sent (:id contract))
+                                                      (and (:transfer-sent contract) (not (am-i-buyer? contract)))
+                                                      (mark-contract-received (:id contract))
+                                                      :else
+                                                      (log* "Inconsistent state of contract action button")))}))
+              (ui/raised-button {:label "Break contract"
+                                 :disabled (or (= (:stage contract) "contract-success")
+                                               (= (:stage contract) "contract-broken"))
                                  :style {:margin "0 1rem 0 1rem"}
-                                 :on-touch-tap #(when (waiting-transfer? contract)
-                                                  (cond
-                                                    (and (not (:transfer-sent contract)) (am-i-buyer? contract))
-                                                    (mark-contract-sent (:id contract))
-                                                    (and (:transfer-sent contract) (not (am-i-buyer? contract)))
-                                                    (mark-contract-received (:id contract))
-                                                    :else
-                                                    (log* "Inconsistent state of contract action button")))}))
-            (ui/raised-button {:label "Break contract"
-                               :disabled (or (= (:stage contract) "contract-success")
-                                             (= (:stage contract) "contract-broken"))
-                               :style {:margin "0 1rem 0 1rem"}
-                               :on-touch-tap #(js/confirm "Are you sure?")})]])))]])
+                                 :on-touch-tap #(js/confirm "Are you sure?")})])])))]])
 
 (rum/defc generic-notifications
   < rum/reactive

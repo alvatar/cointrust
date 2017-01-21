@@ -242,12 +242,14 @@
       ;; We wait for the seller to fund the escrow and provide the transfer details.
       "waiting-escrow"
       (cond (and (:transfer-info contract)
-                 (:escrow-funded contract)) ; Observing the blockchain
+                 (:escrow-funded contract)) ; TODO: Observing the blockchain
             (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
                   (fn [idemp]
                     (log/debug "Contract stage changed to \"waiting-transfer\"")
                     (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
-                (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract)
+                (let [contract (merge contract {:stage "waiting-transfer"})]
+                  (events/dispatch! (:seller-id contract) :contract-escrow-funded contract)
+                  (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract))
                 {:status :retry :backoff-ms 1})
             (> now (unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
             (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
@@ -404,9 +406,17 @@
 ;;
 
 ;; Create a buy request
-
 ;; (initiate-buy-request 2 100 "usd" "xbt")
 
+;; Seller sends money to Escrow
+#_(oracle.database/contract-set-escrow-funded! 1 "
+Hakuna Matata Bank.
+Pablo Picasso.
+Melbourne, Australia
+IBAN 12341234123431234 SWIFT YUPYUP12")
+
+;; Buyer marks transfer sent
+;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-sent {:id 1})
 
 
 ;;
@@ -429,10 +439,9 @@ Hakuna Matata Bank.
 Gloryvee Cordero.
 The Cyman Islands.
 IBAN 12341234123431234 SWIFT YUPYUP12")
+
 ;; Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
-
-;; Force contract success
 
 (defn contract-force-success [id]
   (let [contract (db/get-contract-by-id id)]

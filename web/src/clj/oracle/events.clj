@@ -52,6 +52,12 @@
       :contract-create
       (future
         (chsk-send! uid [:contract/create args]))
+      :contract-escrow-funded
+      (future
+        (chsk-send! uid [:contract/escrow-funded args])
+        (chsk-send! uid [:notification/create
+                         {:title "Escrow funds received"
+                          :message "We've successfully received your funds in the Escrow account"}]))
       :contract-waiting-transfer
       (future
         (chsk-send! uid [:contract/waiting-transfer args])
@@ -72,7 +78,9 @@
         (chsk-send! uid [:contract/mark-transfer-received-ack args])
         (chsk-send! uid [:notification/create
                          {:title "Transfer received"
-                          :message "The seller has confirmed the reception of the funds."}]))
+                          :message (if (= (:seller-id args) user-id)
+                                     "Thanks for confirming that you've successfully received the transfer."
+                                     "The seller has confirmed the reception of the funds.")}]))
       :contract-holding-period
       (future
         (chsk-send! uid [:contract/holding-period args])
