@@ -638,7 +638,9 @@
                :actions [(ui/flat-button {:label "OK"
                                           :primary true
                                           :on-touch-tap #(swap! (:notifications app-state) pop)})]}
-              [:code (:message current)])))
+              [:div
+               (for [chunk (clojure.string/split (:message current) #"\n")]
+                 [:p chunk])])))
 
 (rum/defcs sell-offer-matched-notification
   < rum/reactive (rum/local true ::decline-lock)

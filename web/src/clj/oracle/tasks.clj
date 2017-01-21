@@ -279,6 +279,8 @@
       "holding-period"
       (cond (> now (unix-after (time-coerce/to-date-time (:holding-period-start contract)) (time/days 100)))
             (do (db/contract-set-escrow-open-for! contract (:buyer-id contract)) ; Idempotent
+                (events/dispatch! (:buyer-id contract) :contract-success contract)
+                (events/dispatch! (:seller-id contract) :contract-success contract)
                 (with-idempotent-transaction mid :contract-success state
                   #(db/contract-add-event! contract-id "contract-success" nil %))
                 {:status :success})
@@ -419,12 +421,21 @@
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1})
 
 ;; Directly create contract
-;; (oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 4, :amount 100000000, :currency-buy "usd", :currency-sell "xbt", :exchange-rate 1000.000000M})
+;; (oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buy "usd", :currency-sell "xbt", :exchange-rate 1000.000000M})
 
 ;; Seller sends money to escrow
-;; (oracle.database/contract-set-escrow-funded! 1 "Hakuna Matata Bank. Gloryvee Cordero. The Cyman Islands. IBAN 12341234123431234 SWIFT YUPYUP12")
+#_(oracle.database/contract-set-escrow-funded! 1 "
+Hakuna Matata Bank.
+Gloryvee Cordero.
+The Cyman Islands.
+IBAN 12341234123431234 SWIFT YUPYUP12")
 ;; Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
 
 ;; Force contract success
-;; (db/contract-add-event! 1 "contract-success" nil)
+
+(defn contract-force-success [id]
+  (let [contract (db/get-contract-by-id id)]
+    (db/contract-add-event! id "contract-success" nil)
+    (events/dispatch! (:seller-id contract) :contract-success contract)
+    (events/dispatch! (:buyer-id contract) :contract-success contract)))
