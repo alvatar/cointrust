@@ -242,15 +242,15 @@ SELECT * FROM buy_request;
 ;;
 
 (defn contract-create!
-  [{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate] :as params} & [txcb]]
+  [{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate transfer-info] :as params} & [txcb]]
   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
     (sql/with-db-transaction
       [tx db]
       (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate, transfer_info)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate]))]
+" (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate transfer-info]))]
         (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -336,11 +336,11 @@ SELECT * FROM contract_event;
 
 ;; TODO: instead of setting the timestamp here, use the timestamp from latest event
 
-(defn contract-set-escrow-funded! [id transfer-info]
+(defn contract-set-escrow-funded! [id]
   (sql/execute! db ["
-UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, holding_period_start = CURRENT_TIMESTAMP, transfer_info = ?
+UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, holding_period_start = CURRENT_TIMESTAMP
 WHERE id = ?
-" transfer-info id]))
+" id]))
 
 (defn contract-set-escrow-open-for! [id user-id]
   (sql/execute! db ["
@@ -419,7 +419,7 @@ CREATE TABLE contract (
   escrow_private_key               TEXT,
   escrow_funded                    BOOLEAN,
   escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
-  transfer_info                    TEXT,
+  transfer_info                    TEXT NOT NULL,
   transfer_sent                    BOOLEAN,
   transfer_received                BOOLEAN,
   waiting_transfer_start           TIMESTAMP,

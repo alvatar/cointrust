@@ -91,7 +91,7 @@
 
 (defn preemptive-task-handler
   [{:keys [?data ?reply-fn]} tag]
-  (try (tasks/initiate-preemptive-task tag {:id (:id ?data)})
+  (try (tasks/initiate-preemptive-task tag ?data)
        (?reply-fn {:status :ok})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 

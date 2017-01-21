@@ -228,9 +228,9 @@
            (log* "Error in create-buy-request:" resp)))
      (callback))))
 
-(defn accept-buy-request [buy-request-id]
+(defn accept-buy-request [buy-request-id transfer-info]
   (chsk-send!
-   [:buy-request/accept {:id buy-request-id}] 5000
+   [:buy-request/accept {:id buy-request-id :transfer-info transfer-info}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* (gstring/format "Buy request ID %d accepted" buy-request-id))
@@ -682,20 +682,26 @@
                (for [chunk (clojure.string/split (:message current) #"\n")]
                  [:p chunk])])))
 
-(rum/defcs sell-offer-matched-notification
-  < rum/reactive (rum/local true ::decline-lock)
+(rum/defcs sell-offer-matched-dialog
+  < rum/reactive
+  (rum/local true ::decline-lock)
+  (rum/local {:number "" :name "" :address "" :iban "" :swift ""} ::account-info)
   [state_]
   (let [decline-lock (::decline-lock state_)
         pending-matches (rum/react (:sell-offer-matches app-state))
-        current (peek pending-matches)]
+        current (peek pending-matches)
+        account-info (::account-info state_)]
     (when current
-      (ui/dialog {:title "Offer Matched"
+      (ui/dialog {:title (gstring/format "Offer Matched for %f %s" (:amount current)
+                                         (clojure.string/upper-case (:currency-sell current)))
                   :open (boolean (not-empty pending-matches))
                   :modal true
                   :actions [(ui/flat-button {:label "Accept"
                                              :primary true
                                              :on-touch-tap (fn []
-                                                             (accept-buy-request (:id current))
+                                                             (accept-buy-request
+                                                              (:id current)
+                                                              (clojure.string/join "\n" (map (fn [[k v]] (gstring/format "%s: %s" (name k) v)) @account-info)))
                                                              (swap! (:sell-offer-matches app-state) pop))})
                             (ui/flat-button {:label "Decline"
                                              :disabled (rum/react decline-lock)
@@ -703,13 +709,36 @@
                                                              (decline-buy-request (:id current))
                                                              (close-sell-offer #(swap! (:sell-offer-matches app-state) pop)))})]}
                  [:div
-                  [:p (gstring/format "A buyer wants to purchase %f %s"
-                                      (:amount current)
-                                      (clojure.string/upper-case (:currency-sell current)))]
-                  [:h6 "You can decline it, but your sell offer will be removed."
-                   [:br] (ui/checkbox {:label "I understand"
-                                       :checked (not (rum/react decline-lock))
-                                       :on-check #(reset! decline-lock (not %2))})]]))))
+                  [:div.offer-matched-column
+                   [:div
+                    (ui/text-field {:id "account-number"
+                                    :floating-label-text "Account Number"
+                                    :value (:number (rum/react account-info))
+                                    :on-change #(swap! account-info assoc :number (.. % -target -value))})
+                    (ui/text-field {:id "account-name"
+                                    :floating-label-text "Account Name"
+                                    :value (:name (rum/react account-info))
+                                    :on-change #(swap! account-info assoc :name (.. % -target -value))})
+                    (ui/text-field {:id "account-address"
+                                    :floating-label-text "Account Address"
+                                    :value (:address (rum/react account-info))
+                                    :on-change #(swap! account-info assoc :address (.. % -target -value))})]]
+                  [:div.offer-matched-column
+                   [:div
+                    (ui/text-field {:id "account-iban"
+                                    :floating-label-text "IBAN"
+                                    :value (:iban (rum/react account-info))
+                                    :on-change #(swap! account-info assoc :iban (.. % -target -value))})
+                    (ui/text-field {:id "account-swift"
+                                    :floating-label-text "SWIFT"
+                                    :value (:swift (rum/react account-info))
+                                    :on-change #(swap! account-info assoc :swift (.. % -target -value))})]]
+                  [:div {:style {:position "absolute" :bottom 0 :margin-bottom "2rem"}}
+                   [:h6  "To decline it, first check this, but your sell offer will be removed."
+                    [:br]
+                    (ui/checkbox {:label "I understand"
+                                  :checked (not (rum/react decline-lock))
+                                  :on-check #(reset! decline-lock (not %2))})]]]))))
 
 (rum/defc footer
   []
@@ -729,7 +758,7 @@
    (buy-dialog)
    (sell-dialog)
    (generic-notifications)
-   (sell-offer-matched-notification)
+   (sell-offer-matched-dialog)
    (footer)])
 
 (rum/defc app
@@ -750,6 +779,8 @@
 ;;
 ;; Init
 ;;
+
+(js/console.log (str (js/document.getElementById "app")))
 
 (rum/mount (app) (js/document.getElementById "app"))
 

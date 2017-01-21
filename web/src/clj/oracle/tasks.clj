@@ -235,8 +235,7 @@
       ;; We inform of the expected transaction and the freezing of price.
       ;; We wait for the seller to fund the escrow and provide the transfer details.
       "waiting-escrow"
-      (cond (and (:transfer-info contract)
-                 (:escrow-funded contract)) ; TODO: Observing the blockchain
+      (cond (and (:transfer-info contract) (:escrow-funded contract)) ; TODO: Observing the blockchain
             (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
                   (fn [idemp]
                     (log/debug "Contract stage changed to \"waiting-transfer\"")
@@ -303,7 +302,8 @@
     (log/debug message)
     (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
     (events/dispatch! (:buyer-id buy-request) :buy-request-accept buy-request) ; Repeat OK
-    (initiate-contract buy-request) ; Idempotent
+    ;; Add transfer info to buy-request before creating contract
+    (initiate-contract (merge data buy-request)) ; Idempotent
     ;; Keep in mind that we are deleting the request here, so we rely on the master task
     ;; to retrieve the buy request info from the idempotency cache in Redis
     (db/buy-request-delete! buy-request-id) ; Idempotent, must be done at the end
@@ -403,11 +403,7 @@
 ;; (initiate-buy-request 2 100 "usd" "xbt")
 
 ;; Seller sends money to Escrow
-#_(oracle.database/contract-set-escrow-funded! 1 "
-Hakuna Matata Bank.
-Pablo Picasso.
-Melbourne, Australia
-IBAN 12341234123431234 SWIFT YUPYUP12")
+;; (oracle.database/contract-set-escrow-funded! 1)
 
 ;; Buyer marks transfer sent
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-sent {:id 1})
@@ -425,14 +421,15 @@ IBAN 12341234123431234 SWIFT YUPYUP12")
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1})
 
 ;; Directly create contract
-;; (oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buy "usd", :currency-sell "xbt", :exchange-rate 1000.000000M})
-
-;; Seller sends money to escrow
-#_(oracle.database/contract-set-escrow-funded! 1 "
+#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buy "usd", :currency-sell "xbt", :exchange-rate 1000.000000M}
+                                "
 Hakuna Matata Bank.
 Gloryvee Cordero.
 The Cyman Islands.
 IBAN 12341234123431234 SWIFT YUPYUP12")
+
+;; Seller sends money to escrow
+;; (oracle.database/contract-set-escrow-funded! 1)
 
 ;; Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
