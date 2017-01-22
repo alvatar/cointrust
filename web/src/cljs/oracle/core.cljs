@@ -633,7 +633,10 @@
   [:div
    [:h4.center "Active contracts"]
    [:div
-    (let [contracts (rum/react (:contracts app-state))]
+    (let [contracts (rum/react (:contracts app-state))
+          am-i-buyer? #(= @(:user-id app-state) (:buyer-id %))
+          am-i-seller? #(= @(:user-id app-state) (:seller-id %))
+          waiting-transfer? #(= (:stage %) "waiting-transfer")]
       (cond
         (not contracts)
         [:div "Retrieving contracts..."
@@ -644,9 +647,14 @@
         (for [contract contracts]
           [:div {:key (:hash contract)}
            [:div
-            [:div.column-half (str "Contract Hash ID: " (:hash contract))]
-            (when (and (= (:stage contract) "waiting-escrow")
-                       (= (:seller-id contract) @(:user-id app-state)))
+            [:div.column-half [:strong (if (= (:seller-id contract) @(:user-id app-state)) "SELLER" "BUYER")]
+             (str " // " (:hash contract))]
+            (when (case (:stage contract)
+                    "waiting-escrow" (am-i-seller? contract)
+                    "waiting-transfer" (if (am-i-buyer? contract)
+                                         (not (:transfer-sent contract))
+                                         (and (:transfer-sent contract) (not (:transfer-received contract))))
+                    false)
               [:div.column-half
                [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} "ACTION REQUIRED"]])
             [:div {:style {:clear "both"}}]]
@@ -667,9 +675,7 @@
              "contract-broken"
              [:div.contract-done [:h6 "CONTRACT BROKEN"]]
              [:div.center {:style {:margin-bottom "5rem"}}
-              (let [am-i-buyer? #(= @(:user-id app-state) (:buyer-id %))
-                    waiting-transfer? #(= (:stage %) "waiting-transfer")
-                    action-text (fn [c]
+              (let [action-text (fn [c]
                                   (if (waiting-transfer? c)
                                     (if (am-i-buyer? c)
                                       (if (:transfer-sent c) "Waiting for seller" "I've transferred the funds")
