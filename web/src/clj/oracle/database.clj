@@ -4,7 +4,9 @@
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
             [cheshire.core :as json]
-            [camel-snake-kebab.core :as case-shift]))
+            [camel-snake-kebab.core :as case-shift]
+            ;; -----
+            [oracle.bitcoin :as bitcoin]))
 
 ;; CURRENCY-BUY: the currency on the side of the buyer before the transaction (what the buyer *has*)
 ;; CURRENCY-SELL: the currency on the side of the seller before the transaction (what the seller *has*)
@@ -247,10 +249,10 @@ SELECT * FROM buy_request;
     (sql/with-db-transaction
       [tx db]
       (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate, transfer_info)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key, escrow_buyer_key, escrow_seller_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate transfer-info]))]
+" (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate transfer-info "<input-address>" "<escrow-address>" "<escrow-our-key>" "<escrow-buyer-key>" "<escrow-seller-key>"]))]
         (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -414,9 +416,12 @@ CREATE TABLE contract (
   currency_buy                     TEXT NOT NULL,
   currency_sell                    TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL,
+  input_address                    TEXT,
   escrow_address                   TEXT,
-  escrow_public_key                TEXT,
-  escrow_private_key               TEXT,
+  output_address                   TEXT,
+  escrow_our_key                   TEXT,
+  escrow_buyer_key                 TEXT,
+  escrow_seller_key                TEXT,
   escrow_funded                    BOOLEAN,
   escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   transfer_info                    TEXT NOT NULL,

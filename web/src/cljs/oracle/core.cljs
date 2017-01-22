@@ -41,7 +41,8 @@
                     :sell-offer-matches (atom cljs.core/PersistentQueue.EMPTY)
                     :buy-requests (atom [])
                     :contracts (atom nil)
-                    :notifications (atom cljs.core/PersistentQueue.EMPTY)})
+                    :notifications (atom cljs.core/PersistentQueue.EMPTY)
+                    :display-contract (atom nil)})
 
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
@@ -58,6 +59,8 @@
 (def ui-flexbox-grid (adapt-rum-class js/ReactFlexboxGrid.Grid))
 (def ui-flexbox-row (adapt-rum-class js/ReactFlexboxGrid.Row))
 (def ui-flexbox-col (adapt-rum-class js/ReactFlexboxGrid.Col))
+
+(defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
 
 ;;
 ;; Setup
@@ -163,7 +166,10 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (when-let [contracts (:contracts resp)]
          (log* "Received contracts" contracts)
-         (reset! (:contracts app-state) contracts))
+         (reset! (:contracts app-state) contracts)
+         (if-let [contract-id (some #(and (= (:seller-id %) @(:user-id app-state)) (:id %))
+                                    contracts)]
+           (reset! (:display-contract app-state) contract-id)))
        (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
            (log* "Error in get-user-contract:" resp))))))
 
@@ -337,11 +343,11 @@
   (if (:error msg)
     (log* "Error in :contract/create" msg)
     (try (swap! (:contracts app-state) conj msg)
+         (when (= (:seller-id msg) @(:user-id app-state))
+           (reset! (:display-contract app-state) (:id msg)))
          (catch :default e
            (do (reset! app-error "There was an error when creating the contract. Please inform us of this event.")
                (log* "Error in contract/create" msg))))))
-
-(defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
 
 (defmethod app-msg-handler :contract/escrow-funded
   [[_ msg]]
@@ -603,6 +609,24 @@
                                                             "PARTNER FOUND - WAITING SELLER ACTION"
                                                             "LOOKING FOR A PARTNER..."))})))))]])
 
+(rum/defc contract-info-dialog
+  [contract-id]
+  (when contract-id
+    (ui/dialog {:title "Contract Action Required"
+                :open true
+                :modal true
+                :actions [(ui/flat-button {:label "Close"
+                                           :primary true
+                                           :on-touch-tap #(reset! (:display-contract app-state) nil)})]}
+               [:div
+                (when-let [contract (some #(and (= (:id %) contract-id) %) @(:contracts app-state))]
+                  [:div
+                   [:p "The contract " [:strong (:hash contract)] " is waiting for Escrow funding."]
+                   [:div {:style {:background-color "rgb(0, 188, 212)" :border-radius "2px"}}
+                    [:p {:style {:padding "10px 10px 10px 10px"}}
+                     "Please send " [:strong (:amount contract) " " (clojure.string/upper-case (:currency-sell contract))]
+                     " to the following address: " [:strong (:input-address contract)]]]])])))
+
 (rum/defc contract-listing-comp
   < rum/reactive
   []
@@ -618,17 +642,25 @@
         [:p.center "No active contracts"]
         :else
         (for [contract contracts]
-          [:div {:key (:hash contract)} (str "Contract Hash ID: " (:hash contract))
-           (ui/stepper {:active-step (case (:stage contract)
-                                       "waiting-escrow" 0
-                                       "waiting-transfer" (if (:transfer-sent contract) 2 1)
-                                       "holding-period" 3
-                                       ("contract-success" "contract-broken") 4)
-                        :orientation "horizontal"}
-                       (ui/step (ui/step-label "Escrow funding"))
-                       (ui/step (ui/step-label "Send transfer"))
-                       (ui/step (ui/step-label "Receive transfer"))
-                       (ui/step (ui/step-label "Holding period")))
+          [:div {:key (:hash contract)}
+           [:div
+            [:div.column-half (str "Contract Hash ID: " (:hash contract))]
+            (when (and (= (:stage contract) "waiting-escrow")
+                       (= (:seller-id contract) @(:user-id app-state)))
+              [:div.column-half
+               [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} "ACTION REQUIRED"]])
+            [:div {:style {:clear "both"}}]]
+           [:div
+            (ui/stepper {:active-step (case (:stage contract)
+                                        "waiting-escrow" 0
+                                        "waiting-transfer" (if (:transfer-sent contract) 2 1)
+                                        "holding-period" 3
+                                        ("contract-success" "contract-broken") 4)
+                         :orientation "horizontal"}
+                        (ui/step (ui/step-label "Escrow funding"))
+                        (ui/step (ui/step-label "Send transfer"))
+                        (ui/step (ui/step-label "Receive transfer"))
+                        (ui/step (ui/step-label "Holding period")))]
            (case (:stage contract)
              "contract-success"
              [:div.contract-done [:div.contract-done-text "CONTRACT FINALIZED"]]
@@ -661,7 +693,8 @@
                                  :disabled (or (= (:stage contract) "contract-success")
                                                (= (:stage contract) "contract-broken"))
                                  :style {:margin "0 1rem 0 1rem"}
-                                 :on-touch-tap #(js/confirm "Are you sure?")})])])))]])
+                                 :on-touch-tap #(js/confirm "Are you sure?")})])
+           (contract-info-dialog (rum/react (:display-contract app-state)))])))]])
 
 (rum/defc generic-notifications
   < rum/reactive
