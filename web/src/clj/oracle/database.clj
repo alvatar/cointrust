@@ -8,9 +8,9 @@
             ;; -----
             [oracle.bitcoin :as bitcoin]))
 
-;; CURRENCY-BUY: the currency on the side of the buyer before the transaction (what the buyer *has*)
-;; CURRENCY-SELL: the currency on the side of the seller before the transaction (what the seller *has*)
-;; AMOUNT: in currency-sell units
+;; CURRENCY-BUYER: the currency on the side of the buyer before the transaction (what the buyer *has*)
+;; CURRENCY-SELLER: the currency on the side of the seller before the transaction (what the seller *has*)
+;; AMOUNT: in currency-seller units
 
 ;; References:
 ;; http://clojure-doc.org/articles/ecosystem/java_jdbc/using_sql.html
@@ -173,19 +173,19 @@ SELECT * FROM sell_offer;
 
 (defn ->kebab-case [r] (reduce-kv #(assoc %1 (case-shift/->kebab-case %2) %3) {} r))
 
-(defn buy-request-create! [user-id amount currency-buy currency-sell exchange-rate & [txcb]]
+(defn buy-request-create! [user-id amount currency-buyer currency-seller exchange-rate & [txcb]]
   (-> (sql/with-db-transaction
         [tx db]
         (let [buy-request (first
                            (sql/query tx ["
-INSERT INTO buy_request (buyer_id, amount, currency_buy, currency_sell, exchange_rate)
+INSERT INTO buy_request (buyer_id, amount, currency_buyer, currency_seller, exchange_rate)
 VALUES (?, ?, ?, ?, ?)
 RETURNING *;
-" user-id amount currency-buy currency-sell exchange-rate]))]
+" user-id amount currency-buyer currency-seller exchange-rate]))]
           (log! tx "buy-request-create" {:user-id user-id
                                          :amount amount
-                                         :currency-buy currency-buy
-                                         :currency-sell currency-sell
+                                         :currency-buyer currency-buyer
+                                         :currency-seller currency-seller
                                          :exchange-rate exchange-rate})
           (when txcb (txcb buy-request))
           buy-request))
@@ -244,15 +244,15 @@ SELECT * FROM buy_request;
 ;;
 
 (defn contract-create!
-  [{:keys [buyer-id seller-id amount currency-buy currency-sell exchange-rate transfer-info] :as params} & [txcb]]
+  [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info] :as params} & [txcb]]
   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
     (sql/with-db-transaction
       [tx db]
       (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buy, currency_sell, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key, escrow_buyer_key, escrow_seller_key)
+INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key, escrow_buyer_key, escrow_seller_key)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (random-string 27) buyer-id seller-id amount currency-buy currency-sell exchange-rate transfer-info "<input-address>" "<escrow-address>" "<escrow-our-key>" "<escrow-buyer-key>" "<escrow-seller-key>"]))]
+" (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info "<input-address>" "<escrow-address>" "<escrow-our-key>" "<escrow-buyer-key>" "<escrow-seller-key>"]))]
         (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -401,8 +401,8 @@ CREATE TABLE buy_request (
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   amount                           BIGINT NOT NULL,
-  currency_buy                     TEXT NOT NULL,
-  currency_sell                    TEXT NOT NULL,
+  currency_buyer                   TEXT NOT NULL,
+  currency_seller                  TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL
 );"
                           "
@@ -413,8 +413,8 @@ CREATE TABLE contract (
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   amount                           BIGINT NOT NULL,
-  currency_buy                     TEXT NOT NULL,
-  currency_sell                    TEXT NOT NULL,
+  currency_buyer                   TEXT NOT NULL,
+  currency_seller                  TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL,
   input_address                    TEXT,
   escrow_address                   TEXT,

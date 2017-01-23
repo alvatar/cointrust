@@ -36,7 +36,7 @@
                     :friend-fbids (atom [])
                     :friend-hashes (atom [])
                     :friends2 (atom [])
-                    :btc-usd (atom 1025.0)
+                    :exchange-rates (atom {:xbt-usd 927.360})
                     :sell-offer (atom nil)
                     :sell-offer-matches (atom cljs.core/PersistentQueue.EMPTY)
                     :buy-requests (atom [])
@@ -61,6 +61,8 @@
 (def ui-flexbox-col (adapt-rum-class js/ReactFlexboxGrid.Col))
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
+
+(defn round-currency [val] (/ (long (* 100000 val)) 100000))
 
 ;;
 ;; Setup
@@ -187,7 +189,7 @@
 
 (defn open-sell-offer [{:as vals :keys [currency min max]}]
   (chsk-send!
-   [:offer/open (assoc vals :user-id @(:user-id app-state))] 5000
+   [:offer/open {:user-id @(:user-id app-state) :min min :max max :currency currency}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:sell-offer app-state) (select-keys resp [:min :max]))
@@ -199,7 +201,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (let [offer (select-keys resp [:min :max])]
-         (when (not-empty offer) (reset! (:sell-offer app-state) offer)))
+         (when (not-empty offer) (reset! (:sell-offer app-state) (into {} (for [[k v] offer] [k (common/currency-as-float (float v) :usd)])))))
        (reset! app-error "There was an error retrieving the sell offer.")))))
 
 (defn close-sell-offer [callback]
@@ -225,8 +227,8 @@
   (chsk-send!
    [:buy-request/create {:user-id @(:user-id app-state)
                          :amount amount
-                         :currency-buy "usd"
-                         :currency-sell "xbt"}] 5000
+                         :currency-buyer "usd"
+                         :currency-seller "xbt"}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* "Buy request created successfully")
@@ -481,8 +483,8 @@
   [state]
   (let [input (::input state)
         valid-val #(and (number? %) (> % 0))
-        btc-usd @(:btc-usd app-state)
-        total (* btc-usd (:amount (rum/react input)))
+        xbt-usd (:xbt-usd (rum/react (:exchange-rates app-state)))
+        total (* xbt-usd (:amount (rum/react input)))
         open? (= (rum/react (:ui-mode app-state)) :buy-dialog)]
     (if (<= (count @(:buy-requests app-state)) 10)
       (ui/dialog {:title "Buy Bitcoins"
@@ -500,14 +502,14 @@
                             (ui/flat-button {:label "Cancel"
                                              :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                  [:div
-                  [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
+                  [:div [:h4 "Bitcoin price: " xbt-usd " XBT/USD (Coinbase reference rate)"]
                    (ui/text-field {:id "amount"
                                    :autoFocus true
                                    :value (:amount (rum/react input))
                                    :on-change #(swap! input assoc :amount (.. % -target -value))
                                    :errorText (when (not (valid-val total)) "Invalid value")})
                    (when (> total 0)
-                     (str "for " (/ (long (* 100000 total)) 100000) " USD"))]
+                     (str "for " (round-currency total) " USD"))]
                   (when (:processing (rum/react input))
                     [:div
                      (ui/linear-progress {:size 60 :mode "indeterminate"
@@ -520,7 +522,7 @@
                  "Maximum number of simultaneous open BUY requests reached."))))
 
 (rum/defc sell-slider [currency [min-val max-val] on-change]
-  (js/React.createElement js/Slider #js {:min 200
+  (js/React.createElement js/Slider #js {:min 100
                                          :max 20000
                                          :range true
                                          :allowCross false
@@ -532,8 +534,9 @@
   < rum/reactive (rum/local {} ::ui-values)
   [state_]
   (let [offer-active? (boolean @(:sell-offer app-state))
+        xbt-usd (:xbt-usd (rum/react (:exchange-rates app-state)))
         ui-values (::ui-values state_)
-        min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 200)
+        min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 100)
         max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)]
     (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoins")
                 :open (= (rum/react (:ui-mode app-state)) :sell-dialog)
@@ -552,8 +555,9 @@
                                            :primary true
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
-                [:p "An offer will be place to sell between " [:strong min-val]
-                 " and " [:strong max-val] " USD"]
+                [:p "Offer transactions between " [:strong min-val]
+                 " and " [:strong max-val] " USD (currently " [:strong (round-currency (/ min-val xbt-usd))]
+                 " - " [:strong (round-currency (/ max-val xbt-usd))] " XBT)"]
                 (sell-slider "usd" [min-val max-val] (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))])))
 
 (rum/defc menu-controls-comp
@@ -578,10 +582,13 @@
   < rum/reactive
   []
   (when-let [sell-offer (rum/react (:sell-offer app-state))]
-   [:div
-    [:h4 {:style {:text-align "center"}} "Sell offer"]
-    [:p.center "You are currently offering to sell: "
-     [:strong (:min sell-offer)] " (min.) - " [:strong (:max sell-offer)] " BTC (max.)"]]))
+    (let [xbt-usd (:xbt-usd (rum/react (:exchange-rates app-state)))]
+      [:div
+       [:h4 {:style {:text-align "center"}} "Sell offer"]
+       [:p.center "Offering transactions in the range "
+        [:strong (:min sell-offer)] " to " [:strong (:max sell-offer)] " USD ("
+        (round-currency (/ (:min sell-offer) xbt-usd)) " - "
+        (round-currency (/ (:max sell-offer) xbt-usd)) " XBT)"]])))
 
 (rum/defc request-listing-comp
   < rum/reactive
@@ -601,8 +608,8 @@
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
                           :primary-text (gstring/format "Buy request for %s %s"
-                                                        (common/currency-as-float (:amount req) (:currency-sell req))
-                                                        (clojure.string/upper-case (:currency-sell req)))
+                                                        (common/currency-as-float (:amount req) (:currency-seller req))
+                                                        (clojure.string/upper-case (:currency-seller req)))
                           :secondary-text (gstring/format "ID: %d - %s"
                                                           (:id req)
                                                           (if (:seller-id req)
@@ -624,7 +631,9 @@
                    [:p "The contract " [:strong (:hash contract)] " is waiting for Escrow funding."]
                    [:div {:style {:background-color "rgb(0, 188, 212)" :border-radius "2px"}}
                     [:p {:style {:padding "10px 10px 10px 10px"}}
-                     "Please send " [:strong (:amount contract) " " (clojure.string/upper-case (:currency-sell contract))]
+                     "Please send " [:strong (common/currency-as-float (:amount contract)
+                                                                       (:currency-seller contract))
+                                     " " (clojure.string/upper-case (:currency-seller contract))]
                      " to the following address: " [:strong (:input-address contract)]]]])])))
 
 (rum/defc contract-listing-comp
@@ -731,8 +740,10 @@
         current (peek pending-matches)
         account-info (::account-info state_)]
     (when current
-      (ui/dialog {:title (gstring/format "Offer Matched for %f %s" (:amount current)
-                                         (clojure.string/upper-case (:currency-sell current)))
+      (ui/dialog {:title (gstring/format "Offer Matched for %f %s" (common/currency-as-float
+                                                                    (:amount current)
+                                                                    (:currency-seller current))
+                                         (clojure.string/upper-case (:currency-seller current)))
                   :open (boolean (not-empty pending-matches))
                   :modal true
                   :actions [(ui/flat-button {:label "Accept"

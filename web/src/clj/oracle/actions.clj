@@ -84,8 +84,8 @@
 
 (defmethod -event-msg-handler :buy-request/create
   [{:keys [?data ?reply-fn]}]
-  (try (tasks/initiate-buy-request (:user-id ?data) (common/currency-as-long (:amount ?data) (:currency-sell ?data))
-                                   (:currency-buy ?data) (:currency-sell ?data))
+  (try (tasks/initiate-buy-request (:user-id ?data) (common/currency-as-long (:amount ?data) (:currency-seller ?data))
+                                   (:currency-buyer ?data) (:currency-seller ?data))
        (?reply-fn {:status :ok})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 

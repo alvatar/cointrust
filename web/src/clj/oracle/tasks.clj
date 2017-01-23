@@ -12,6 +12,7 @@
             [oracle.redis :as redis]
             [oracle.database :as db]
             [oracle.events :as events]
+            [oracle.common :as co]
             [oracle.redis :refer :all]))
 
 ;;
@@ -36,11 +37,11 @@
                                      :handler (ref nil)
                                      :worker (ref nil)}})
 
-(defn initiate-buy-request [buyer-id amount currency-buy currency-sell]
-  (log/debug (format "Initiated buy request from buyer ID %d for %d %s" buyer-id amount currency-buy))
+(defn initiate-buy-request [buyer-id amount currency-buyer currency-seller]
+  (log/debug (format "Initiated buy request from buyer ID %d for %d %s" buyer-id amount currency-buyer))
   (wcar* (mq/enqueue (get-in workers [:buy-requests-master :qname])
                      {:buyer-id buyer-id :amount amount
-                      :currency-buy currency-buy :currency-sell currency-sell})))
+                      :currency-buyer currency-buyer :currency-seller currency-seller})))
 
 (defn initiate-contract [buy-request]
   (if (:id buy-request)
@@ -63,7 +64,7 @@
 ;; This is the core of Cointrust. When a request to buy is received,
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
-(defn pick-counterparty [buyer-id amount currency-sell]
+(defn pick-counterparty [buyer-id amount currency-seller]
   (let [[available _ _] (diff (db/get-user-friends-of-friends buyer-id)
                               (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))]
     (rand-nth available)))
@@ -138,11 +139,11 @@
 ;; 3. When counterparty accepts, trigger contract creation
 (defn buy-requests-master-handler
   [{:keys [qname mid message attempt] :as task}]
-  (let [{:keys [buyer-id amount currency-buy currency-sell]} message
+  (let [{:keys [buyer-id amount currency-buyer currency-seller]} message
         state (idempotency-state-rebuild mid)
         now (get-in state [:global :now])
         buy-request (with-idempotent-transaction mid :buy-request-create state
-                      #(if-let [result (db/buy-request-create! buyer-id amount currency-buy currency-sell 1000.0 %)]
+                      #(if-let [result (db/buy-request-create! buyer-id amount currency-buyer currency-seller 1000.0 %)]
                          (do (log/debug "Buy request created:" result) result)
                          (throw (Exception. "Couldn't create buy-request"))))
         buy-request-id (:id buy-request)]
@@ -153,7 +154,7 @@
                     (events/dispatch! buyer-id :buy-request-created buy-request))
     (Thread/sleep 3000)
     (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
-                         #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-sell) %))]
+                         #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-seller) %))]
       (do (idempotent-ops mid :event-sell-offer-matched state
                           (events/dispatch! seller-id :sell-offer-matched buy-request)
                           (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
@@ -400,7 +401,7 @@
 ;;
 
 ;; Create a buy request
-;; (initiate-buy-request 2 100 "usd" "xbt")
+;; (initiate-buy-request 2 (oracle.common/currency-as-long 10.0 :xbt) "usd" "xbt")
 
 ;; Seller sends money to Escrow
 ;; (oracle.database/contract-set-escrow-funded! 1)
@@ -421,7 +422,7 @@
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1})
 
 ;; Directly create contract
-#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buy "usd", :currency-sell "xbt", :exchange-rate 1000.000000M, :transfer-info "
+#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "xbt", :exchange-rate 1000.000000M, :transfer-info "
 Hakuna Matata Bank.
 Gloryvee Cordero.
 The Cayman Islands.
