@@ -419,12 +419,19 @@
 
 ;; Seller accepts buy request
 ;; (oracle.database/buy-request-set-seller! 1 2)
-;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1})
+#_(oracle.tasks/initiate-preemptive-task :buy-request/accept
+                                       {:id 1
+                                        :transfer-info "
+Hakuna Matata Bank.
+Publius Cornelius Scipio.
+The Cayman Islands.
+IBAN 12341234123431234
+SWIFT YUPYUP12"})
 
 ;; Directly create contract
 #_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "xbt", :exchange-rate 1000.000000M, :transfer-info "
 Hakuna Matata Bank.
-Gloryvee Cordero.
+Publius Cornelius Scipio
 The Cayman Islands.
 IBAN 12341234123431234 SWIFT YUPYUP12"})
 

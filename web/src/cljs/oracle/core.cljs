@@ -64,6 +64,10 @@
 
 (defn round-currency [val] (/ (long (* 100000 val)) 100000))
 
+(defn am-i-buyer? [contract] (= @(:user-id app-state) (:buyer-id contract)))
+(defn am-i-seller? [contract] (= @(:user-id app-state) (:seller-id contract)))
+(defn waiting-transfer? [contract] (= (:stage contract) "waiting-transfer"))
+
 ;;
 ;; Setup
 ;;
@@ -618,23 +622,30 @@
 
 (rum/defc contract-info-dialog
   [contract-id]
-  (when contract-id
+  (when-let [contract (some #(and (= (:id %) contract-id) %) @(:contracts app-state))]
     (ui/dialog {:title "Contract Action Required"
                 :open true
                 :modal true
                 :actions [(ui/flat-button {:label "Close"
                                            :primary true
                                            :on-touch-tap #(reset! (:display-contract app-state) nil)})]}
-               [:div
-                (when-let [contract (some #(and (= (:id %) contract-id) %) @(:contracts app-state))]
-                  [:div
-                   [:p "The contract " [:strong (:hash contract)] " is waiting for Escrow funding."]
-                   [:div {:style {:background-color "rgb(0, 188, 212)" :border-radius "2px"}}
-                    [:p {:style {:padding "10px 10px 10px 10px"}}
-                     "Please send " [:strong (common/currency-as-float (:amount contract)
-                                                                       (:currency-seller contract))
-                                     " " (clojure.string/upper-case (:currency-seller contract))]
-                     " to the following address: " [:strong (:input-address contract)]]]])])))
+               (case (:stage contract)
+                 "waiting-escrow"
+                 [:div
+                  [:p "The contract " [:strong (:hash contract)] " is waiting for Escrow funding."]
+                  [:div {:style {:background-color "rgb(0, 188, 212)" :border-radius "2px"}}
+                   [:p {:style {:padding "10px 10px 10px 10px"}}
+                    "Please send " [:strong (common/currency-as-float (:amount contract)
+                                                                      (:currency-seller contract))
+                                    " " (clojure.string/upper-case (:currency-seller contract))]
+                    " to the following address: " [:strong (:input-address contract)]]]]
+                 "waiting-transfer"
+                 (let [val-fiat [:strong (common/satoshi->btc (:amount contract)) " "
+                                 (clojure.string/upper-case (:currency-seller contract))]]
+                   (if (am-i-buyer? contract)
+                     [:div "Please send " val-fiat " to this account:" [:br] [:code (:transfer-info contract)]]
+                     [:div "Please confirm the reception of " val-fiat " in your account"]))
+                 [:div "Nothing to do at the moment."]))))
 
 (rum/defc contract-listing-comp
   < rum/reactive
@@ -642,10 +653,7 @@
   [:div
    [:h4.center "Active contracts"]
    [:div
-    (let [contracts (rum/react (:contracts app-state))
-          am-i-buyer? #(= @(:user-id app-state) (:buyer-id %))
-          am-i-seller? #(= @(:user-id app-state) (:seller-id %))
-          waiting-transfer? #(= (:stage %) "waiting-transfer")]
+    (let [contracts (rum/react (:contracts app-state))]
       (cond
         (not contracts)
         [:div "Retrieving contracts..."
@@ -829,8 +837,6 @@
 ;;
 ;; Init
 ;;
-
-(js/console.log (str (js/document.getElementById "app")))
 
 (rum/mount (app) (js/document.getElementById "app"))
 

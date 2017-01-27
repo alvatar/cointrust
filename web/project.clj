@@ -31,14 +31,13 @@
                  [clj-time "0.13.0"]
                  ;; Cljs
                  [rum "0.10.8" :exclusions [cljsjs/react cljsjs/react-dom]]
-                 [cljs-react-material-ui "0.2.36"]
+                 [cljs-react-material-ui "0.2.37"]
                  [cljsjs/react-flexbox-grid "0.10.2-1" :exclusions [cljsjs/react cljsjs/react-dom]]
-                 [cljsjs/react-slider "0.6.1-0"]
+                 [cljsjs/rc-slider "4.0.1-0" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [netpyoung/fb-sdk-cljs "0.1.2"]
                  [cljs-hash "0.0.2"]
                  [datascript "0.15.5"]
-                 [camel-snake-kebab "0.4.0"]
-                 [cljsjs/rc-slider "4.0.1-0"]]
+                 [camel-snake-kebab "0.4.0"]]
 
   :plugins [[lein-cljsbuild "1.1.3"]
             [lein-environ "1.0.3"]
