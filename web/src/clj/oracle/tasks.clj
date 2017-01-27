@@ -424,7 +424,7 @@
                                         :transfer-info "
 Hakuna Matata Bank.
 Publius Cornelius Scipio.
-The Cayman Islands.
+Ibiza, Spain.
 IBAN 12341234123431234
 SWIFT YUPYUP12"})
 
@@ -432,7 +432,7 @@ SWIFT YUPYUP12"})
 #_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "xbt", :exchange-rate 1000.000000M, :transfer-info "
 Hakuna Matata Bank.
 Publius Cornelius Scipio
-The Cayman Islands.
+Ibiza, Spain.
 IBAN 12341234123431234
 SWIFT YUPYUP12"})
 

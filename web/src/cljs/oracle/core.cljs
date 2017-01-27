@@ -620,34 +620,73 @@
                                                             "PARTNER FOUND - WAITING SELLER ACTION"
                                                             "LOOKING FOR A PARTNER..."))})))))]])
 
-(rum/defc contract-dialog
+(rum/defcs contract-dialog
   < rum/reactive
-  [contract-id]
-  (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts app-state)))]
-    (log* contract)
-    (ui/dialog {:title "Contract Action Required"
-                :open true
-                :modal true
-                :actions [(ui/flat-button {:label "Close"
-                                           :primary true
-                                           :on-touch-tap #(reset! (:display-contract app-state) nil)})]}
-               (case (:stage contract)
-                 "waiting-escrow"
-                 [:div
-                  [:p "The contract " [:strong (:hash contract)] " is waiting for Escrow funding."]
-                  [:div {:style {:background-color "rgb(0, 188, 212)" :border-radius "2px"}}
-                   [:p {:style {:padding "10px 10px 10px 10px"}}
-                    "Please send " [:strong (common/currency-as-float (:amount contract)
-                                                                      (:currency-seller contract))
-                                    " " (clojure.string/upper-case (:currency-seller contract))]
-                    " to the following address: " [:strong (:input-address contract)]]]]
-                 "waiting-transfer"
-                 (let [val-fiat [:strong (common/satoshi->btc (:amount contract)) " "
-                                 (clojure.string/upper-case (:currency-seller contract))]]
-                   (if (am-i-buyer? contract)
-                     [:div "Please send " val-fiat " to this account:" [:br] [:code (:transfer-info contract)]]
-                     [:div "Please confirm the reception of " val-fiat " in your account"]))
-                 [:div "Nothing to do at the moment."]))))
+  (rum/local {:output-address "" :buyer-key ""} ::input)
+  [_state contract-id]
+  (let [input (::input _state)]
+    (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts app-state)))]
+      (case (:stage contract)
+        "waiting-escrow"
+        (ui/dialog {:title "Contract Action Required"
+                    :open true
+                    :modal true
+                    :actions [(ui/flat-button {:label "Close"
+                                               :primary true
+                                               :on-touch-tap #(reset! (:display-contract app-state) nil)})]}
+                   [:div
+                    [:p "The contract " [:strong (:hash contract)] " is waiting for Escrow funding."]
+                    [:div {:style {:background-color "rgb(0, 188, 212)" :border-radius "2px"}}
+                     [:p {:style {:padding "10px 10px 10px 10px"}}
+                      "Please send " [:strong (common/currency-as-float (:amount contract)
+                                                                        (:currency-seller contract))
+                                      " " (clojure.string/upper-case (:currency-seller contract))]
+                      " to the following address: " [:strong (:input-address contract)]]]])
+        "waiting-transfer"
+        (ui/dialog {:title "Contract Action Required"
+                    :open true
+                    :modal true
+                    :actions [(ui/flat-button {:label "Close"
+                                               :primary true
+                                               :on-touch-tap #(reset! (:display-contract app-state) nil)})]}
+                   (let [val-fiat [:strong (common/satoshi->btc (:amount contract)) " "
+                                   (clojure.string/upper-case (:currency-seller contract))]]
+                     (if (am-i-buyer? contract)
+                       [:div "Please send " val-fiat " to this account:" [:br] [:code (:transfer-info contract)]]
+                       [:div "Please confirm the reception of " val-fiat " in your account"])))
+        "contract-success"
+        (ui/dialog {:title "Contract Action Required"
+                    :open true
+                    :modal true
+                    :actions [(ui/flat-button {:label "Ok"
+                                               :primary true
+                                               :on-touch-tap (fn [] (chsk-send!
+                                                                     [:contract/release-escrow-buyer {:id (:id contract)
+                                                                                                      :output-address (:output-address @input)
+                                                                                                      :escrow-buyer-key (:buyer-key @input)}]
+                                                                     5000
+                                                                     #(when (and (sente/cb-success? %) (= :ok (:status %)))
+                                                                        (if-let [found-idx (find-in @(:contracts app-state) (:id contract))]
+                                                                          (do (swap! (:contracts app-state) assoc-in [found-idx :output-address] (:output-address @input))
+                                                                              (reset! (:display-contract app-state) nil))
+                                                                          (do (reset! app-error "There was an error in requesting the Escrow funds. Please inform us of this event.")
+                                                                              (log* "Error calling contract/release-escrow-buyer" %))))))})
+                              (ui/flat-button {:label "Cancel"
+                                               :primary false
+                                               :on-touch-tap #(reset! (:display-contract app-state) nil)})]}
+                   [:div
+                    [:h3 "Claim funds"]
+                    [:h5 "Please provide the Destination Address and the Escrow Release Key in order to receive your Bitcoins"]
+                    (ui/text-field {:id "output-address"
+                                    :floating-label-text "Destination Address"
+                                    :value (:output-address (rum/react input))
+                                    :on-change #(swap! input assoc :output-address (.. % -target -value))})
+                    [:br]
+                    (ui/text-field {:id "buyer-key"
+                                    :floating-label-text "Escrow Release Key"
+                                    :value (:buyer-key (rum/react input))
+                                    :on-change #(swap! input assoc :buyer-key (.. % -target -value))})])
+        [:div "Nothing to do at the moment."]))))
 
 (rum/defc contract-listing-comp
   < rum/reactive
@@ -668,14 +707,20 @@
            [:div
             [:div.column-half [:strong (if (= (:seller-id contract) @(:user-id app-state)) "SELLER" "BUYER")]
              (str " // " (:hash contract))]
-            (when (case (:stage contract)
-                    "waiting-escrow" (am-i-seller? contract)
-                    "waiting-transfer" (if (am-i-buyer? contract)
-                                         (not (:transfer-sent contract))
-                                         (and (:transfer-sent contract) (not (:transfer-received contract))))
-                    false)
-              [:div.column-half
-               [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} "ACTION REQUIRED"]])
+            (let [action-required [:div.column-half
+                                   [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} "ACTION REQUIRED"]]
+                  waiting [:div.column-half [:div.center "WAITING"]]
+                  done [:div.column-half [:div.center "FUNDS RELEASED"]]]
+              (case (:stage contract)
+                "waiting-escrow" (if (am-i-seller? contract) action-required done)
+                "waiting-transfer" (if (am-i-buyer? contract)
+                                     (if (:transfer-sent contract) waiting action-required)
+                                     (if (and (:transfer-sent contract) (not (:transfer-received contract)))
+                                       action-required
+                                       waiting))
+                "contract-success" (if (and (am-i-buyer? contract) (not (:output-address contract)))
+                                     action-required
+                                     done)))
             [:div {:style {:clear "both"}}]]
            [:div
             (ui/stepper {:active-step (case (:stage contract)

@@ -362,6 +362,12 @@ UPDATE contract SET transfer_received = true, waiting_transfer_start = CURRENT_T
 WHERE id = ?
 " id]))
 
+(defn contract-prepare-release-buyer! [id output-address escrow-buyer-key]
+  (sql/execute! db ["
+UPDATE contract SET output_address = ?, escrow_buyer_key = ?
+WHERE id = ?
+" output-address escrow-buyer-key id]))
+
 ;;
 ;; Development utilities
 ;;

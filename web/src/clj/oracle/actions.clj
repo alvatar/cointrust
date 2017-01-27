@@ -115,6 +115,12 @@
   [args]
   (preemptive-task-handler args :contract/mark-transfer-received))
 
+(defmethod -event-msg-handler :contract/release-escrow-buyer
+  [{:keys [?data ?reply-fn]}]
+  (try (db/contract-prepare-release-buyer! (:id ?data) (:output-address ?data) (:escrow-buyer-key ?data))
+       (?reply-fn {:status :ok})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+
 (defmethod -event-msg-handler :notification/ack
   [{:keys [?data ?reply-fn]}]
   (events/ack-notification (:user-hash ?data) (:uuid ?data))
