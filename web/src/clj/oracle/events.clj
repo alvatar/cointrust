@@ -83,7 +83,7 @@
       (future
         (chsk-send! uid [:contract/waiting-transfer args])
         (notification uid "Waiting transfer"
-                      (str "The seller is waiting for your transfer. Please proceed. When done, click the action button. The following are the required details for the transfer:\n"
+                      (str "The seller is waiting for your transfer. The following are the required details for the transfer:\n"
                            (:transfer-info args))))
       :contract-mark-transfer-sent-ack
       (future

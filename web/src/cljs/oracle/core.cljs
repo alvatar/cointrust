@@ -620,9 +620,11 @@
                                                             "PARTNER FOUND - WAITING SELLER ACTION"
                                                             "LOOKING FOR A PARTNER..."))})))))]])
 
-(rum/defc contract-info-dialog
+(rum/defc contract-dialog
+  < rum/reactive
   [contract-id]
-  (when-let [contract (some #(and (= (:id %) contract-id) %) @(:contracts app-state))]
+  (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts app-state)))]
+    (log* contract)
     (ui/dialog {:title "Contract Action Required"
                 :open true
                 :modal true
@@ -717,7 +719,7 @@
                                                (= (:stage contract) "contract-broken"))
                                  :style {:margin "0 1rem 0 1rem"}
                                  :on-touch-tap #(js/confirm "Are you sure?")})])
-           (contract-info-dialog (rum/react (:display-contract app-state)))])))]])
+           (contract-dialog (rum/react (:display-contract app-state)))])))]])
 
 (rum/defc generic-notifications
   < rum/reactive

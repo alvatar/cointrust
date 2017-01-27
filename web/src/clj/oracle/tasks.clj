@@ -433,7 +433,8 @@ SWIFT YUPYUP12"})
 Hakuna Matata Bank.
 Publius Cornelius Scipio
 The Cayman Islands.
-IBAN 12341234123431234 SWIFT YUPYUP12"})
+IBAN 12341234123431234
+SWIFT YUPYUP12"})
 
 ;; Seller sends money to escrow
 ;; (oracle.database/contract-set-escrow-funded! 1)
