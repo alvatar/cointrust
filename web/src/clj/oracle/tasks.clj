@@ -416,6 +416,9 @@
 ;; Create a buy request
 ;; (initiate-buy-request 2 (oracle.common/currency-as-long 10.0 :xbt) "usd" "xbt")
 
+;; Initialize Escrow
+;; (oracle.escrow/set-seller-key 1 "fdsafdsa")
+
 ;; Seller sends money to Escrow
 ;; (oracle.database/contract-set-escrow-funded! 1)
 

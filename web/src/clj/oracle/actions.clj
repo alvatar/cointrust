@@ -117,25 +117,38 @@
   [args]
   (preemptive-task-handler args :contract/mark-transfer-received))
 
-(defmethod -event-msg-handler :escrow/get-buyer-key
+(defmethod -event-msg-handler :escrow/get-user-key
   [{:keys [?data ?reply-fn]}]
-  (if-let [key (escrow/get-buyer-key (:id ?data))]
-    (?reply-fn {:status :ok :escrow-buyer-key key})
+  (if-let [key (case (:role ?data)
+                 "buyer" (escrow/get-buyer-key (:id ?data))
+                 "seller" (escrow/get-seller-key (:id ?data))
+                 (?reply-fn {:error :unknown-role}))]
+    (?reply-fn {:status :ok :escrow-user-key key})
     (?reply-fn {:error :unavailable-key})))
 
-(defmethod -event-msg-handler :escrow/forget-buyer-key
+(defmethod -event-msg-handler :escrow/forget-user-key
   [{:keys [?data ?reply-fn]}]
-  (try (db/contract-set-buyer-has-key! (:id ?data))
-       (if (escrow/forget-buyer-key (:id ?data))
-         (?reply-fn {:status :ok})
-         (?reply-fn {:error :unavailable-key}))
-       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+  (case (:role ?data)
+    "buyer"
+    (try (db/contract-set-buyer-has-key! (:id ?data))
+         (if (escrow/forget-buyer-key (:id ?data))
+           (?reply-fn {:status :ok})
+           (?reply-fn {:error :unavailable-key}))
+         (catch Exception e (pprint e) (?reply-fn {:status :error})))
+    "seller"
+    (try (db/contract-set-seller-has-key! (:id ?data))
+         (if (escrow/forget-seller-key (:id ?data))
+           (?reply-fn {:status :ok})
+           (?reply-fn {:error :unavailable-key}))
+         (catch Exception e (pprint e) (?reply-fn {:status :error})))
+    (?reply-fn {:error :unknown-role})))
 
-(defmethod -event-msg-handler :escrow/release-to-buyer
+(defmethod -event-msg-handler :escrow/release-to-user
   [{:keys [?data ?reply-fn]}]
   (if (or (empty? (:output-address ?data))
-          (empty? (:escrow-buyer-key ?data)))
+          (empty? (:escrow-user-key ?data)))
     (?reply-fn {:status :missing-parameters})
+    ;; TODO: Validate key
     (try ;; TODO: Create a task to release the funds (:escrow-buyer-key ?data) in Redis
       (db/contract-set-output-address! (:id ?data) (:output-address ?data))
       (?reply-fn {:status :ok})
