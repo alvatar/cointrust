@@ -249,10 +249,10 @@ SELECT * FROM buy_request;
     (sql/with-db-transaction
       [tx db]
       (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key, escrow_buyer_key, escrow_seller_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info "<input-address>" "<escrow-address>" "<escrow-our-key>" "<escrow-buyer-key>" "<escrow-seller-key>"]))]
+" (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info "<input-address>" "<escrow-address>" "<escrow-our-key>"]))]
         (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -362,11 +362,23 @@ UPDATE contract SET transfer_received = true, waiting_transfer_start = CURRENT_T
 WHERE id = ?
 " id]))
 
-(defn contract-prepare-release-buyer! [id output-address escrow-buyer-key]
+(defn contract-set-output-address! [id output-address]
   (sql/execute! db ["
-UPDATE contract SET output_address = ?, escrow_buyer_key = ?
+UPDATE contract SET output_address = ?
 WHERE id = ?
-" output-address escrow-buyer-key id]))
+" output-address id]))
+
+(defn contract-set-buyer-has-key! [id]
+  (sql/execute! db ["
+UPDATE contract SET escrow_buyer_has_key = true
+WHERE id = ?
+" id]))
+
+(defn contract-set-seller-has-key! [id]
+  (sql/execute! db ["
+UPDATE contract SET escrow_buyer_has_key = true
+WHERE id = ?
+" id]))
 
 ;;
 ;; Development utilities
@@ -426,8 +438,8 @@ CREATE TABLE contract (
   escrow_address                   TEXT,
   output_address                   TEXT,
   escrow_our_key                   TEXT,
-  escrow_buyer_key                 TEXT,
-  escrow_seller_key                TEXT,
+  escrow_buyer_has_key             BOOLEAN,
+  escrow_seller_has_key            BOOLEAN,
   escrow_funded                    BOOLEAN,
   escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   transfer_info                    TEXT NOT NULL,

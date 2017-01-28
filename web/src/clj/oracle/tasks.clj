@@ -13,7 +13,8 @@
             [oracle.database :as db]
             [oracle.events :as events]
             [oracle.common :as co]
-            [oracle.redis :refer :all]))
+            [oracle.redis :refer :all]
+            [oracle.escrow :as escrow]))
 
 ;;
 ;; Utils
@@ -218,11 +219,14 @@
         contract-id (:id initial-contract)
         ;; Make sure we have the latest version of the contrast (forget idempotent op)
         contract (db/get-contract-by-id-with-last-event contract-id)]
-    (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
+    ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
     ;; Task initialization
     (when (= attempt 1)
       (events/dispatch! (:buyer-id contract) :contract-create contract)
       (events/dispatch! (:seller-id contract) :contract-create contract))
+    ;;
+    ;; -- TODO: create escrow input address for contract
+    ;;
     (case (:stage contract)
       ;; Currently only used for testing
       "contract-success"
@@ -241,8 +245,17 @@
                   (fn [idemp]
                     (log/debug "Contract stage changed to \"waiting-transfer\"")
                     (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
+                ;;
+                ;; -- TODO: create Escrow, fund it from input address. Since we are the creators
+                ;;          of the transaction, we can assume its validity without confirmation?
+                ;;
                 (let [contract (merge contract {:stage "waiting-transfer"})]
                   (events/dispatch! (:seller-id contract) :contract-escrow-funded contract)
+                  (events/dispatch! (:buyer-id contract) :contract-escrow-funded contract)
+                  ;;
+                  ;; -- TODO: send also Escrow info here
+                  ;;
+                  (events/dispatch! (:seller-id contract) :contract-waiting-transfer contract)
                   (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract))
                 {:status :retry :backoff-ms 1})
             (> now (unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
@@ -421,23 +434,23 @@
 ;; (oracle.database/buy-request-set-seller! 1 2)
 #_(oracle.tasks/initiate-preemptive-task :buy-request/accept
                                        {:id 1
-                                        :transfer-info "
-Hakuna Matata Bank.
+                                        :transfer-info "Hakuna Matata Bank.
 Publius Cornelius Scipio.
 Ibiza, Spain.
 IBAN 12341234123431234
 SWIFT YUPYUP12"})
 
 ;; Directly create contract
-#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "xbt", :exchange-rate 1000.000000M, :transfer-info "
-Hakuna Matata Bank.
+#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "xbt", :exchange-rate 1000.000000M, :transfer-info "Hakuna Matata Bank.
 Publius Cornelius Scipio
 Ibiza, Spain.
 IBAN 12341234123431234
 SWIFT YUPYUP12"})
 
-;; Seller sends money to escrow
-;; (oracle.database/contract-set-escrow-funded! 1)
+;; Escrow initialization
+(defn contract-force-escrow-initialization [id]
+  (oracle.database/contract-set-escrow-funded! 1)
+  (oracle.escrow/set-buyer-key 1 "asdfasdf"))
 
 ;; Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})

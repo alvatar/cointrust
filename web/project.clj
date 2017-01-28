@@ -32,7 +32,6 @@
                  ;; Cljs
                  [rum "0.10.8" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljs-react-material-ui "0.2.37"]
-                 [cljsjs/react-flexbox-grid "0.10.2-1" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljsjs/rc-slider "4.0.1-0" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [netpyoung/fb-sdk-cljs "0.1.2"]
                  [cljs-hash "0.0.2"]

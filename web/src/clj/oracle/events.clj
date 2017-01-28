@@ -78,13 +78,12 @@
       (future
         (chsk-send! uid [:contract/escrow-funded args])
         (notification uid "Escrow funds received"
-                      "We've successfully received your funds in the Escrow account"))
+                      (if (= (:seller-id args) user-id)
+                        "We've successfully received your funds in the Escrow account"
+                        "The seller has successfully funded the Escrow account")))
       :contract-waiting-transfer
       (future
-        (chsk-send! uid [:contract/waiting-transfer args])
-        (notification uid "Waiting transfer"
-                      (str "The seller is waiting for your transfer. The following are the required details for the transfer:\n"
-                           (:transfer-info args))))
+        (chsk-send! uid [:contract/waiting-transfer args]))
       :contract-mark-transfer-sent-ack
       (future
         (chsk-send! uid [:contract/mark-transfer-sent-ack args])

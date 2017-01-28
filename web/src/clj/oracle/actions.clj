@@ -5,10 +5,12 @@
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
             [taoensso.timbre :as log]
+            ;; -----
             [oracle.database :as db]
             [oracle.common :as common]
             [oracle.tasks :as tasks]
-            [oracle.events :as events]))
+            [oracle.events :as events]
+            [oracle.escrow :as escrow]))
 
 ;;
 ;; Sente event handlers
@@ -115,11 +117,29 @@
   [args]
   (preemptive-task-handler args :contract/mark-transfer-received))
 
-(defmethod -event-msg-handler :contract/release-escrow-buyer
+(defmethod -event-msg-handler :escrow/get-buyer-key
   [{:keys [?data ?reply-fn]}]
-  (try (db/contract-prepare-release-buyer! (:id ?data) (:output-address ?data) (:escrow-buyer-key ?data))
-       (?reply-fn {:status :ok})
+  (if-let [key (escrow/get-buyer-key (:id ?data))]
+    (?reply-fn {:status :ok :escrow-buyer-key key})
+    (?reply-fn {:error :unavailable-key})))
+
+(defmethod -event-msg-handler :escrow/forget-buyer-key
+  [{:keys [?data ?reply-fn]}]
+  (try (db/contract-set-buyer-has-key! (:id ?data))
+       (if (escrow/forget-buyer-key (:id ?data))
+         (?reply-fn {:status :ok})
+         (?reply-fn {:error :unavailable-key}))
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+
+(defmethod -event-msg-handler :escrow/release-to-buyer
+  [{:keys [?data ?reply-fn]}]
+  (if (or (empty? (:output-address ?data))
+          (empty? (:escrow-buyer-key ?data)))
+    (?reply-fn {:status :missing-parameters})
+    (try ;; TODO: Create a task to release the funds (:escrow-buyer-key ?data) in Redis
+      (db/contract-set-output-address! (:id ?data) (:output-address ?data))
+      (?reply-fn {:status :ok})
+      (catch Exception e (pprint e) (?reply-fn {:status :error})))))
 
 (defmethod -event-msg-handler :notification/ack
   [{:keys [?data ?reply-fn]}]
