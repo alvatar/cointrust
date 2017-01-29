@@ -35,6 +35,8 @@
   (reify org.bitcoinj.core.TransactionBroadcast$ProgressCallback
     (onBroadcastProgress [this p] (println p))))
 
+(defn make-private-key [] (.getPrivKeyBytes (ECKey.)))
+
 ;;
 ;; App
 ;;

@@ -120,8 +120,8 @@
 (defmethod -event-msg-handler :escrow/get-user-key
   [{:keys [?data ?reply-fn]}]
   (if-let [key (case (:role ?data)
-                 "buyer" (escrow/get-buyer-key (:id ?data))
-                 "seller" (escrow/get-seller-key (:id ?data))
+                 "buyer" (escrow/encode (escrow/get-buyer-key (:id ?data)))
+                 "seller" (escrow/encode (escrow/get-seller-key (:id ?data)))
                  (?reply-fn {:error :unknown-role}))]
     (?reply-fn {:status :ok :escrow-user-key key})
     (?reply-fn {:error :unavailable-key})))

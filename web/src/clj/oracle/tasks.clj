@@ -223,10 +223,8 @@
     ;; Task initialization
     (when (= attempt 1)
       (events/dispatch! (:buyer-id contract) :contract-create contract)
-      (events/dispatch! (:seller-id contract) :contract-create contract))
-    ;;
-    ;; -- TODO: create escrow input address for contract
-    ;;
+      (events/dispatch! (:seller-id contract) :contract-create contract)
+      (escrow/setup-keys-for-contract! contract-id))
     (case (:stage contract)
       ;; Currently only used for testing
       "contract-success"

@@ -657,7 +657,7 @@
                                                                              (swap! (:contracts app-state) assoc-in [found-idx :escrow-seller-has-key] true)
                                                                              (log* "Error in escrow/forget-user-key (contract not found)" %))
                                                                            (log* "Error in escrow/forget-user-key" %)))))}))]
-                          [:div.col (rum/react user-key)]])]
+                          [:div.col [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                       [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
                                             (common/currency-as-float (:amount contract) (:currency-seller contract))
                                             " " (clojure.string/upper-case (:currency-seller contract))] " to the Escrow"]

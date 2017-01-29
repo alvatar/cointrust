@@ -380,6 +380,12 @@ UPDATE contract SET escrow_buyer_has_key = true
 WHERE id = ?
 " id]))
 
+(defn contract-set-field! [id field value]
+  (sql/execute! db [(format "
+UPDATE contract SET %s = ?
+WHERE id = ?
+" field) value id]))
+
 ;;
 ;; Development utilities
 ;;

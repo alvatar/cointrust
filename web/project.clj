@@ -5,7 +5,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
 
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [org.clojure/clojurescript "1.9.293" :scope "provided"]
+                 [org.clojure/clojurescript "1.9.456" :scope "provided"]
                  [com.cognitect/transit-clj "0.8.297"]
                  [com.cognitect/transit-cljs "0.8.239"]
                  [environ "1.1.0"]
