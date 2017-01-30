@@ -68,8 +68,8 @@
                    {:status 500
                     :headers {"Content-Type" "text/plain"}
                     :body "500 Internal Error."}))))]
-    ((if (or (env :production)
-             (env :staging))
+    ((case (:env env)
+       ("production" "staging")
        wrap-error-page
        trace/wrap-stacktrace)
      app)))
@@ -80,8 +80,6 @@
 
 (defonce server (atom nil))
 
-(onelog.core/set-debug!)
-
 (defn start! [& [port ip]]
   (log/set-level! :debug)
   (actions/sente-router-start! ch-chsk)
@@ -89,7 +87,9 @@
   (reset! server
           (aleph.http/start-server
            (-> app
-               (wrap-defaults (assoc-in (if (env :production) secure-site-defaults site-defaults)
+               (wrap-defaults (assoc-in (case (env :env)
+                                          ("production" "staging") (assoc secure-site-defaults :proxy true)
+                                          site-defaults)
                                         [:params :keywordize] true))
                wrap-exceptions
                wrap-gzip)
