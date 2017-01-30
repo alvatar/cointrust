@@ -1,1 +1,2 @@
-web: java $JVM_OPTS -cp target/oracle.jar clojure.main -m oracle.server
+web: oracle.web $PORT
+worker: oracle.worker

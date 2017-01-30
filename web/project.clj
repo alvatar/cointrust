@@ -5,15 +5,14 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
 
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [org.clojure/clojurescript "1.9.456" :scope "provided"]
+                 [org.clojure/clojurescript "1.9.456"]
                  [com.cognitect/transit-clj "0.8.297"]
                  [com.cognitect/transit-cljs "0.8.239"]
                  [environ "1.1.0"]
                  [ring "1.5.1"]
                  [ring/ring-defaults "0.2.2"]
                  [bk/ring-gzip "0.2.1"]
-                 [ring.middleware.logger "0.5.0"]
-                 [aleph "0.4.2-alpha9"]
+                 [aleph "0.4.2-alpha12"]
                  [compojure "1.5.2"]
                  [com.taoensso/nippy "2.12.2"]
                  [com.taoensso/sente "1.11.0"]
@@ -24,7 +23,9 @@
                  [org.postgresql/postgresql "9.4.1212"]
                  [com.taoensso/carmine "2.15.1" :exclusions [com.taoensso/encore]]
                  ;; Bitcoin
-                 [org.bitcoinj/bitcoinj-core "0.14.3"]
+                 [org.bitcoinj/bitcoinj-core "0.14.3" :exclusions [com.google.protobuf/protobuf-java
+                                                                   com.google.guava/guava
+                                                                   com.google.code.findbugs/jsr305]]
                  ;; Misc
                  [crypto-random "1.2.0"]
                  [cheshire "5.7.0"]
@@ -33,7 +34,7 @@
                  [rum "0.10.8" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljs-react-material-ui "0.2.37"]
                  [cljsjs/rc-slider "4.0.1-0" :exclusions [cljsjs/react cljsjs/react-dom]]
-                 [netpyoung/fb-sdk-cljs "0.1.2"]
+                 [netpyoung/fb-sdk-cljs "0.1.2" :exclusions [com.google.guava/guava]]
                  [cljs-hash "0.0.2"]
                  [datascript "0.15.5"]
                  [camel-snake-kebab "0.4.0"]]
@@ -130,8 +131,8 @@
          :target-path "resources/public/css"}
 
   :profiles {:dev
-             {:dependencies [[figwheel "0.5.8"]
-                             [figwheel-sidecar "0.5.8"]
+             {:dependencies [[figwheel "0.5.8" :exclusions [com.google.guava/guava]]
+                             [figwheel-sidecar "0.5.8" :exclusions [com.google.guava/guava]]
                              [com.cemerick/piggieback "0.2.1"]
                              [org.clojure/tools.nrepl "0.2.12"]]
               :plugins [[lein-figwheel "0.5.8"]

@@ -4,7 +4,6 @@
             [taoensso.timbre :as log]
             [ring.middleware.defaults :refer [wrap-defaults api-defaults]]
             [ring.middleware.gzip :refer [wrap-gzip]]
-            [ring.middleware.logger :refer [wrap-with-logger]]
             [ring.middleware.defaults :refer :all]
             [ring.middleware.stacktrace :as trace]
             [ring.util.response :as response]
@@ -87,15 +86,12 @@
   (log/set-level! :debug)
   (actions/sente-router-start! ch-chsk)
   (events/init! chsk-send!)
-  (tasks/workers-start!)
-  (bitcoin/system-start!)
   (reset! server
           (aleph.http/start-server
            (-> app
                (wrap-defaults (assoc-in (if (env :production) secure-site-defaults site-defaults)
                                         [:params :keywordize] true))
                wrap-exceptions
-               ;;(wrap-with-logger :debug println)
                wrap-gzip)
            {:port (Integer. (or port (env :port) 5000))
             :socket-address (if ip (new InetSocketAddress ip port))})))
