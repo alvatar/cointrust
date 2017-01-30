@@ -1,2 +1,2 @@
-web: java -cp target/oracle.jar oracle.web $PORT
+web: java -cp target/oracle.jar oracle.server $PORT
 worker: java -cp target/oracle.jar oracle.worker
