@@ -88,7 +88,8 @@
           (aleph.http/start-server
            (-> app
                (wrap-defaults (assoc-in (case (env :env)
-                                          ("production" "staging") (assoc secure-site-defaults :proxy true)
+                                          ;; TODO configure this
+                                          ("production" "staging") (assoc site-defaults :proxy true)
                                           site-defaults)
                                         [:params :keywordize] true))
                wrap-exceptions

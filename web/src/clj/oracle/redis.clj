@@ -10,7 +10,12 @@
 ;; Redis
 ;;
 
-(def redis-conn {})
+(def redis-url (or (env :redis-url) "redis://127.0.0.1:6379"))
+
+(log/debugf "Connecting to Redis at %s\n" redis-url)
+
+(def redis-conn {:pool {}
+                 :spec {:uri redis-url}})
 
 (defmacro wcar* [& body] `(r/wcar redis-conn ~@body))
 

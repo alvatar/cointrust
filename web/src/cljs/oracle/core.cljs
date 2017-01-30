@@ -96,12 +96,12 @@
 ;; For testing
 (when-not hook-fake-id?_
   (fb/load-sdk (fn []
-                 (println "Facebook lib loaded")
+                 (js/console.log "Facebook lib loaded")
                  (fb/init {:appId "1131377006981108"
                            :status true
                            :cookies true
                            :xfbml true
-                           :version "v2.6"}))))
+                           :version "v2.8"}))))
 
 ;;
 ;; Actions

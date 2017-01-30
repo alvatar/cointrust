@@ -16,6 +16,7 @@
   (:require [environ.core :refer [env]]
             [clojure.pprint :refer [pprint]]
             [taoensso.timbre :as log]
+            [cemerick.url :refer [url]]
             ;; -----
             [oracle.common :as common]
             [oracle.database :as db]
@@ -57,12 +58,17 @@
                          "production" (. MainNetParams get)
                          "staging" (. TestNet3Params get)
                          (. RegTestParams get))
+        uri (url (str "http" (subs (or (env :database-url) "postgres://alvatar:@localhost:5432/oracledev") 8)))
         blockchain (BlockChain. network-params
-                                ;;(MemoryBlockStore.)
+                                (MemoryBlockStore. network-params)
                                 ;;(SPVBlockStore. network-params (File. ".spvchain"))
                                 ;; According to the documentation 1000 blocks stored is safe
-                                (PostgresFullPrunedBlockStore.
-                                 network-params 1000 "localhost:5432" "oracledev" "alvatar" ""))]
+                                #_(PostgresFullPrunedBlockStore.
+                                 network-params 1000
+                                 (format "%s:%s" (:host uri) (:port uri))
+                                 (subs (:path uri) 1)
+                                 (:username uri)
+                                 (:password uri)))]
     (. BriefLogFormatter init)
     (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
 
@@ -74,11 +80,11 @@
                      (println (format "Downloading %d blocks" blocks)))
                    (progress [pct block-so-far date]
                      (println pct)))]
-    ((case (env :env)
-       ("production" "staging") (fn [pg] (.addPeerDiscovery (DnsDiscovery. pg (:network-params app))))
-       (fn [pg]
-         (.addAddress pg (PeerAddress. (. InetAddress getLocalHost) (.getPort (:network-params app))))
-         (.setMaxConnections pg 1))) (:peergroup app))
+    (case (env :env)
+      ("production" "staging")
+      (.addPeerDiscovery (DnsDiscovery. (:network-params app)))
+      (do (.addAddress (:peergroup app) (PeerAddress. (. InetAddress getLocalHost) (.getPort (:network-params app))))
+          (.setMaxConnections (:peergroup app) 1)))
     (doto (:peergroup app)
       (.start)
       (.startBlockChainDownload listener))

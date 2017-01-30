@@ -30,6 +30,7 @@
                  [crypto-random "1.2.0"]
                  [cheshire "5.7.0"]
                  [clj-time "0.13.0"]
+                 [com.cemerick/url "0.1.1"]
                  ;; Cljs
                  [rum "0.10.8" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [cljs-react-material-ui "0.2.37"]
@@ -94,7 +95,7 @@
                            :output-to "resources/public/js/compiled/oracle.js"
                            :output-dir "target"
                            :source-map-timestamp true
-                           :optimizations :advanced
+                           :optimizations :simple
                            :pretty-print false}}]}
   ;; When running figwheel from nREPL, figwheel will read this configuration
   ;; stanza, but it will read it without passing through leiningen's profile

@@ -1,5 +1,6 @@
 (ns user
   (:require [oracle.server]
+            [oracle.worker]
             [ring.middleware.reload :refer [wrap-reload]]
             [figwheel-sidecar.repl-api :as figwheel]
             [clojure.java.shell]))
@@ -23,6 +24,8 @@
   (start-less)
   (oracle.server/stop!)
   (oracle.server/start!)
+  (oracle.worker/stop!)
+  (oracle.worker/start!)
   (in-ns 'oracle.server))
 
 (def browser-repl figwheel/cljs-repl)

@@ -16,7 +16,7 @@
 (def db (or (env :database-url)
             "postgresql://localhost:5432/oracledev"))
 
-(println "Connecting to PostgreSQL:" db)
+(log/debugf "Connecting to PostgreSQL: %s" db)
 
 
 ;;
@@ -414,28 +414,30 @@ ON CONFLICT (lock) DO UPDATE SET data = ?;
 ;; Development utilities
 ;;
 
-(defn reset-database!!! []
-  (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
-                          "DROP TABLE IF EXISTS wallet;"
-                          "DROP TABLE IF EXISTS contract_event;"
-                          "DROP TABLE IF EXISTS contract CASCADE;"
-                          "DROP TABLE IF EXISTS sell_offer;"
-                          "DROP TABLE IF EXISTS buy_request;"
-                          "DROP TABLE IF EXISTS friends;"
-                          "DROP TABLE IF EXISTS user_account CASCADE;"
-                          "
+(defn reset-database!!! [& [external-db]]
+  (sql/db-do-commands (or (str external-db "?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory")
+                          db)
+                      ["DROP TABLE IF EXISTS logs;"
+                       "DROP TABLE IF EXISTS wallet;"
+                       "DROP TABLE IF EXISTS contract_event;"
+                       "DROP TABLE IF EXISTS contract CASCADE;"
+                       "DROP TABLE IF EXISTS sell_offer;"
+                       "DROP TABLE IF EXISTS buy_request;"
+                       "DROP TABLE IF EXISTS friends;"
+                       "DROP TABLE IF EXISTS user_account CASCADE;"
+                       "
 CREATE TABLE user_account (
   id                               SERIAL PRIMARY KEY,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   hash                             TEXT NOT NULL UNIQUE
 );"
-                          "
+                       "
 CREATE TABLE friends (
   user_id1                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   user_id2                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   PRIMARY KEY (user_id1, user_id2)
 );"
-                          "
+                       "
 CREATE TABLE sell_offer (
   user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
@@ -443,7 +445,7 @@ CREATE TABLE sell_offer (
   max                              BIGINT NOT NULL,
   currency                         TEXT NOT NULL
 );"
-                          "
+                       "
 CREATE TABLE buy_request (
   id                               SERIAL PRIMARY KEY,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -454,7 +456,7 @@ CREATE TABLE buy_request (
   currency_seller                  TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL
 );"
-                          "
+                       "
 CREATE TABLE contract (
   id                               SERIAL PRIMARY KEY,
   hash                             TEXT NOT NULL UNIQUE,
@@ -479,7 +481,7 @@ CREATE TABLE contract (
   waiting_transfer_start           TIMESTAMP,
   holding_period_start             TIMESTAMP
 );"
-                          "
+                       "
 CREATE TABLE contract_event (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -487,7 +489,7 @@ CREATE TABLE contract_event (
   stage                            TEXT NOT NULL,
   data                             TEXT
 );"
-                                                   "
+                       "
 CREATE TABLE wallet (
   lock                             CHAR(1) NOT NULL DEFAULT('X'),
   constraint only_one              PRIMARY KEY (lock),
@@ -495,14 +497,14 @@ CREATE TABLE wallet (
   data                             BYTEA
 )
 "
-                          "
+                       "
 CREATE TABLE logs (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   type                             TEXT NOT NULL,
   data                             TEXT NOT NULL
 );"
-                          ]))
+                       ]))
 ;; Only one entry lock:
 ;; lock                      CHAR(1) NOT NULL DEFAULT('X'),
 ;; constraint only_one       PRIMARY KEY (lock),
