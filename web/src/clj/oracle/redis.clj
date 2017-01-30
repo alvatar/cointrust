@@ -16,3 +16,5 @@
 
 (defn redis->json [stored]
   (into {} (for [[k v] (partition 2 stored)] [(keyword (str k)) (json/parse-string v true)])))
+
+(defn flush!!! [] (wcar* (r/flushall)))

@@ -120,8 +120,8 @@
 (defmethod -event-msg-handler :escrow/get-user-key
   [{:keys [?data ?reply-fn]}]
   (if-let [key (case (:role ?data)
-                 "buyer" (escrow/encode (escrow/get-buyer-key (:id ?data)))
-                 "seller" (escrow/encode (escrow/get-seller-key (:id ?data)))
+                 "buyer" (escrow/encode-key (escrow/get-buyer-key (:id ?data)))
+                 "seller" (escrow/encode-key (escrow/get-seller-key (:id ?data)))
                  (?reply-fn {:error :unknown-role}))]
     (?reply-fn {:status :ok :escrow-user-key key})
     (?reply-fn {:error :unavailable-key})))
@@ -169,8 +169,8 @@
 
 (defonce router_ (atom nil))
 
-(defn stop-sente-router! [] (when-let [stop-fn @router_] (stop-fn)))
+(defn sente-router-stop! [] (when-let [stop-fn @router_] (stop-fn)))
 
-(defn start-sente-router! [ch-chsk]
-  (stop-sente-router!)
+(defn sente-router-start! [ch-chsk]
+  (sente-router-stop!)
   (reset! router_ (sente/start-server-chsk-router! ch-chsk event-msg-handler)))

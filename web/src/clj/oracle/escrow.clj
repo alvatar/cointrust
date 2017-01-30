@@ -28,7 +28,7 @@
 ;;
 
 (defn set-buyer-key [contract-id bkey]
-  (wcar* (r/set (str "contract:escrow:buyer-key:" contract-id) (bkey))))
+  (wcar* (r/set (str "contract:escrow:buyer-key:" contract-id) bkey)))
 
 (defn get-buyer-key [contract-id]
   (wcar* (r/get (str "contract:escrow:buyer-key:" contract-id))))

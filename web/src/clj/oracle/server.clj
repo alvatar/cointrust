@@ -19,7 +19,9 @@
             [taoensso.sente.packers.transit :as sente-transit]
             ;; -----
             [oracle.actions :as actions]
-            [oracle.events :as events])
+            [oracle.events :as events]
+            [oracle.tasks :as tasks]
+            [oracle.bitcoin :as bitcoin])
   (:import (java.lang.Integer)
            (java.net InetSocketAddress)
            (java.io RandomAccessFile))
@@ -83,8 +85,10 @@
 
 (defn start! [& [port ip]]
   (log/set-level! :debug)
-  (actions/start-sente-router! ch-chsk)
+  (actions/sente-router-start! ch-chsk)
   (events/init! chsk-send!)
+  (tasks/workers-start!)
+  (bitcoin/system-start!)
   (reset! server
           (aleph.http/start-server
            (-> app

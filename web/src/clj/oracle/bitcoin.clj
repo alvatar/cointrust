@@ -1,9 +1,5 @@
 (ns oracle.bitcoin
-  (:require [environ.core :refer [env]]
-            [clojure.pprint :refer [pprint]]
-            ;; -----
-            [oracle.common :as common])
-  (:import [java.io File]
+  (:import [java.io File ByteArrayOutputStream ByteArrayInputStream]
            [java.net InetAddress]
            [java.util ArrayList]
            [com.google.common.collect ImmutableList]
@@ -14,10 +10,14 @@
            [org.bitcoinj.net.discovery DnsDiscovery]
            [org.bitcoinj.params MainNetParams TestNet3Params RegTestParams]
            [org.bitcoinj.script Script ScriptBuilder]
-           [org.bitcoinj.store MemoryBlockStore SPVBlockStore]
+           [org.bitcoinj.store MemoryBlockStore SPVBlockStore PostgresFullPrunedBlockStore]
            [org.bitcoinj.utils BriefLogFormatter]
-           [org.bitcoinj.wallet SendRequest Wallet]))
-
+           [org.bitcoinj.wallet SendRequest Wallet])
+  (:require [environ.core :refer [env]]
+            [clojure.pprint :refer [pprint]]
+            ;; -----
+            [oracle.common :as common]
+            [oracle.database :as db]))
 
 ;;
 ;; Utils
@@ -38,6 +38,13 @@
 (defn make-private-key [] (.getPrivKeyBytes (ECKey.)))
 
 ;;
+;; Globals
+;;
+
+(defonce current-app (atom nil))
+(defonce current-wallet (atom nil))
+
+;;
 ;; App
 ;;
 
@@ -50,7 +57,10 @@
                          (. RegTestParams get))
         blockchain (BlockChain. network-params
                                 ;;(MemoryBlockStore.)
-                                (SPVBlockStore. network-params (File. ".spvchain")))]
+                                ;;(SPVBlockStore. network-params (File. ".spvchain"))
+                                ;; According to the documentation 1000 blocks stored is safe
+                                (PostgresFullPrunedBlockStore.
+                                 network-params 1000 "localhost:5432" "oracledev" "alvatar" ""))]
     (. BriefLogFormatter init)
     (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
 
@@ -79,6 +89,9 @@
                                  (.close (.getBlockStore (:blockchain app))))))
     listener))
 
+(defn app-stop! [app]
+  (.shutDown app))
+
 (defn app-add-wallet [app wallet]
   (.addWallet (:blockchain app) wallet)
   (.addWallet (:peergroup app) wallet)
@@ -91,8 +104,23 @@
 (defn make-wallet [app]
   (Wallet. (:network-params app)))
 
+(defn get-current-wallet [] @current-wallet)
+
 (defn wallet-get-current-address [wallet]
-  (.currentReceiveAddress wallet))
+  (.toString (.currentReceiveAddress wallet)))
+
+(defn wallet-get-fresh-address [wallet]
+  (.toString (.freshReceiveAddress wallet)))
+
+(defn wallet-add-listener-for-contract [wallet contract-id]
+  (.addCoinsReceivedEventListener
+   wallet
+   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
+     (onCoinsReceived [this wallet transaction prev-balance new-balance]
+       (.toString (.getAddressFromP2PKHScript (first (.getOutputs transaction))
+                                              (:network-params @current-app)))
+       ;;(.removeCoinsReceivedEventListener wallet this)
+       ))))
 
 (defn wallet-get-balance [wallet]
   (.getValue (.getBalance wallet)))
@@ -106,6 +134,14 @@
 (defn wallet-send-all-funds-to [wallet app target-address]
   (wallet-send-coins wallet app target-address
                      (substract-satoshi-fee (wallet-get-balance wallet))))
+
+(defn wallet-serialize [wallet]
+  (let [bs (ByteArrayOutputStream.)]
+    (.saveToFileStream wallet bs)
+    (.toByteArray bs)))
+
+(defn wallet-deserialize [sr]
+  (. Wallet loadFromFileStream (ByteArrayInputStream. sr) nil))
 
 ;;
 ;; Multisig
@@ -182,6 +218,27 @@
 (defn p2hs-multisig-address [multisig app]
   (. Address fromP2SHHash (:network-params app) (.getPubKeyHash (:p2sh-script multisig))))
 
+;;
+;; Init
+;;
+
+(defn system-start! []
+  (swap! current-app #(or % (make-app)))
+  (swap! current-wallet #(or %
+                             (when-let [w (db/get-current-wallet)] (wallet-deserialize w))
+                             (make-wallet @current-app)))
+  (app-add-wallet @current-app @current-wallet)
+  (app-start! @current-app))
+
+(defn system-stop! []
+  (when @current-app
+    (.stop (:peergroup @current-app))
+    'ok))
+
+(defn system-reset! []
+  (system-stop!)
+  (reset! current-app nil)
+  (reset! current-wallet nil))
 
 ;;
 ;; Notes

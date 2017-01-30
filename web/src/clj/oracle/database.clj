@@ -4,9 +4,7 @@
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
             [cheshire.core :as json]
-            [camel-snake-kebab.core :as case-shift]
-            ;; -----
-            [oracle.bitcoin :as bitcoin]))
+            [camel-snake-kebab.core :as case-shift]))
 
 ;; CURRENCY-BUYER: the currency on the side of the buyer before the transaction (what the buyer *has*)
 ;; CURRENCY-SELLER: the currency on the side of the seller before the transaction (what the seller *has*)
@@ -244,7 +242,7 @@ SELECT * FROM buy_request;
 ;;
 
 (defn contract-create!
-  [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info] :as params} & [txcb]]
+  [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info input-address] :as params} & [txcb]]
   (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
     (sql/with-db-transaction
       [tx db]
@@ -252,7 +250,7 @@ SELECT * FROM buy_request;
 INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info "<input-address>" "<escrow-address>" "<escrow-our-key>"]))]
+" (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
         (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -387,11 +385,30 @@ WHERE id = ?
 " field) value id]))
 
 ;;
+;; Wallet
+;;
+
+(defn get-current-wallet []
+  (->
+   (sql/query db ["
+SELECT data FROM wallet;
+"])
+   first
+   :data))
+
+(defn set-current-wallet [w]
+  (sql/execute! db ["
+INSERT INTO wallet (data) VALUES (?)
+ON CONFLICT (lock) DO UPDATE SET data = ?;
+" w w]))
+
+;;
 ;; Development utilities
 ;;
 
 (defn reset-database!!! []
   (sql/db-do-commands db ["DROP TABLE IF EXISTS logs;"
+                          "DROP TABLE IF EXISTS wallet;"
                           "DROP TABLE IF EXISTS contract_event;"
                           "DROP TABLE IF EXISTS contract CASCADE;"
                           "DROP TABLE IF EXISTS sell_offer;"
@@ -462,6 +479,14 @@ CREATE TABLE contract_event (
   stage                            TEXT NOT NULL,
   data                             TEXT
 );"
+                                                   "
+CREATE TABLE wallet (
+  lock                             CHAR(1) NOT NULL DEFAULT('X'),
+  constraint only_one              PRIMARY KEY (lock),
+  constraint CK_T1_locked          CHECK (lock='X'),
+  data                             BYTEA
+)
+"
                           "
 CREATE TABLE logs (
   id                               SERIAL PRIMARY KEY,
@@ -470,16 +495,6 @@ CREATE TABLE logs (
   data                             TEXT NOT NULL
 );"
                           ]))
-
-(defn populate-test-database!!! []
-  (user-insert! "asdf" [])
-  (user-insert! "ffff" ["asdf"])
-  ;; (user-insert! "aaaa" ["ffff"])
-  ;; (user-insert! "bbbb" ["asdf"])
-  ;; (user-insert! "cccc" [])
-  ;; (user-insert! "dddd" ["ffff"])
-  'ok)
-
 ;; Only one entry lock:
 ;; lock                      CHAR(1) NOT NULL DEFAULT('X'),
 ;; constraint only_one       PRIMARY KEY (lock),

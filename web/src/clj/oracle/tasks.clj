@@ -14,7 +14,8 @@
             [oracle.events :as events]
             [oracle.common :as co]
             [oracle.redis :refer :all]
-            [oracle.escrow :as escrow]))
+            [oracle.escrow :as escrow]
+            [oracle.bitcoin :as bitcoin]))
 
 ;;
 ;; Utils
@@ -213,28 +214,36 @@
         state (idempotency-state-rebuild mid)
         now (get-in state [:global :now])
         initial-contract (with-idempotent-transaction mid :contract state
-                           #(if-let [result (db/contract-create! buy-request %)]
-                              (do (log/debug "Contract created:" result) result)
+                           #(if-let [contract (db/contract-create!
+                                               (merge buy-request {:input-address (bitcoin/wallet-get-fresh-address
+                                                                                      (bitcoin/get-current-wallet))})
+                                               %)]
+                              (do (log/debug "Contract created:" contract)
+                                  contract)
                               (throw (Exception. "Couldn't create contract"))))
         contract-id (:id initial-contract)
         ;; Make sure we have the latest version of the contrast (forget idempotent op)
         contract (db/get-contract-by-id-with-last-event contract-id)]
     ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
     ;; Task initialization
+    ;; TODO: THIS WON'T ENSURE EXECUTION OF THIS COMMANDS
     (when (= attempt 1)
       (events/dispatch! (:buyer-id contract) :contract-create contract)
       (events/dispatch! (:seller-id contract) :contract-create contract)
       (escrow/setup-keys-for-contract! contract-id))
     (case (:stage contract)
+
       ;; Currently only used for testing
       "contract-success"
       {:status :success}
+
       ;; Contract can be cancelled anytime
       "contract-broken"
       (do (events/dispatch! (:buyer-id contract) :contract-broken contract)
           (events/dispatch! (:seller-id contract) :contract-broken contract)
           (db/contract-set-escrow-open-for! contract (:seller-id contract))
           {:status :success})
+
       ;; We inform of the expected transaction and the freezing of price.
       ;; We wait for the seller to fund the escrow and provide the transfer details.
       "waiting-escrow"
@@ -262,6 +271,7 @@
                 {:status :retry :backoff-ms 1})
             :else
             {:status :retry :backoff-ms 1000})
+
       ;; We provide the buyer with A) the transfer info B) the instructions
       ;; Buyer informs of transfer performed to the system
       ;; The seller is informed of the transfer initiated
@@ -281,6 +291,7 @@
                 {:status :retry :backoff-ms 1})
             :else
             {:status :retry :backoff-ms 6000})
+
       ;; Seller informs of transfer received
       ;; The buyer is informed of the transfer received
       "holding-period"
@@ -395,15 +406,34 @@
 
 (defn restart! [] (workers-stop!) (workers-start!))
 
-(defonce start-workers_ (workers-start!))
+;; (defonce start-workers_ (workers-start!))
 
-(defn flush-redis!!! [] (wcar* (r/flushall)))
+;;
+;; Testing utils
+;;
+
+;;
+;; TODO: consider using System or something, take this out of here
+;;
+
+(defn populate-test-database! []
+  (db/user-insert! "asdf" [])
+  (db/user-insert! "ffff" ["asdf"])
+  ;; (user-insert! "aaaa" ["ffff"])
+  ;; (user-insert! "bbbb" ["asdf"])
+  ;; (user-insert! "cccc" [])
+  ;; (user-insert! "dddd" ["ffff"])
+  'ok)
+
+
 
 (defn total-wipeout!!! []
   (workers-stop!)
-  (flush-redis!!!)
+  (bitcoin/system-reset!)
+  (redis/flush!!!)
   (db/reset-database!!!)
-  (db/populate-test-database!!!)
+  (populate-test-database!)
+  (bitcoin/system-start!)
   (workers-start!))
 
 
