@@ -321,6 +321,14 @@ WHERE contract.id = ? AND contract_event.time = (SELECT MAX(contract_event.time)
       first
       ->kebab-case))
 
+(defn get-contract-by-input-address [input-address]
+  (-> (sql/query db ["
+SELECT * FROM contract
+WHERE input_address = ?
+" input-address])
+      first
+      ->kebab-case))
+
 (defn get-all-contracts []
   (into []
         (sql/query db ["

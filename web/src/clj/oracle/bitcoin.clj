@@ -15,9 +15,11 @@
            [org.bitcoinj.wallet SendRequest Wallet])
   (:require [environ.core :refer [env]]
             [clojure.pprint :refer [pprint]]
+            [taoensso.timbre :as log]
             ;; -----
             [oracle.common :as common]
-            [oracle.database :as db]))
+            [oracle.database :as db]
+            [oracle.redis :as redis]))
 
 ;;
 ;; Utils
@@ -101,6 +103,29 @@
 ;; Wallet
 ;;
 
+(defn wallet-init-listeners! [wallet]
+  (.addCoinsReceivedEventListener
+   wallet
+   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
+     (onCoinsReceived [this wallet transaction prev-balance new-balance]
+       (println "ENTERING ONCOINS RECEIVED")
+       (try (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))
+                  address-payed (.toString
+                                 (.getAddressFromP2PKHScript
+                                  (first (.getOutputs transaction)) (:network-params @current-app)))]
+              (log/debugf "Received payment of %d BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
+              (if-let [contract (db/get-contract-by-input-address address-payed)]
+                (do (log/debugf "Payment to %s funds contract ID %d" address-payed (:id contract))
+                    (if (>= amount-payed (:amount contract))
+                      (do (db/contract-set-escrow-funded! (:id contract))
+                          (log/debugf "Contract ID %d successfully funded\n" (:id contract)))
+                      (log/errorf "The received payment is insufficient. Amount payed: %s, amount expected: %s"
+                                  amount-payed (:amount contract))))
+                (log/errorf "CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
+                            (common/satoshi->btc amount-payed) address-payed)))
+            (catch Exception e (log/error e))))))
+  wallet)
+
 (defn make-wallet [app]
   (Wallet. (:network-params app)))
 
@@ -111,16 +136,6 @@
 
 (defn wallet-get-fresh-address [wallet]
   (.toString (.freshReceiveAddress wallet)))
-
-(defn wallet-add-listener-for-contract [wallet contract-id]
-  (.addCoinsReceivedEventListener
-   wallet
-   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
-     (onCoinsReceived [this wallet transaction prev-balance new-balance]
-       (.toString (.getAddressFromP2PKHScript (first (.getOutputs transaction))
-                                              (:network-params @current-app)))
-       ;;(.removeCoinsReceivedEventListener wallet this)
-       ))))
 
 (defn wallet-get-balance [wallet]
   (.getValue (.getBalance wallet)))
@@ -225,8 +240,11 @@
 (defn system-start! []
   (swap! current-app #(or % (make-app)))
   (swap! current-wallet #(or %
-                             (when-let [w (db/get-current-wallet)] (wallet-deserialize w))
-                             (make-wallet @current-app)))
+                             (when-let [w (db/get-current-wallet)]
+                               (log/debug "Restoring wallet from database...")
+                               (wallet-init-listeners! (wallet-deserialize w)))
+                             (do (log/warn "Creating new wallet!")
+                                 (wallet-init-listeners! (make-wallet @current-app)))))
   (app-add-wallet @current-app @current-wallet)
   (app-start! @current-app))
 
@@ -235,7 +253,7 @@
     (.stop (:peergroup @current-app))
     'ok))
 
-(defn system-reset! []
+(defn system-reset!!! []
   (system-stop!)
   (reset! current-app nil)
   (reset! current-wallet nil))

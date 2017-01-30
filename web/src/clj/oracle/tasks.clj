@@ -252,18 +252,12 @@
                   (fn [idemp]
                     (log/debug "Contract stage changed to \"waiting-transfer\"")
                     (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
-                ;;
-                ;; -- TODO: create Escrow, fund it from input address. Since we are the creators
-                ;;          of the transaction, we can assume its validity without confirmation?
-                ;;
                 (let [contract (merge contract {:stage "waiting-transfer"})]
                   (events/dispatch! (:seller-id contract) :contract-escrow-funded contract)
                   (events/dispatch! (:buyer-id contract) :contract-escrow-funded contract)
-                  ;;
-                  ;; -- TODO: send also Escrow info here
-                  ;;
-                  (events/dispatch! (:seller-id contract) :contract-waiting-transfer contract)
-                  (events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract))
+                  ;;(events/dispatch! (:seller-id contract) :contract-waiting-transfer contract)
+                  ;;(events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract)
+                  )
                 {:status :retry :backoff-ms 1})
             (> now (unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
             (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
@@ -429,7 +423,7 @@
 
 (defn total-wipeout!!! []
   (workers-stop!)
-  (bitcoin/system-reset!)
+  (bitcoin/system-reset!!!)
   (redis/flush!!!)
   (db/reset-database!!!)
   (populate-test-database!)
@@ -442,7 +436,7 @@
 ;;
 
 ;; Create a buy request
-;; (initiate-buy-request 2 (oracle.common/currency-as-long 10.0 :xbt) "usd" "xbt")
+;; (initiate-buy-request 2 (oracle.common/currency-as-long 1.0 :xbt) "usd" "xbt")
 
 ;; Initialize Escrow
 ;; (oracle.escrow/set-seller-key 1 "fdsafdsa")
@@ -479,9 +473,7 @@ IBAN 12341234123431234
 SWIFT YUPYUP12"})
 
 ;; Escrow initialization
-(defn contract-force-escrow-initialization [id]
-  (oracle.database/contract-set-escrow-funded! 1)
-  (oracle.escrow/set-buyer-key 1 "asdfasdf"))
+;; (oracle.database/contract-set-escrow-funded! 1)
 
 ;; Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})

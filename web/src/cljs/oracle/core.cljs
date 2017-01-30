@@ -24,7 +24,7 @@
 ;;
 
 (goog-define *is-dev* false)
-(def hook-fake-id?_ true)
+(def hook-fake-id?_ false)
 
 (defonce app-error (atom nil))
 (defonce app-state {:scene (atom "main-menu")
@@ -128,25 +128,28 @@
        (do (reset! app-error "There was an error with your login. Please try again.")
            (log* "Error in try-enter:" resp))))))
 
-(defn- set-facebook-ids []
-  (fb/get-login-status
-   (fn [response]
-     (if (= (:status response) "connected")
-       (let [user-fbid (get-in response [:authResponse :userID])
-             hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))
-             friend-fbids (fb/api "/me/friends" {} identity)
-             hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
-         (reset! (:user-fbid app-state) user-fbid)
-         (reset! (:user-hash app-state) hashed-id)
-         (reset! (:friend-fbids app-state) friend-fbids)
-         (reset! (:friend-hashes app-state) hashed-friends)
-         (log* "Connected with Facebook userID: " user-fbid)
-         (log* "Hashed user: " hashed-id)
-         (log* "Friend IDs: " (str friend-fbids))
-         (log* "Hashed friends: " (str hashed-friends))
-         (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
-         (init-sente! hashed-id))
-       (log* "Not logged in: " (clj->js response))))))
+(defn- set-fake-facebooks-ids [hashed-id]
+  (reset! (:user-hash app-state) hashed-id)
+  (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
+  (init-sente! hashed-id))
+
+(defn- set-facebook-ids [response]
+  (if (= (:status response) "connected")
+    (let [user-fbid (get-in response [:authResponse :userID])
+          hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))
+          friend-fbids (fb/api "/me/friends" {} identity)
+          hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
+      (reset! (:user-fbid app-state) user-fbid)
+      (reset! (:user-hash app-state) hashed-id)
+      (reset! (:friend-fbids app-state) friend-fbids)
+      (reset! (:friend-hashes app-state) hashed-friends)
+      (log* "Connected with Facebook userID: " user-fbid)
+      (log* "Hashed user: " hashed-id)
+      (log* "Friend IDs: " (str friend-fbids))
+      (log* "Hashed friends: " (str hashed-friends))
+      (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
+      (init-sente! hashed-id))
+    (log* "Not logged in: " (clj->js response))))
 
 (defn get-user-requests []
   (chsk-send!
@@ -282,12 +285,6 @@
   [app-msg]
   (log* "Unhandled app event: " (str app-msg)))
 
-(defmethod app-msg-handler :contract/update
-  [[_ {:keys [stage status id amount]}]]
-  (reset! (:contracts app-state)
-          (for [c @(:contracts app-state)]
-            (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
-
 (defmethod app-msg-handler :sell-offer/match
   [[_ msg]]
   (if (:error msg)
@@ -349,23 +346,30 @@
            (do (reset! app-error "There was an error when creating the contract. Please inform us of this event.")
                (log* "Error in contract/create" msg))))))
 
+(defmethod app-msg-handler :contract/update
+  [[_ {:keys [stage status id amount]}]]
+  (reset! (:contracts app-state)
+          (for [c @(:contracts app-state)]
+            (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
+
 (defmethod app-msg-handler :contract/escrow-funded
   [[_ msg]]
   (if (:error msg)
     (log* "Error in :contract/escrow-funded" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer")
+      (do (reset! (:display-contract app-state) nil)
+          (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer"))
       (do (reset! app-error "There was an error in funding the Escrow. Please inform us of this event.")
           (log* "Error in contract/escrow-funded" msg)))))
 
-(defmethod app-msg-handler :contract/waiting-transfer
-  [[_ msg]]
-  (if (:error msg)
-    (log* "Error in :contract/waiting-transfer" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer")
-      (do (reset! app-error "There was an error in the contract waiting-transfer stage. Please inform us of this event.")
-          (log* "Error in contract/waiting-transfer" msg)))))
+;; (defmethod app-msg-handler :contract/waiting-transfer
+;;   [[_ msg]]
+;;   (if (:error msg)
+;;     (log* "Error in :contract/waiting-transfer" msg)
+;;     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+;;       (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer")
+;;       (do (reset! app-error "There was an error in the contract waiting-transfer stage. Please inform us of this event.")
+;;           (log* "Error in contract/waiting-transfer" msg)))))
 
 (defmethod app-msg-handler :contract/mark-transfer-sent-ack
   [[_ msg]]
@@ -466,15 +470,13 @@
                          (if hook-fake-id?_
                            (let [hashed-id "asdf" user-id 1]
                              (log* "Connected with fake user hash: " hashed-id)
-                             (reset! (:user-hash app-state) hashed-id)
-                             (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
-                             (init-sente! hashed-id))
+                             (set-fake-facebooks-ids hashed-id))
                            (fb/get-login-status
                             (fn [response]
                               (case (:status response)
                                 "connected"
-                                (log* "Connected with userID: " (get-in response [:authResponse :userID]))
-                                (fb/login set-facebook-ids {:scope "public_profile,email,user_friends"}))))))})]))
+                                (set-facebook-ids response)
+                                (fb/login #(fb/get-login-status set-facebook-ids) {:scope "public_profile,email,user_friends"}))))))})]))
 
 (rum/defcs buy-dialog
   < rum/reactive (rum/local {:amount 1.0} ::input)
@@ -712,7 +714,7 @@
                                                                (reset! (:display-contract app-state) nil))})]]
                        ;; Seller dialog
                        [:div
-                        [:p "Please confirm here when you've received the funds"]
+                        [:p "Please confirm here when you've received the funds in your bank account"]
                         (ui/raised-button {:label "I've received the funds"
                                            :primary true
                                            :on-touch-tap #(do (mark-contract-received (:id contract))
@@ -821,19 +823,19 @@
   []
   (let [notifications (rum/react (:notifications app-state))
         current (peek notifications)]
-   (ui/dialog {:title (or (:title current) "Notification")
-               :open (boolean (not-empty notifications))
-               :actions [(ui/flat-button {:label "OK"
-                                          :primary true
-                                          :on-touch-tap (fn [] (chsk-send!
-                                                                [:notification/ack {:user-hash @(:user-hash app-state)
-                                                                                    :uuid (:uuid current)}]
-                                                                5000
-                                                                #(when (sente/cb-success? %)
-                                                                   (swap! (:notifications app-state) pop))))})]}
-              [:div
-               (for [chunk (clojure.string/split (:message current) #"\n")]
-                 [:p chunk])])))
+    (ui/dialog {:title (or (:title current) "Notification")
+                :open (boolean (not-empty notifications))
+                :actions [(ui/flat-button {:label "OK"
+                                           :primary true
+                                           :on-touch-tap (fn [] (chsk-send!
+                                                                 [:notification/ack {:user-hash @(:user-hash app-state)
+                                                                                     :uuid (:uuid current)}]
+                                                                 5000
+                                                                 #(when (sente/cb-success? %)
+                                                                    (swap! (:notifications app-state) pop))))})]}
+               [:div
+                (for [chunk (clojure.string/split (:message current) #"\n")]
+                  [:p chunk])])))
 
 (rum/defcs sell-offer-matched-dialog
   < rum/reactive
