@@ -82,9 +82,10 @@
                      (println pct)))]
     (case (env :env)
       ("production" "staging")
-      (.addPeerDiscovery (DnsDiscovery. (:network-params app)))
-      (do (.addAddress (:peergroup app) (PeerAddress. (. InetAddress getLocalHost) (.getPort (:network-params app))))
-          (.setMaxConnections (:peergroup app) 1)))
+      (.addPeerDiscovery (:peergroup app) (DnsDiscovery. (:network-params app)))
+      (doto (:peergroup app)
+        (.addAddress (PeerAddress. (. InetAddress getLocalHost) (.getPort (:network-params app))))
+        (.setMaxConnections 1)))
     (doto (:peergroup app)
       (.start)
       (.startBlockChainDownload listener))

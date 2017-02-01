@@ -459,25 +459,6 @@
 ;; UI Components
 ;;
 
-(rum/defc login-comp
-  []
-  (ui/paper
-   [:div {:style {:text-align "center"}}
-    (ui/raised-button {:label "Ephemeral Login"
-                       :style {:margin "1rem"}
-                       :on-touch-tap
-                       (fn [e]
-                         (if hook-fake-id?_
-                           (let [hashed-id "asdf" user-id 1]
-                             (log* "Connected with fake user hash: " hashed-id)
-                             (set-fake-facebooks-ids hashed-id))
-                           (fb/get-login-status
-                            (fn [response]
-                              (case (:status response)
-                                "connected"
-                                (set-facebook-ids response)
-                                (fb/login #(fb/get-login-status set-facebook-ids) {:scope "public_profile,email,user_friends"}))))))})]))
-
 (rum/defcs buy-dialog
   < rum/reactive (rum/local {:amount 1.0} ::input)
   [state]
@@ -827,12 +808,13 @@
                 :open (boolean (not-empty notifications))
                 :actions [(ui/flat-button {:label "OK"
                                            :primary true
-                                           :on-touch-tap (fn [] (chsk-send!
-                                                                 [:notification/ack {:user-hash @(:user-hash app-state)
-                                                                                     :uuid (:uuid current)}]
-                                                                 5000
-                                                                 #(when (sente/cb-success? %)
-                                                                    (swap! (:notifications app-state) pop))))})]}
+                                           :on-touch-tap (or (:on-touch-tap current)
+                                                             (fn [] (chsk-send!
+                                                                     [:notification/ack {:user-hash @(:user-hash app-state)
+                                                                                         :uuid (:uuid current)}]
+                                                                     5000
+                                                                     #(when (sente/cb-success? %)
+                                                                        (swap! (:notifications app-state) pop)))))})]}
                [:div
                 (for [chunk (clojure.string/split (:message current) #"\n")]
                   [:p chunk])])))
@@ -902,6 +884,32 @@
   [:div.footer
    [:p.logout {:on-click logout} "Logout"]
    [:p.year (gstring/format "Cointrust © %d" (.getFullYear (js/Date.)))]])
+
+(rum/defc login-comp
+  []
+  (ui/paper
+   [:div {:style {:text-align "center"}}
+    (ui/raised-button {:label "Ephemeral Login"
+                       :style {:margin "1rem"}
+                       :on-touch-tap
+                       (fn [e]
+                         (if hook-fake-id?_
+                           (let [hashed-id "asdf" user-id 1]
+                             (log* "Connected with fake user hash: " hashed-id)
+                             (set-fake-facebooks-ids hashed-id))
+                           (try
+                             (fb/get-login-status
+                              (fn [response]
+                                (case (:status response)
+                                  "connected"
+                                  (set-facebook-ids response)
+                                  (fb/login #(fb/get-login-status set-facebook-ids) {:scope "public_profile,email,user_friends"}))))
+                             (catch :default e
+                               (swap! (:notifications app-state) conj {:title "Error loading Facebook login"
+                                                                       :message (str "Please check that you don't have a browser extension that disables the use of Social Logins.  Cointrust uses the social graph to find optimal matches for trading. /// Error /// " e)
+                                                                       :on-touch-tap #(swap! (:notifications app-state) pop)}))
+)))})
+    (generic-notifications)]))
 
 (rum/defc main-comp
   []
