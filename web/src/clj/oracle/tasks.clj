@@ -413,10 +413,13 @@
 (defn populate-test-database! []
   (db/user-insert! "asdf" [])
   (db/user-insert! "ffff" ["asdf"])
-  ;; (user-insert! "aaaa" ["ffff"])
-  ;; (user-insert! "bbbb" ["asdf"])
-  ;; (user-insert! "cccc" [])
-  ;; (user-insert! "dddd" ["ffff"])
+  (db/user-insert! "aaaa" ["ffff"])
+  (db/user-insert! "bbbb" ["asdf"])
+
+  (db/user-insert! "cccc" [])
+
+  (db/user-insert! "dddd" ["eeee"])
+  (db/user-insert! "eeee" ["dddd"])
   'ok)
 
 

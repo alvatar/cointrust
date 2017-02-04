@@ -16,6 +16,9 @@
 (def db (or (env :database-url)
             "postgresql://localhost:5432/oracledev"))
 
+(defn override-db [new-db]
+ (def db (str new-db "?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory")))
+
 (log/debugf "Connecting to PostgreSQL: %s" db)
 
 
@@ -102,12 +105,12 @@ ON CONFLICT DO NOTHING
 
 (defn get-user-friends [id]
   (sql/query db ["
-SELECT user_id2 AS user FROM user_account, friends
-WHERE user_id1 = ? AND id = ?
+SELECT user_id2 AS user FROM friends
+WHERE user_id1 = ?
 UNION
-SELECT user_id1 AS user FROM user_account, friends
-WHERE user_id2 = ? AND id = ?
-" id id id id]))
+SELECT user_id1 AS user FROM friends
+WHERE user_id2 = ?
+" id id]))
 
 (defn get-user-edges [id]
   (sql/query db ["
@@ -116,21 +119,24 @@ WHERE (user_id1 = ? OR user_id2 = ?) AND id = ?
 " id id id]))
 
 (defn get-user-friends-of-friends [id]
-  (mapv :user
-        (sql/query db ["
+  (mapv
+   :user
+   (sql/query db ["
 WITH user_friends AS (
-          SELECT user_id2 AS user FROM user_account, friends
-          WHERE user_id1 = ? AND id = ?
+          SELECT user_id2 AS u FROM friends
+          WHERE user_id1 = ?
           UNION
-          SELECT user_id1 AS user FROM user_account, friends
-          WHERE user_id2 = ? AND id = ?
+          SELECT user_id1 AS u FROM friends
+          WHERE user_id2 = ?
      )
-SELECT user_id1 AS user FROM user_account, friends
-WHERE NOT (user_id1 = ?) AND id IN (SELECT * FROM user_friends)
+SELECT user_id1 AS user FROM friends
+WHERE (user_id1 IN (SELECT u FROM user_friends) OR user_id2 IN (SELECT u FROM user_friends))
+      AND NOT user_id1 = ?
 UNION
-SELECT user_id2 AS user FROM user_account, friends
-WHERE NOT (user_id2 = ?) AND id IN (SELECT * FROM user_friends)
-" id id id id id id])))
+SELECT user_id2 AS user FROM friends
+WHERE (user_id1 IN (SELECT u FROM user_friends) OR user_id2 IN (SELECT u FROM user_friends))
+      AND NOT user_id2 = ?
+" id id id id])))
 
 ;;
 ;; Sell Offers
@@ -414,9 +420,8 @@ ON CONFLICT (lock) DO UPDATE SET data = ?;
 ;; Development utilities
 ;;
 
-(defn reset-database!!! [& [external-db]]
-  (sql/db-do-commands (or (str external-db "?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory")
-                          db)
+(defn reset-database!!! []
+  (sql/db-do-commands db
                       ["DROP TABLE IF EXISTS logs;"
                        "DROP TABLE IF EXISTS wallet;"
                        "DROP TABLE IF EXISTS contract_event;"

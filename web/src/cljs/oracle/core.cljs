@@ -99,7 +99,7 @@
                  (js/console.log "Facebook lib loaded")
                  (fb/init {:appId "1131377006981108"
                            :status true
-                           :cookies true
+                           :cookies false
                            :xfbml true
                            :version "v2.8"}))))
 
@@ -136,19 +136,21 @@
 (defn- set-facebook-ids [response]
   (if (= (:status response) "connected")
     (let [user-fbid (get-in response [:authResponse :userID])
-          hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))
-          friend-fbids (fb/api "/me/friends" {} identity)
-          hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
+          hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))]
       (reset! (:user-fbid app-state) user-fbid)
       (reset! (:user-hash app-state) hashed-id)
-      (reset! (:friend-fbids app-state) friend-fbids)
-      (reset! (:friend-hashes app-state) hashed-friends)
       (log* "Connected with Facebook userID: " user-fbid)
       (log* "Hashed user: " hashed-id)
-      (log* "Friend IDs: " (str friend-fbids))
-      (log* "Hashed friends: " (str hashed-friends))
-      (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
-      (init-sente! hashed-id))
+      (fb/api "/me/friends" {}
+              (fn [{friends :data}]
+                (let [friend-fbids (map :id friends)
+                      hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
+                  (reset! (:friend-fbids app-state) friend-fbids)
+                  (reset! (:friend-hashes app-state) hashed-friends)
+                  (log* "Friend IDs: " (str friend-fbids))
+                  (log* "Hashed friends: " (str hashed-friends))
+                  (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
+                  (init-sente! hashed-id)))))
     (log* "Not logged in: " (clj->js response))))
 
 (defn get-user-requests []
@@ -903,7 +905,7 @@
                                 (case (:status response)
                                   "connected"
                                   (set-facebook-ids response)
-                                  (fb/login #(fb/get-login-status set-facebook-ids) {:scope "public_profile,email,user_friends"}))))
+                                  (fb/login #(fb/get-login-status set-facebook-ids) {:scope "user_friends,public_profile,email"}))))
                              (catch :default e
                                (swap! (:notifications app-state) conj {:title "Error loading Facebook login"
                                                                        :message (str "Please check that you don't have a browser extension that disables the use of Social Logins.  Cointrust uses the social graph to find optimal matches for trading. /// Error /// " e)
