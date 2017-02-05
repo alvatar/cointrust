@@ -60,8 +60,8 @@
                          (. RegTestParams get))
         uri (url (str "http" (subs (or (env :database-url) "postgres://alvatar:@localhost:5432/oracledev") 8)))
         blockchain (BlockChain. network-params
-                                (MemoryBlockStore. network-params)
-                                ;;(SPVBlockStore. network-params (File. ".spvchain"))
+                                ;;(MemoryBlockStore. network-params)
+                                (SPVBlockStore. network-params (File. ".spvchain"))
                                 ;; According to the documentation 1000 blocks stored is safe
                                 #_(PostgresFullPrunedBlockStore.
                                  network-params 1000

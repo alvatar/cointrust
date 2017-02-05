@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.pprint :refer [pprint]]
             [taoensso.timbre :as log]
+            [taoensso.timbre.appenders.core :as appenders]
             [ring.middleware.defaults :refer [wrap-defaults api-defaults]]
             [ring.middleware.gzip :refer [wrap-gzip]]
             [ring.middleware.defaults :refer :all]
@@ -21,7 +22,8 @@
             [oracle.events :as events]
             [oracle.tasks :as tasks]
             [oracle.bitcoin :as bitcoin]
-            [oracle.worker :as worker])
+            [oracle.worker :as worker]
+            [oracle.database :as db])
   (:import (java.lang.Integer)
            (java.net InetSocketAddress)
            (java.io RandomAccessFile))
@@ -83,6 +85,14 @@
 ;;
 ;; Server setup
 ;;
+
+(log/merge-config!
+ {:appenders {:sql {:enabled?   true
+                    :async?     false
+                    :min-level  nil
+                    :rate-limit nil
+                    :output-fn  :inherit
+                    :fn (fn [data] (db/log-message! data))}}})
 
 (defonce server (atom nil))
 

@@ -42,10 +42,17 @@
 
 (defn log! [tx type datamap]
   (sql/execute! tx ["
-INSERT INTO logs (type, data) VALUES (?, ?) RETURNING *;
+INSERT INTO logs (level, type, data) VALUES ('debug', ?, ?) RETURNING *;
 " type (json/generate-string datamap)]))
 
-(defn logs-get-all [limit]
+(defn log-message! [data]
+  (let [entry
+        {:level (str (:level data))
+         :type "message"
+         :data (force (:output_ data))}]
+    (sql/insert! db :logs entry)))
+
+(defn get-all-logs [limit]
   (sql/query db ["SELECT * FROM logs LIMIT ?" limit]))
 
 ;;
@@ -476,6 +483,7 @@ CREATE TABLE wallet (
 CREATE TABLE logs (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  level                            TEXT NOT NULL,
   type                             TEXT NOT NULL,
   data                             TEXT NOT NULL
 );"
