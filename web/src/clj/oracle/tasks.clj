@@ -237,7 +237,7 @@
       "contract-broken"
       (do (events/add-event! (:buyer-id contract) :contract-broken contract)
           (events/add-event! (:seller-id contract) :contract-broken contract)
-          (db/contract-set-escrow-open-for! contract (:seller-id contract))
+          (db/contract-set-field! contract "escrow_open_for" (:seller-id contract))
           {:status :success})
 
       ;; We inform of the expected transaction and the freezing of price.
@@ -286,7 +286,7 @@
       ;; The buyer is informed of the transfer received
       "holding-period"
       (cond (> now (unix-after (time-coerce/to-date-time (:holding-period-start contract)) (time/days 100)))
-            (do (db/contract-set-escrow-open-for! contract (:buyer-id contract)) ; Idempotent
+            (do (db/contract-set-field! contract "escrow_open_for" (:buyer-id contract)) ; Idempotent
                 (events/add-event! (:buyer-id contract) :contract-success contract)
                 (events/add-event! (:seller-id contract) :contract-success contract)
                 (with-idempotent-transaction mid :contract-success state
@@ -349,7 +349,7 @@
         contract-id (:id data)
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
-    (db/contract-set-transfer-sent! contract-id)
+    (db/contract-set-field! contract-id "transfer_sent" true)
     (events/add-event! (:seller-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
     (events/add-event! (:buyer-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
     {:status :success}))
@@ -360,7 +360,7 @@
         contract-id (:id data)
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
-    (db/contract-set-transfer-received! contract-id)
+    (db/contract-set-field! contract-id "transfer_received" true)
     (events/add-event! (:buyer-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     (events/add-event! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     {:status :success}))

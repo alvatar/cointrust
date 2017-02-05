@@ -226,15 +226,21 @@ WHERE id = ?
   seller-id)
 
 (defn buy-request-unset-seller! [buy-request]
-  (sql/execute! db ["
+  (sql/with-db-transaction
+    [tx db]
+    (sql/execute! tx ["
 UPDATE buy_request SET seller_id = NULL
 WHERE id = ?
-" buy-request]))
+" buy-request])
+    (log! tx "buy-request-unset-seller" {:id buy-request})))
 
 (defn buy-request-delete! [buy-request]
-  (sql/execute! db ["
+  (sql/with-db-transaction
+    [tx db]
+    (sql/execute! tx ["
 DELETE FROM buy_request WHERE id = ?;
 " buy-request])
+    (log! tx "buy-request-delete" {:id buy-request}))
   'ok)
 
 (defn get-all-buy-requests []
@@ -353,42 +359,6 @@ SELECT * FROM contract_event;
 (defn contract-set-escrow-funded! [id]
   (sql/execute! db ["
 UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, holding_period_start = CURRENT_TIMESTAMP
-WHERE id = ?
-" id]))
-
-(defn contract-set-escrow-open-for! [id user-id]
-  (sql/execute! db ["
-UPDATE contract SET escrow_open_for = ?
-WHERE id = ?
-" user-id id]))
-
-(defn contract-set-transfer-sent! [id]
-  (sql/execute! db ["
-UPDATE contract SET transfer_sent = true
-WHERE id = ?
-" id]))
-
-(defn contract-set-transfer-received! [id]
-  (sql/execute! db ["
-UPDATE contract SET transfer_received = true, waiting_transfer_start = CURRENT_TIMESTAMP
-WHERE id = ?
-" id]))
-
-(defn contract-set-output-address! [id output-address]
-  (sql/execute! db ["
-UPDATE contract SET output_address = ?
-WHERE id = ?
-" output-address id]))
-
-(defn contract-set-buyer-has-key! [id]
-  (sql/execute! db ["
-UPDATE contract SET escrow_buyer_has_key = true
-WHERE id = ?
-" id]))
-
-(defn contract-set-seller-has-key! [id]
-  (sql/execute! db ["
-UPDATE contract SET escrow_buyer_has_key = true
 WHERE id = ?
 " id]))
 

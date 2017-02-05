@@ -130,13 +130,13 @@
   [{:keys [?data ?reply-fn]}]
   (case (:role ?data)
     "buyer"
-    (try (db/contract-set-buyer-has-key! (:id ?data))
+    (try (db/contract-set-field! (:id ?data) "escrow_buyer_has_key" true)
          (if (escrow/forget-buyer-key (:id ?data))
            (?reply-fn {:status :ok})
            (?reply-fn {:error :unavailable-key}))
          (catch Exception e (pprint e) (?reply-fn {:status :error})))
     "seller"
-    (try (db/contract-set-seller-has-key! (:id ?data))
+    (try (db/contract-set-field! (:id ?data) "escrow_seller_has_key" true)
          (if (escrow/forget-seller-key (:id ?data))
            (?reply-fn {:status :ok})
            (?reply-fn {:error :unavailable-key}))
@@ -150,7 +150,7 @@
     (?reply-fn {:status :missing-parameters})
     ;; TODO: Validate key
     (try ;; TODO: Create a task to release the funds (:escrow-buyer-key ?data) in Redis
-      (db/contract-set-output-address! (:id ?data) (:output-address ?data))
+      (db/contract-set-field! (:id ?data) "output_address" (:output-address ?data))
       (?reply-fn {:status :ok})
       (catch Exception e (pprint e) (?reply-fn {:status :error})))))
 
