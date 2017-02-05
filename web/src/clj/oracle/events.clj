@@ -36,12 +36,12 @@
     (merge notif {:uuid (name uuid)})))
 
 ;;
-;; Dispatcher
+;; Event Queue
 ;;
 
-(defn dispatch! [user-id type & [args]]
-  ;;(log/debug (format "SENDING MESSAGE %s: %s" type args))
+(defn add-event! [user-id type & [args]]
   (let [uid (db/get-user-by-id user-id)]
+    (log/debug (format "SENDING MESSAGE to user %s hash %s type %s: %s" user-id uid type args))
     (case type
       :buy-request-created
       (future
@@ -56,11 +56,6 @@
       :sell-offer-matched
       (future
         (chsk-send! uid [:sell-offer/match args]))
-      :buy-request-restart
-      (future
-        (chsk-send! uid [:buy-request/restart args])
-        (notification uid "Buy request restarted"
-                      "Your transaction partner is not reponding without the provided time. We are looking for a new partner for you."))
       :buy-request-accept
       (future
         (chsk-send! uid [:buy-request/accepted args])
@@ -71,6 +66,11 @@
         (chsk-send! uid [:buy-request/declined args])
         (notification uid "Buy request declined"
                       "We regret to inform you that the assigned counterparty has failed to correctly initiate the contract. We are looking for a new transaction partner."))
+      :buy-request-timed-out
+      (future
+        (chsk-send! uid [:buy-request/timed-out args])
+        (notification uid "Buy request timed out"
+                      "Your transaction partner is not responding within the expected time. We are looking for a new trading partner."))
       :contract-create
       (future
         (chsk-send! uid [:contract/create args]))

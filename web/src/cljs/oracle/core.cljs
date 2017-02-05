@@ -52,7 +52,7 @@
 
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
-(defn log* [& args] (when *is-dev* (js/console.log (clojure.string/join " " (map str args)))))
+(defn log* [& args] (when true #_*is-dev* (js/console.log (clojure.string/join " " (map str args)))))
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
 
@@ -310,14 +310,14 @@
       (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
           (log* "Error in buy-request/match" msg)))))
 
-(defmethod app-msg-handler :buy-request/restart
+(defmethod app-msg-handler :buy-request/timed-out
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :buy-request/restart" msg)
+    (log* "Error in :buy-request/timed-out" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
       (do (reset! app-error "There was an error when restarting the buy request. Please inform us of this event.")
-          (log* "Error in buy-request/restart" msg)))))
+          (log* "Error in buy-request/timed-out" msg)))))
 
 (defmethod app-msg-handler :buy-request/accepted
   [[_ msg]]

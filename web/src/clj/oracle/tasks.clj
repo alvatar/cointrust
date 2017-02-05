@@ -40,7 +40,7 @@
                                      :worker (ref nil)}})
 
 (defn initiate-buy-request [buyer-id amount currency-buyer currency-seller]
-  (log/debug (format "Initiated buy request from buyer ID %d for %d %s" buyer-id amount currency-buyer))
+  (log/debug (format "Initiated buy request from buyer ID %d for %d %s" buyer-id amount currency-seller))
   (wcar* (mq/enqueue (get-in workers [:buy-requests-master :qname])
                      {:buyer-id buyer-id :amount amount
                       :currency-buyer currency-buyer :currency-seller currency-seller})))
@@ -150,16 +150,15 @@
                          (throw (Exception. "Couldn't create buy-request"))))
         buy-request-id (:id buy-request)]
     ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
-    (log/debugf "STATE: %s" state)
-    (log/debug "Processing buy request ID" buy-request-id)
+    ;; (log/debugf "STATE: %s" state)
+    ;; (log/debug "Processing buy request ID" buy-request-id)
     (idempotent-ops mid :event-buy-request-created state
-                    (events/dispatch! buyer-id :buy-request-created buy-request))
-    (Thread/sleep 3000)
+                    (events/add-event! buyer-id :buy-request-created buy-request))
     (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
                          #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-seller) %))]
       (do (idempotent-ops mid :event-sell-offer-matched state
-                          (events/dispatch! seller-id :sell-offer-matched buy-request)
-                          (events/dispatch! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
+                          (events/add-event! seller-id :sell-offer-matched buy-request)
+                          (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
           ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
           ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))
           (let [buy-request-status (get-buy-request-status buy-request-id)]
@@ -169,20 +168,17 @@
               (do (clear-user-blacklist buyer-id)
                   {:status :success})
               ;; Buy request declined
-              (= buy-request-status "<declined>")
+              (or (= buy-request-status "<declined>")
+                  (> now (unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1))))
               (do (idempotency-state-set! mid :global (merge (:global state) {:started now}))
                   (idempotency-state-set! mid :pick-counterparty nil)
                   (idempotency-state-set! mid :event-sell-offer-matched nil)
-                  (blacklist-counterparty buyer-id seller-id)
-                  (db/buy-request-unset-seller! buy-request-id) ; Idempotent
-                  (clear-buy-request-status buy-request-id)
-                  {:status :retry :backoff-ms 1})
-              ;; Time has passed. Search another seller immediately.
-              (> now (unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1)))
-              (do (log/debugf "Buy request ID %d has timedout since no action has been taken by the seller" buy-request-id)
                   (db/buy-request-unset-seller! buy-request-id)
                   (blacklist-counterparty buyer-id seller-id)
-                  (events/dispatch! seller-id :buy-request-restart buy-request)
+                  (clear-buy-request-status buy-request-id)
+                  (if (= buy-request-status "<declined>")
+                    (events/add-event! seller-id :buy-request-decline buy-request)
+                    (events/add-event! seller-id :buy-request-timed-out buy-request))
                   {:status :retry :backoff-ms 1})
               :else
               {:status :retry :backoff-ms 4000})))
@@ -228,8 +224,8 @@
     ;; Task initialization
     ;; TODO: THIS WON'T ENSURE EXECUTION OF THIS COMMANDS
     (when (= attempt 1)
-      (events/dispatch! (:buyer-id contract) :contract-create contract)
-      (events/dispatch! (:seller-id contract) :contract-create contract)
+      (events/add-event! (:buyer-id contract) :contract-create contract)
+      (events/add-event! (:seller-id contract) :contract-create contract)
       (escrow/setup-keys-for-contract! contract-id))
     (case (:stage contract)
 
@@ -239,8 +235,8 @@
 
       ;; Contract can be cancelled anytime
       "contract-broken"
-      (do (events/dispatch! (:buyer-id contract) :contract-broken contract)
-          (events/dispatch! (:seller-id contract) :contract-broken contract)
+      (do (events/add-event! (:buyer-id contract) :contract-broken contract)
+          (events/add-event! (:seller-id contract) :contract-broken contract)
           (db/contract-set-escrow-open-for! contract (:seller-id contract))
           {:status :success})
 
@@ -253,10 +249,10 @@
                     (log/debug "Contract stage changed to \"waiting-transfer\"")
                     (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
                 (let [contract (merge contract {:stage "waiting-transfer"})]
-                  (events/dispatch! (:seller-id contract) :contract-escrow-funded contract)
-                  (events/dispatch! (:buyer-id contract) :contract-escrow-funded contract)
-                  ;;(events/dispatch! (:seller-id contract) :contract-waiting-transfer contract)
-                  ;;(events/dispatch! (:buyer-id contract) :contract-waiting-transfer contract)
+                  (events/add-event! (:seller-id contract) :contract-escrow-funded contract)
+                  (events/add-event! (:buyer-id contract) :contract-escrow-funded contract)
+                  ;;(events/add-event! (:seller-id contract) :contract-waiting-transfer contract)
+                  ;;(events/add-event! (:buyer-id contract) :contract-waiting-transfer contract)
                   )
                 {:status :retry :backoff-ms 1})
             (> now (unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
@@ -275,8 +271,8 @@
                   (fn [idemp]
                     (log/debug "Contract stage changed to \"holding-period\"")
                     (db/contract-add-event! contract-id "holding-period" nil idemp)))
-                (events/dispatch! (:buyer-id contract) :contract-holding-period contract)
-                (events/dispatch! (:seller-id contract) :contract-holding-period contract)
+                (events/add-event! (:buyer-id contract) :contract-holding-period contract)
+                (events/add-event! (:seller-id contract) :contract-holding-period contract)
                 {:status :retry :backoff-ms 1})
             ;; The transfer waiting period includes both buyer sending and seller receiving notifications
             (> now (unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/days 1)))
@@ -291,8 +287,8 @@
       "holding-period"
       (cond (> now (unix-after (time-coerce/to-date-time (:holding-period-start contract)) (time/days 100)))
             (do (db/contract-set-escrow-open-for! contract (:buyer-id contract)) ; Idempotent
-                (events/dispatch! (:buyer-id contract) :contract-success contract)
-                (events/dispatch! (:seller-id contract) :contract-success contract)
+                (events/add-event! (:buyer-id contract) :contract-success contract)
+                (events/add-event! (:seller-id contract) :contract-success contract)
                 (with-idempotent-transaction mid :contract-success state
                   #(db/contract-add-event! contract-id "contract-success" nil %))
                 {:status :success})
@@ -318,7 +314,7 @@
         buy-request (db/get-buy-request-by-id buy-request-id)]
     (log/debug message)
     (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
-    (events/dispatch! (:buyer-id buy-request) :buy-request-accept buy-request) ; Repeat OK
+    (events/add-event! (:buyer-id buy-request) :buy-request-accept buy-request) ; Repeat OK
     ;; Add transfer info to buy-request before creating contract
     (initiate-contract (merge data buy-request)) ; Idempotent
     ;; Keep in mind that we are deleting the request here, so we rely on the master task
@@ -333,7 +329,7 @@
         buy-request (db/get-buy-request-by-id buy-request-id)]
     (log/debug message)
     (set-buy-request-status buy-request-id "<declined>") ; Idempotent
-    (events/dispatch! (:buyer-id buy-request) :buy-request-decline buy-request)
+    (events/add-event! (:buyer-id buy-request) :buy-request-decline buy-request)
     {:status :success}))
 
 (defmethod common-preemptive-handler :contract/break
@@ -354,8 +350,8 @@
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
     (db/contract-set-transfer-sent! contract-id)
-    (events/dispatch! (:seller-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
-    (events/dispatch! (:buyer-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
+    (events/add-event! (:seller-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
+    (events/add-event! (:buyer-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
     {:status :success}))
 
 (defmethod common-preemptive-handler :contract/mark-transfer-received
@@ -365,8 +361,8 @@
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
     (db/contract-set-transfer-received! contract-id)
-    (events/dispatch! (:buyer-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
-    (events/dispatch! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
+    (events/add-event! (:buyer-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
+    (events/add-event! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     {:status :success}))
 
 ;;
@@ -484,5 +480,5 @@ SWIFT YUPYUP12"})
 (defn contract-force-success [id]
   (let [contract (db/get-contract-by-id id)]
     (db/contract-add-event! id "contract-success" nil)
-    (events/dispatch! (:seller-id contract) :contract-success contract)
-    (events/dispatch! (:buyer-id contract) :contract-success contract)))
+    (events/add-event! (:seller-id contract) :contract-success contract)
+    (events/add-event! (:buyer-id contract) :contract-success contract)))

@@ -20,7 +20,8 @@
             [oracle.actions :as actions]
             [oracle.events :as events]
             [oracle.tasks :as tasks]
-            [oracle.bitcoin :as bitcoin])
+            [oracle.bitcoin :as bitcoin]
+            [oracle.worker :as worker])
   (:import (java.lang.Integer)
            (java.net InetSocketAddress)
            (java.io RandomAccessFile))
@@ -38,6 +39,11 @@
   (def ch-chsk ch-recv) ; ChannelSocket's receive channel
   (def chsk-send! send-fn) ; ChannelSocket's send API fn
   (def connected-uids connected-uids))
+
+;; (add-watch connected-uids :connected-uids
+;;            (fn [_ _ old new]
+;;              (when (not= old new)
+;;                (log/debugf "****** Connected uids change: %s" new))))
 
 (defroutes app
   (GET "/" _ (response/content-type
@@ -84,6 +90,7 @@
   (log/set-level! :debug)
   (actions/sente-router-start! ch-chsk)
   (events/init! chsk-send!)
+  (worker/start!)
   (reset! server
           (aleph.http/start-server
            (-> app
@@ -99,6 +106,7 @@
 
 (defn stop! []
   (when @server
+    (worker/stop!)
     (.close @server)
     (reset! server nil)
     'stopped))
