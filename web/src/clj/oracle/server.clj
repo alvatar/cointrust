@@ -86,14 +86,6 @@
 ;; Server setup
 ;;
 
-(log/merge-config!
- {:appenders {:sql {:enabled?   true
-                    :async?     false
-                    :min-level  nil
-                    :rate-limit nil
-                    :output-fn  :inherit
-                    :fn (fn [data] (db/log-message! data))}}})
-
 (defonce server (atom nil))
 
 (defn start! [& [port ip]]
