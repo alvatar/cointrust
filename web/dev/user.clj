@@ -24,8 +24,6 @@
   (start-less)
   (oracle.server/stop!)
   (oracle.server/start!)
-  (oracle.worker/stop!)
-  (oracle.worker/start!)
   (in-ns 'oracle.server))
 
 (def browser-repl figwheel/cljs-repl)
