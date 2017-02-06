@@ -603,9 +603,10 @@
   < rum/reactive
   (rum/local {:output-address "" :buyer-key ""} ::input)
   (rum/local nil ::user-key)
-  [_state contract-id]
+  [_state]
   (let [input (::input _state)
-        user-key (::user-key _state)]
+        user-key (::user-key _state)
+        contract-id (rum/react (:display-contract app-state))]
     (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts app-state)))]
       (case (:stage contract)
 
@@ -799,7 +800,7 @@
                                              (= (:stage contract) "contract-broken"))
                                :style {:margin "0 1rem 0 1rem"}
                                :on-touch-tap #(js/alert "NOT IMPLEMENTED") #_#(js/confirm "Are you sure?")})])
-           (contract-dialog (rum/react (:display-contract app-state)))])))]])
+           (contract-dialog)])))]])
 
 (rum/defc generic-notifications
   < rum/reactive
