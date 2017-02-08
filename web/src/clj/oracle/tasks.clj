@@ -47,7 +47,7 @@
 
 (defn initiate-contract [buy-request]
   (if (:id buy-request)
-    (log/debug "Initiated contracts from buy request ID" (:id buy-request))
+    (log/debug "Initiated contract from buy request ID" (:id buy-request))
     (throw (Exception. "The buy request doesn't have an seller ID")))
   (when-not (:seller-id buy-request) (throw (Exception. "The buy request doesn't have an seller ID")))
   (wcar* (mq/enqueue (get-in workers [:contracts-master :qname])
@@ -224,6 +224,9 @@
     ;; Task initialization
     ;; TODO: THIS WON'T ENSURE EXECUTION OF THIS COMMANDS
     (when (= attempt 1)
+      ;; Keep in mind that we are deleting the request here, so we rely on the master task
+      ;; to retrieve the buy request info from the idempotency cache in Redis
+      (db/buy-request-delete! (:id buy-request)) ; Idempotent, must be done at the end
       (events/add-event! (:buyer-id contract) :contract-create contract)
       (events/add-event! (:seller-id contract) :contract-create contract)
       (escrow/setup-keys-for-contract! contract-id))
@@ -317,9 +320,6 @@
     (events/add-event! (:buyer-id buy-request) :buy-request-accept buy-request) ; Repeat OK
     ;; Add transfer info to buy-request before creating contract
     (initiate-contract (merge data buy-request)) ; Idempotent
-    ;; Keep in mind that we are deleting the request here, so we rely on the master task
-    ;; to retrieve the buy request info from the idempotency cache in Redis
-    (db/buy-request-delete! buy-request-id) ; Idempotent, must be done at the end
     {:status :success}))
 
 (defmethod common-preemptive-handler :buy-request/decline
