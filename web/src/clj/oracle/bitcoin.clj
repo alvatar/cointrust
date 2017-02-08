@@ -119,7 +119,7 @@
                   address-payed (.toString
                                  (.getAddressFromP2PKHScript
                                   (first (.getOutputs transaction)) (:network-params @current-app)))]
-              (log/debugf "Received payment of %d BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
+              (log/debugf "Received payment of %s BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
               (if-let [contract (db/get-contract-by-input-address address-payed)]
                 (do (log/debugf "Payment to %s funds contract ID %d" address-payed (:id contract))
                     (if (>= amount-payed (:amount contract))
