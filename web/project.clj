@@ -23,7 +23,7 @@
                  [org.postgresql/postgresql "9.4.1212"]
                  [com.taoensso/carmine "2.15.1" :exclusions [com.taoensso/encore]]
                  ;; Bitcoin
-                 [org.bitcoinj/bitcoinj-core "0.14.3" :exclusions [com.google.protobuf/protobuf-java
+                 [org.bitcoinj/bitcoinj-core "0.14.4" :exclusions [com.google.protobuf/protobuf-java
                                                                    com.google.guava/guava
                                                                    com.google.code.findbugs/jsr305]]
                  ;; Misc

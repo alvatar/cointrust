@@ -92,7 +92,6 @@
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. (fn []
                                  (println "Shutting down Bitcoin app")
-                                 (. Context propagate (:network-params app))
                                  (.stop (:peergroup app))
                                  ;; TODO: Save wallets to their Files
                                  (.close (.getBlockStore (:blockchain app))))))
