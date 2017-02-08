@@ -1,7 +1,7 @@
 (ns oracle.common)
 
 (defn satoshi->btc [sat]
-  (/ sat 100000000))
+  (float (/ sat 100000000)))
 
 (defn btc->satoshi [btc]
   (* btc 100000000))
