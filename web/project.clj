@@ -13,6 +13,8 @@
                  [ring/ring-defaults "0.2.2"]
                  [bk/ring-gzip "0.2.1"]
                  [aleph "0.4.2-alpha12"]
+                 [manifold "0.1.5"]
+                 [byte-streams "0.2.2"]
                  [compojure "1.5.2"]
                  [com.taoensso/nippy "2.12.2"]
                  [com.taoensso/sente "1.11.0"]

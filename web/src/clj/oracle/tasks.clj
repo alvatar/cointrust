@@ -2,6 +2,9 @@
   (:require [clojure.pprint :refer [pprint]]
             [clojure.data :refer [diff]]
             [environ.core :refer [env]]
+            [manifold.deferred :as d]
+            [byte-streams :as bs]
+            [aleph.http :as http]
             [taoensso.timbre :as log]
             [taoensso.carmine :as r]
             [taoensso.carmine.message-queue :as mq]
@@ -145,6 +148,7 @@
         state (idempotency-state-rebuild mid)
         now (get-in state [:global :now])
         buy-request (with-idempotent-transaction mid :buy-request-create state
+                      ;; TODO: exchange rate
                       #(if-let [result (db/buy-request-create! buyer-id amount currency-buyer currency-seller 1000.0 %)]
                          (do (log/debug "Buy request created:" result) result)
                          (throw (Exception. "Couldn't create buy-request"))))
@@ -364,6 +368,62 @@
     (events/add-event! (:buyer-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     (events/add-event! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     {:status :success}))
+
+
+;;
+;; Exchange rates updates task
+;;
+
+(defonce exchange-rates-worker (atom nil))
+(defonce exchange-rates-worker-running? (atom false))
+
+(defonce current-rates {})
+
+(defn get-coinbase-rates []
+  (try
+    {:usd-btc (Double/parseDouble
+               (-> @(http/get "https://api.coinbase.com/v2/exchange-rates")
+                   :body
+                   bs/to-string
+                   (json/parse-string true)
+                   :data
+                   :rates
+                   :BTC))
+     :btc-usd (Double/parseDouble
+               (-> @(http/get "https://api.coinbase.com/v2/exchange-rates?currency=btc")
+                   :body
+                   bs/to-string
+                   (json/parse-string true)
+                   :data
+                   :rates
+                   :USD))}
+    (catch Exception e
+      (println e)
+      nil)))
+
+(defn make-exchange-rates-worker []
+  (future
+    (try
+      (loop []
+        (when @exchange-rates-worker-running?
+          (swap! current-rates #(or (get-coinbase-rates) %))
+          (Thread/sleep 60)
+          (recur)))
+      (catch Exception e
+        (println e)
+        e))))
+
+(defn start-exchange-rates-updates! []
+  (when-not @exchange-rates-worker
+    (reset! exchange-rates-worker-running? false)
+    (reset! exchange-rates-worker (make-exchange-rates-worker))
+    'started))
+
+(defn stop-exchange-rates-updates! []
+  (when @exchange-rates-worker
+    (reset! exchange-rates-worker-running? true)
+    (reset! exchange-rates-worker nil)
+    'stopped))
 
 ;;
 ;; Lifecyle
