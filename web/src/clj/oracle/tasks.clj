@@ -59,10 +59,16 @@
 ;; This is the core of Cointrust. When a request to buy is received,
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
+;;
+;; TODO: currently currency is ignored
+;; TODO: transductors, optimize
 (defn pick-counterparty [buyer-id amount currency-seller]
-  (let [[available _ _] (diff (db/get-user-friends-of-friends buyer-id)
-                              (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))]
-    (rand-nth available)))
+  (let [blck (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
+        not-blck (remove (fn [x] (some #(= % x) blck))
+                         (db/get-user-friends-of-friends buyer-id))
+        offering (filter identity (map db/sell-offer-get-by-user not-blck))
+        offering-in-range (filter #(and (>= amount (:min %)) (<= amount (:max %))) offering)]
+    (:user (rand-nth offering-in-range))))
 
 (defn blacklist-counterparty [buyer-id seller-id]
   (wcar* (r/sadd (str "buyer->blacklist:" buyer-id) seller-id)))

@@ -23,7 +23,6 @@
 
 (defn get-coinbase-rates []
   {:last-update (utils/unix-now)
-   ;;{:usd-btc (rand 1) #_0.001004, :btc-usd (rand 900) #_995.97}
    :rates (try
             {:usd-btc (Double/parseDouble
                        (-> @(http/get "https://api.coinbase.com/v2/exchange-rates")
@@ -43,7 +42,9 @@
                            :USD))}
             (catch Exception e
               (println e)
-              nil))})
+              nil))
+   #_{:usd-btc (rand 1) #_0.001004, :btc-usd (rand 900) #_995.97}
+   })
 
 (defn make-exchange-rates-worker []
   (future
