@@ -114,7 +114,6 @@
    wallet
    (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
      (onCoinsReceived [this wallet transaction prev-balance new-balance]
-       (println "ENTERING ONCOINS RECEIVED")
        (try (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))
                   address-payed (.toString
                                  (.getAddressFromP2PKHScript
@@ -125,8 +124,12 @@
                     (if (>= amount-payed (:amount contract))
                       (do (db/contract-set-escrow-funded! (:id contract))
                           (log/debugf "Contract ID %d successfully funded\n" (:id contract)))
-                      (log/errorf "The received payment is insufficient. Amount payed: %s, amount expected: %s"
-                                  amount-payed (:amount contract))))
+                      (do (log/errorf "The received payment is insufficient. Amount payed: %s, amount expected: %s"
+                                      amount-payed (:amount contract))
+                          (db/log-manual-op! (format "Payment insufficient for contract %s. Received %s, expected %s"
+                                                     (:id contract)
+                                                     amount-payed
+                                                     (:amount contract))))))
                 (log/errorf "CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
                             (common/satoshi->btc amount-payed) address-payed)))
             (catch Exception e (log/error e))))))

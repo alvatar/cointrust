@@ -46,11 +46,14 @@ INSERT INTO logs (level, type, data) VALUES ('debug', ?, ?) RETURNING *;
 " type (json/generate-string datamap)]))
 
 (defn log-message! [data]
-  (let [entry
-        {:level (str (:level data))
-         :type "message"
-         :data (force (:output_ data))}]
-    (sql/insert! db :logs entry)))
+  (sql/insert! db :logs {:level (str (:level data))
+                         :type "message"
+                         :data (force (:output_ data))}))
+
+(defn log-manual-op! [data]
+  (sql/insert! db :logs {:level "info"
+                         :type "manual-op"
+                         :data data}))
 
 (defn get-all-logs [limit]
   (sql/query db ["SELECT * FROM logs LIMIT ?" limit]))
