@@ -2,9 +2,6 @@
   (:require [clojure.pprint :refer [pprint]]
             [clojure.data :refer [diff]]
             [environ.core :refer [env]]
-            [manifold.deferred :as d]
-            [byte-streams :as bs]
-            [aleph.http :as http]
             [taoensso.timbre :as log]
             [taoensso.carmine :as r]
             [taoensso.carmine.message-queue :as mq]
@@ -12,6 +9,7 @@
             [clj-time.core :as time]
             [clj-time.coerce :as time-coerce]
             ;; -----
+            [oracle.utils :as utils]
             [oracle.redis :as redis]
             [oracle.database :as db]
             [oracle.events :as events]
@@ -19,14 +17,6 @@
             [oracle.redis :refer :all]
             [oracle.escrow :as escrow]
             [oracle.bitcoin :as bitcoin]))
-
-;;
-;; Utils
-;;
-
-(defn unix-now [] (time-coerce/to-long (time/now)))
-
-(defn unix-after [reference duration] (time-coerce/to-long (time/plus reference duration)))
 
 ;;
 ;; Interface
@@ -97,7 +87,7 @@
 (defn idempotency-state-rebuild [uid]
   (let [ops-ttl (* 7 24 3600) ; 1 week
         op-key (str "idempotent-ops:" uid)
-        now (unix-now)
+        now (utils/unix-now)
         [_ stored _] (wcar* (r/hsetnx op-key :global (json/generate-string {:created now :started now}))
                             (r/hgetall op-key)
                             (r/expire op-key ops-ttl))]
@@ -173,7 +163,7 @@
                   {:status :success})
               ;; Buy request declined
               (or (= buy-request-status "<declined>")
-                  (> now (unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1))))
+                  (> now (utils/unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1))))
               (do (idempotency-state-set! mid :global (merge (:global state) {:started now}))
                   (idempotency-state-set! mid :pick-counterparty nil)
                   (idempotency-state-set! mid :event-sell-offer-matched nil)
@@ -226,7 +216,7 @@
         contract (db/get-contract-by-id-with-last-event contract-id)]
     ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
     ;; Task initialization
-    ;; TODO: THIS WON'T ENSURE EXECUTION OF THIS COMMANDS
+    ;; TODO: THIS WON'T ENSURE EXECUTION OF THESE COMMANDS
     (when (= attempt 1)
       ;; Keep in mind that we are deleting the request here, so we rely on the master task
       ;; to retrieve the buy request info from the idempotency cache in Redis
@@ -262,7 +252,7 @@
                   ;;(events/add-event! (:buyer-id contract) :contract-waiting-transfer contract)
                   )
                 {:status :retry :backoff-ms 1})
-            (> now (unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
+            (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
             (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                   #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
                 {:status :retry :backoff-ms 1})
@@ -282,7 +272,7 @@
                 (events/add-event! (:seller-id contract) :contract-holding-period contract)
                 {:status :retry :backoff-ms 1})
             ;; The transfer waiting period includes both buyer sending and seller receiving notifications
-            (> now (unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/days 1)))
+            (> now (utils/unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/days 1)))
             (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                   #(db/contract-add-event! contract-id "contract-broken" {:reason "transfer waiting period timed out"} %))
                 {:status :retry :backoff-ms 1})
@@ -292,7 +282,7 @@
       ;; Seller informs of transfer received
       ;; The buyer is informed of the transfer received
       "holding-period"
-      (cond (> now (unix-after (time-coerce/to-date-time (:holding-period-start contract)) (time/days 100)))
+      (cond (> now (utils/unix-after (time-coerce/to-date-time (:holding-period-start contract)) (time/days 100)))
             (do (db/contract-set-field! contract "escrow_open_for" (:buyer-id contract)) ; Idempotent
                 (events/add-event! (:buyer-id contract) :contract-success contract)
                 (events/add-event! (:seller-id contract) :contract-success contract)
@@ -369,62 +359,6 @@
     (events/add-event! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     {:status :success}))
 
-
-;;
-;; Exchange rates updates task
-;;
-
-(defonce exchange-rates-worker (atom nil))
-(defonce exchange-rates-worker-running? (atom false))
-
-(defonce current-rates {})
-
-(defn get-coinbase-rates []
-  (try
-    {:usd-btc (Double/parseDouble
-               (-> @(http/get "https://api.coinbase.com/v2/exchange-rates")
-                   :body
-                   bs/to-string
-                   (json/parse-string true)
-                   :data
-                   :rates
-                   :BTC))
-     :btc-usd (Double/parseDouble
-               (-> @(http/get "https://api.coinbase.com/v2/exchange-rates?currency=btc")
-                   :body
-                   bs/to-string
-                   (json/parse-string true)
-                   :data
-                   :rates
-                   :USD))}
-    (catch Exception e
-      (println e)
-      nil)))
-
-(defn make-exchange-rates-worker []
-  (future
-    (try
-      (loop []
-        (when @exchange-rates-worker-running?
-          (swap! current-rates #(or (get-coinbase-rates) %))
-          (Thread/sleep 60)
-          (recur)))
-      (catch Exception e
-        (println e)
-        e))))
-
-(defn start-exchange-rates-updates! []
-  (when-not @exchange-rates-worker
-    (reset! exchange-rates-worker-running? false)
-    (reset! exchange-rates-worker (make-exchange-rates-worker))
-    'started))
-
-(defn stop-exchange-rates-updates! []
-  (when @exchange-rates-worker
-    (reset! exchange-rates-worker-running? true)
-    (reset! exchange-rates-worker nil)
-    'stopped))
-
 ;;
 ;; Lifecyle
 ;;
@@ -478,8 +412,6 @@
   (db/user-insert! "eeee" ["dddd"])
   'ok)
 
-
-
 (defn total-wipeout!!! []
   (workers-stop!)
   (bitcoin/system-reset!!!)
@@ -495,7 +427,7 @@
 ;;
 
 ;; Create a buy request
-;; (initiate-buy-request 2 (oracle.common/currency-as-long 1.0 :xbt) "usd" "xbt")
+;; (initiate-buy-request 2 (oracle.common/currency-as-long 1.0 :btc) "usd" "btc")
 
 ;; Initialize Escrow
 ;; (oracle.escrow/set-seller-key 1 "fdsafdsa")
@@ -525,7 +457,7 @@ IBAN 12341234123431234
 SWIFT YUPYUP12"})
 
 ;; Directly create contract
-#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "xbt", :exchange-rate 1000.000000M, :transfer-info "Hakuna Matata Bank.
+#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "btc", :exchange-rate 1000.000000M, :transfer-info "Hakuna Matata Bank.
 Publius Cornelius Scipio
 Ibiza, Spain.
 IBAN 12341234123431234

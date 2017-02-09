@@ -10,7 +10,8 @@
             [oracle.common :as common]
             [oracle.tasks :as tasks]
             [oracle.events :as events]
-            [oracle.escrow :as escrow]))
+            [oracle.escrow :as escrow]
+            [oracle.currency :as currency]))
 
 ;;
 ;; Sente event handlers
@@ -27,6 +28,10 @@
 (defmethod -event-msg-handler :default ; Default/fallback case (no other matching handler)
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (when ?reply-fn (?reply-fn {:umatched-event-as-echoed-from-from-server event})))
+
+(defmethod -event-msg-handler :currency/get-exchange-rates
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  (?reply-fn {:exchange-rates (currency/get-current-exchange-rates)}))
 
 (defmethod -event-msg-handler :user/enter
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]

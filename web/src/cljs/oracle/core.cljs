@@ -24,7 +24,7 @@
 ;;
 
 (goog-define *is-dev* false)
-(def hook-fake-id?_ false)
+(def hook-fake-id?_ true)
 
 (defonce app-error (atom nil))
 (defonce app-state {:scene (atom "main-menu")
@@ -35,7 +35,8 @@
                     :friend-fbids (atom [])
                     :friend-hashes (atom [])
                     :friends2 (atom [])
-                    :exchange-rates (atom {:xbt-usd 927.360})
+                    :exchange-rates (atom {})
+                    :seconds-since-last-exchange-rates-refresh (atom {})
                     :sell-offer (atom nil)
                     :sell-offer-matches (atom cljs.core/PersistentQueue.EMPTY)
                     :buy-requests (atom [])
@@ -45,6 +46,8 @@
 
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
+
+(def exchange-rates-refresh-interval 60)
 
 ;;
 ;; Utils
@@ -153,6 +156,15 @@
                   (init-sente! hashed-id)))))
     (log* "Not logged in: " (clj->js response))))
 
+(defn get-exchange-rates []
+  (chsk-send!
+   [:currency/get-exchange-rates {:user-id @(:user-id app-state)}] 5000
+   (fn [resp]
+     (if (sente/cb-success? resp)
+       (reset! (:exchange-rates app-state) (get-in resp [:exchange-rates :rates]))
+       (do (reset! app-error "There was an error retrieving exchange rates")
+           (log* "Error in currency/get-exchange-rates" resp))))))
+
 (defn get-user-requests []
   (chsk-send!
    [:user/buy-requests {:user-id @(:user-id app-state)}] 5000
@@ -231,7 +243,7 @@
    [:buy-request/create {:user-id @(:user-id app-state)
                          :amount amount
                          :currency-buyer "usd"
-                         :currency-seller "xbt"}] 5000
+                         :currency-seller "btc"}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* "Buy request created successfully")
@@ -466,8 +478,8 @@
   [state]
   (let [input (::input state)
         valid-val #(and (number? %) (> % 0))
-        xbt-usd (:xbt-usd (rum/react (:exchange-rates app-state)))
-        total (* xbt-usd (:amount (rum/react input)))
+        btc-usd (get (rum/react (:exchange-rates app-state)) :btc-usd)
+        total (* btc-usd (:amount (rum/react input)))
         open? (= (rum/react (:ui-mode app-state)) :buy-dialog)]
     (if (<= (count @(:buy-requests app-state)) 10)
       (ui/dialog {:title "Buy Bitcoins"
@@ -485,7 +497,10 @@
                             (ui/flat-button {:label "Cancel"
                                              :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                  [:div
-                  [:div [:h4 "Bitcoin price: " xbt-usd " XBT/USD (Coinbase reference rate)"]
+                  [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
+                   [:h6 {:style {:margin-top "-1rem"}}
+                    (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
+                                                                                 (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
                    (ui/text-field {:id "amount"
                                    :autoFocus true
                                    :value (:amount (rum/react input))
@@ -517,11 +532,11 @@
   < rum/reactive (rum/local {} ::ui-values)
   [state_]
   (let [offer-active? (boolean @(:sell-offer app-state))
-        xbt-usd (:xbt-usd (rum/react (:exchange-rates app-state)))
+        btc-usd (get (rum/react (:exchange-rates app-state)) :btc-usd)
         ui-values (::ui-values state_)
         min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 100)
         max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)]
-    (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoins")
+    (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoin")
                 :open (= (rum/react (:ui-mode app-state)) :sell-dialog)
                 :modal true
                 :actions [(when offer-active?
@@ -538,9 +553,12 @@
                                            :primary true
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
-                [:p "Offer transactions between " [:strong min-val]
-                 " and " [:strong max-val] " USD (currently " [:strong (round-currency (/ min-val xbt-usd))]
-                 " - " [:strong (round-currency (/ max-val xbt-usd))] " XBT)"]
+                [:h4 "Offer transactions between " [:strong min-val]
+                 " and " [:strong max-val] " USD " [:strong (round-currency (/ min-val btc-usd))]
+                 " - " [:strong (round-currency (/ max-val btc-usd))] " BTC)"]
+                [:h6 {:style {:margin-top "-1rem"}}
+                 (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
+                                                                              (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
                 (sell-slider "usd" [min-val max-val] (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))])))
 
 (rum/defc menu-controls-comp
@@ -565,13 +583,13 @@
   < rum/reactive
   []
   (when-let [sell-offer (rum/react (:sell-offer app-state))]
-    (let [xbt-usd (:xbt-usd (rum/react (:exchange-rates app-state)))]
+    (let [btc-usd (get (rum/react (:exchange-rates app-state)) :btc-usd)]
       [:div
        [:h4 {:style {:text-align "center"}} "Sell offer"]
        [:p.center "Offering transactions in the range "
         [:strong (:min sell-offer)] " to " [:strong (:max sell-offer)] " USD ("
-        (round-currency (/ (:min sell-offer) xbt-usd)) " - "
-        (round-currency (/ (:max sell-offer) xbt-usd)) " XBT)"]])))
+        (round-currency (/ (:min sell-offer) btc-usd)) " - "
+        (round-currency (/ (:max sell-offer) btc-usd)) " BTC)"]])))
 
 (rum/defc request-listing-comp
   < rum/reactive
@@ -910,8 +928,7 @@
                              (catch :default e
                                (swap! (:notifications app-state) conj {:title "Error loading Facebook login"
                                                                        :message (str "Please check that you don't have a browser extension that disables the use of Social Logins.  Cointrust uses the social graph to find optimal matches for trading. /// Error /// " e)
-                                                                       :on-touch-tap #(swap! (:notifications app-state) pop)}))
-)))})
+                                                                       :on-touch-tap #(swap! (:notifications app-state) pop)})))))})
     (generic-notifications)]))
 
 (rum/defc main-comp
@@ -952,10 +969,15 @@
 
 ;; Run when we change the User ID
 (add-watch (:user-id app-state) :got-user-id
-           #(when %4
-              (get-friends2)
-              (get-active-sell-offer)
-              (get-sell-offer-matches)
-              (get-user-requests)
-              (get-user-contracts)
-              (get-user-pending-notifications)))
+           (fn [_1 _2 _3 _4]
+             (when _4
+               (get-exchange-rates)
+               (js/setInterval #(let [a (:seconds-since-last-exchange-rates-refresh app-state)]
+                                  (if (< @a exchange-rates-refresh-interval) (swap! a inc) (do (get-exchange-rates) (reset! a 0))))
+                               1000)
+               (get-friends2)
+               (get-active-sell-offer)
+               (get-sell-offer-matches)
+               (get-user-requests)
+               (get-user-contracts)
+               (get-user-pending-notifications))))

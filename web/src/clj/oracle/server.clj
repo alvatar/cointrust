@@ -23,7 +23,8 @@
             [oracle.tasks :as tasks]
             [oracle.bitcoin :as bitcoin]
             [oracle.worker :as worker]
-            [oracle.database :as db])
+            [oracle.database :as db]
+            [oracle.currency :as currency])
   (:import (java.lang.Integer)
            (java.net InetSocketAddress)
            (java.io RandomAccessFile))
@@ -92,7 +93,9 @@
   (log/set-level! :debug)
   (actions/sente-router-start! ch-chsk)
   (events/init! chsk-send!)
-  (worker/start!)
+  (currency/start-exchange-rates-updates!)
+  (bitcoin/system-start!)
+  (tasks/workers-start!)
   (reset! server
           (aleph.http/start-server
            (-> app
@@ -108,7 +111,9 @@
 
 (defn stop! []
   (when @server
-    (worker/stop!)
+    (tasks/workers-stop!)
+    (currency/stop-exchange-rates-updates!)
+    (bitcoin/system-stop!)
     (.close @server)
     (reset! server nil)
     'stopped))

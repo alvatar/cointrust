@@ -9,11 +9,9 @@
 
 
 (defn start! []
-  (tasks/workers-start!)
-  (bitcoin/system-start!))
+  (tasks/workers-start!))
 
 (defn stop! []
-  (tasks/workers-stop!)
-  (bitcoin/system-stop!))
+  (tasks/workers-stop!))
 
 (defn -main [] (start!))
