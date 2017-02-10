@@ -114,4 +114,9 @@
       (future
         (chsk-send! uid [:contract/broken args])
         (notification uid "Contract broken"
-                      "The contract was broken. We will proceed accordingly.")))))
+                      "The contract was broken. We will proceed accordingly."))
+      :contract-escrow-released
+      (future
+        (chsk-send! uid [:contract/escrow-released args])
+        (notification uid "Escrow Released!"
+                      "The Escrow was successfully released to the provided address.")))))

@@ -152,12 +152,11 @@
   [{:keys [?data ?reply-fn]}]
   (if (or (empty? (:output-address ?data))
           (empty? (:escrow-user-key ?data)))
-    (?reply-fn {:status :missing-parameters})
-    ;; TODO: Validate key
-    (try ;; TODO: Create a task to release the funds (:escrow-buyer-key ?data) in Redis
-      (db/contract-set-field! (:id ?data) "output_address" (:output-address ?data))
-      (?reply-fn {:status :ok})
-      (catch Exception e (pprint e) (?reply-fn {:status :error})))))
+    (?reply-fn {:status :error-missing-parameters})
+    (try (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
+         (db/contract-set-field! (:id ?data) "output_address" (:output-address ?data))
+         (?reply-fn {:status :ok})
+         (catch Exception e (pprint e) (?reply-fn {:status :error})))))
 
 (defmethod -event-msg-handler :notification/ack
   [{:keys [?data ?reply-fn]}]

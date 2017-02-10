@@ -365,6 +365,21 @@
     (events/add-event! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     {:status :success}))
 
+(defmethod common-preemptive-handler :escrow/release-to-user
+  [{:keys [mid message attempt]}]
+  (let [{:keys [tag data]} message
+        contract-id (:id data)]
+    (log/debug message)
+    ;; TODO: Handle bitcoin release
+    ;; For done and confirmed, use escrow/released
+    {:status :success}))
+
+(defmethod common-preemptive-handler :escrow/released
+  [{:keys [?data ?reply-fn]}]
+  (try (db/contract-set-field! (:id ?data) "released" true)
+       (?reply-fn {:status :ok})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+
 ;;
 ;; Lifecyle
 ;;
