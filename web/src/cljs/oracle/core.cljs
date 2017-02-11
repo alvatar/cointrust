@@ -563,7 +563,7 @@
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
                 [:h4 "Offer transactions between " [:strong min-val]
-                 " and " [:strong max-val] " USD " [:strong (round-currency (/ min-val btc-usd))]
+                 " and " [:strong max-val] " (USD " [:strong (round-currency (/ min-val btc-usd))]
                  " - " [:strong (round-currency (/ max-val btc-usd))] " BTC)"]
                 [:h6 {:style {:margin-top "-1rem"}}
                  (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
