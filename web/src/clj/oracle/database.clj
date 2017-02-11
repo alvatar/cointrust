@@ -164,7 +164,7 @@ ON CONFLICT (user_id) DO UPDATE SET currency = ?, min = ?, max = ?
 (defn sell-offer-get-by-user [user-id]
   (first
    (sql/query db ["
-SELECT user_id AS user, min, max FROM sell_offer WHERE user_id = ?;
+SELECT user_id AS user, min, max, currency FROM sell_offer WHERE user_id = ?;
 " user-id])))
 
 (defn sell-offer-unset! [user-id]

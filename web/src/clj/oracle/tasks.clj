@@ -182,8 +182,8 @@
                   {:status :retry :backoff-ms 1})
               :else
               {:status :retry :backoff-ms 4000})))
-      (do (log/debug "No seller match. Retrying in 5 minutes.")
-          {:status :retry :backoff-ms 300000}))))
+      (do (log/debug "No seller match. Retrying in 20 seconds.")
+          {:status :retry :backoff-ms 20000}))))
 
 ;;
 ;;
@@ -296,7 +296,7 @@
                   #(db/contract-add-event! contract-id "contract-success" nil %))
                 {:status :success})
             :else
-            {:status :retry :backoffs-ms 360000}))))
+            {:status :retry :backoffs-ms 20000}))))
 
 ;;
 ;; Preemptive task queues: They mark the accomplished micro-task, for the master

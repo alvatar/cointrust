@@ -214,9 +214,13 @@
   (chsk-send!
    [:offer/get {:user-id @(:user-id app-state)}] 5000
    (fn [resp]
-     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (let [offer (select-keys resp [:min :max])]
-         (when (not-empty offer) (reset! (:sell-offer app-state) (into {} (for [[k v] offer] [k (common/currency-as-float (float v) :usd)])))))
+     (if (sente/cb-success? resp)
+       (let [offer (select-keys resp [:min :max :currency])]
+         (when (not-empty offer)
+           (reset! (:sell-offer app-state)
+                   {:min (common/currency-as-float (float (:min offer)) (:currency offer))
+                    :max (common/currency-as-float (float (:max offer)) (:currency offer))
+                    :currency (:currency offer)})))
        (reset! app-error "There was an error retrieving the sell offer.")))))
 
 (defn close-sell-offer [callback]
@@ -556,7 +560,7 @@
                                                                 #(reset! (:ui-mode app-state) :none))))}))
                           (ui/flat-button {:label (if offer-active? "Update" "Sell")
                                            :on-touch-tap (fn []
-                                                           (open-sell-offer {:currency "usd" :min min-val :max max-val})
+                                                           (open-sell-offer {:currency "btc" :min min-val :max max-val})
                                                            (reset! (:ui-mode app-state) :none))})
                           (ui/flat-button {:label "Back"
                                            :primary true

@@ -62,20 +62,22 @@
 
 (defmethod -event-msg-handler :offer/open
   [{:keys [?data ?reply-fn]}]
-  (try (db/sell-offer-set! (:user-id ?data) (:currency ?data) (:min ?data) (:max ?data))
+  (try (db/sell-offer-set! (:user-id ?data) (:currency ?data)
+                           (common/currency-as-long (:min ?data) (:currency ?data))
+                           (common/currency-as-long (:max ?data) (:currency ?data)))
        (?reply-fn {:status :ok :min (:min ?data) :max (:max ?data)})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/get
   [{:keys [?data ?reply-fn]}]
-  (try (let [{:keys [min max]} (db/sell-offer-get-by-user (:user-id ?data))]
+  (try (let [{:keys [min max currency]} (db/sell-offer-get-by-user (:user-id ?data))]
          (cond
            (and min max)
-           (?reply-fn {:status :ok :min min :max max})
+           (?reply-fn {:min min :max max :currency currency})
            (and (not min) (not max))
-           (?reply-fn {:status :ok})
+           (?reply-fn {:status :no-offer})
            :else
-           (?reply-fn (?reply-fn {:status :error :id :internal-mismatch-in-offer}))))
+           (?reply-fn {:status :error :id :internal-mismatch-in-offer})))
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/close
