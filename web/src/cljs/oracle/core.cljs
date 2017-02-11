@@ -23,8 +23,8 @@
 ;; Globals
 ;;
 
-(goog-define *is-dev* false)
-(def hook-fake-id?_ true)
+(goog-define *is-dev* true)
+(def hook-fake-id?_ false)
 
 (defonce app-error (atom nil))
 (defonce app-state {:scene (atom "main-menu")
@@ -55,7 +55,7 @@
 
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
-(defn log* [& args] (when true #_*is-dev* (js/console.log (clojure.string/join " " (map str args)))))
+(defn log* [& args] (when *is-dev* (js/console.log (clojure.string/join " " (map str args)))))
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
 
