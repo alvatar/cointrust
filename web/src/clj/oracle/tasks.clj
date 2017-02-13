@@ -13,10 +13,11 @@
             [oracle.redis :as redis]
             [oracle.database :as db]
             [oracle.events :as events]
-            [oracle.common :as co]
+            [oracle.common :as common]
             [oracle.redis :refer :all]
             [oracle.escrow :as escrow]
-            [oracle.bitcoin :as bitcoin]))
+            [oracle.bitcoin :as bitcoin]
+            [oracle.currency :as currency]))
 
 ;;
 ;; Interface
@@ -56,19 +57,35 @@
 ;; Matching
 ;;
 
+(defn currency-convert [amount from to]
+  (long
+   (* (get (:rates (currency/get-current-exchange-rates))
+           (keyword (str (name to) "-" (name from))))
+      amount)))
+
 ;; This is the core of Cointrust. When a request to buy is received,
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
 ;;
 ;; TODO: currently currency is ignored
 ;; TODO: transductors, optimize
-(defn pick-counterparty [buyer-id amount currency-seller]
-  (let [blck (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
-        not-blck (remove (fn [x] (some #(= % x) blck))
-                         (db/get-user-friends-of-friends buyer-id))
-        offering (filter identity (map db/sell-offer-get-by-user not-blck))
-        offering-in-range (filter #(and (>= amount (:min %)) (<= amount (:max %))) offering)]
-    (:user (rand-nth offering-in-range))))
+;; TODO iterate ofer all friends^2 for their sell offer is extremely innefficient
+(defn pick-counterparty [buyer-id buyer-specs]
+  (let [blacklisted (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
+        available (remove (fn [x] (some #(= % x) blacklisted)) (db/get-user-friends-of-friends buyer-id))
+        offering (filter identity (map db/sell-offer-get-by-user available))
+        offering-in-range (filter #(let [buyer-wants-amount (get-in buyer-specs [:wants :amount])
+                                         buyer-wants-currency (get-in buyer-specs [:wants :currency])
+                                         ;; In theory, we should check what the seller wants against what the buyer offers
+                                         seller-wants (get-in buyer-specs [:offers :currency])]
+                                     (and (>= buyer-wants-amount
+                                              (currency-convert (:min %) seller-wants buyer-wants-currency))
+                                          (<= buyer-wants-amount
+                                              (currency-convert (:max %) seller-wants buyer-wants-currency))))
+                                  offering)]
+    (log/debug "PICK COUNTERPARTY, offering: " (pr-str offering))
+    (log/debug "PICK COUNTERPARTY, offering in range: " (pr-str offering-in-range))
+    (:user (or (empty? offering-in-range) (rand-nth offering-in-range)))))
 
 (defn blacklist-counterparty [buyer-id seller-id]
   (wcar* (r/sadd (str "buyer->blacklist:" buyer-id) seller-id)))
@@ -145,7 +162,9 @@
         now (get-in state [:global :now])
         buy-request (with-idempotent-transaction mid :buy-request-create state
                       ;; TODO: exchange rate
-                      #(if-let [result (db/buy-request-create! buyer-id amount currency-buyer currency-seller 1000.0 %)]
+                      #(if-let [result (db/buy-request-create! buyer-id amount currency-buyer currency-seller
+                                                               (get-in (oracle.currency/get-current-exchange-rates) [:rates :btc-usd])
+                                                               %)]
                          (do (log/debug "Buy request created:" result) result)
                          (throw (Exception. "Couldn't create buy-request"))))
         buy-request-id (:id buy-request)]
@@ -155,7 +174,13 @@
     (idempotent-ops mid :event-buy-request-created state
                     (events/add-event! buyer-id :buy-request-created buy-request))
     (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
-                         #(db/buy-request-set-seller! buy-request-id (pick-counterparty buyer-id amount currency-seller) %))]
+                         #(db/buy-request-set-seller! buy-request-id (pick-counterparty
+                                                                      buyer-id
+                                                                      ;; Request to buy of what the seller has
+                                                                      ;; TODO: improve semantics upstream to match this
+                                                                      {:wants {:amount amount :currency currency-seller}
+                                                                       :offers {:currency currency-buyer}})
+                                                      %))]
       (do (idempotent-ops mid :event-sell-offer-matched state
                           (events/add-event! seller-id :sell-offer-matched buy-request)
                           (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))

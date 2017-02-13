@@ -188,22 +188,22 @@ SELECT * FROM sell_offer;
 (defn ->kebab-case [r] (reduce-kv #(assoc %1 (case-shift/->kebab-case %2) %3) {} r))
 
 (defn buy-request-create! [user-id amount currency-buyer currency-seller exchange-rate & [txcb]]
-  (-> (sql/with-db-transaction
-        [tx db]
-        (let [buy-request (first
-                           (sql/query tx ["
+  (sql/with-db-transaction
+    [tx db]
+    (let [buy-request (first
+                       (sql/query tx ["
 INSERT INTO buy_request (buyer_id, amount, currency_buyer, currency_seller, exchange_rate)
 VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 " user-id amount currency-buyer currency-seller exchange-rate]))]
-          (log! tx "buy-request-create" {:user-id user-id
-                                         :amount amount
-                                         :currency-buyer currency-buyer
-                                         :currency-seller currency-seller
-                                         :exchange-rate exchange-rate})
-          (when txcb (txcb buy-request))
-          buy-request))
-      ->kebab-case))
+      (log! tx "buy-request-create" {:user-id user-id
+                                     :amount amount
+                                     :currency-buyer currency-buyer
+                                     :currency-seller currency-seller
+                                     :exchange-rate exchange-rate})
+      (let [kb-buy-request (->kebab-case buy-request)]
+        (when txcb (txcb kb-buy-request))
+        kb-buy-request))))
 
 (defn get-buy-requests-by-user [user-id]
   (mapv ->kebab-case

@@ -44,15 +44,7 @@
 
   :plugins [[lein-cljsbuild "1.1.3"]
             [lein-environ "1.0.3"]
-            [lein-less "1.7.5"]
-            [lein-npm "0.6.2"]]
-
-  :npm {:dependencies [;; [react-input-range "0.9.3"]
-                       ;; Other types of dependencies (github, private npm, etc.) can be passed as a string
-                       ;; See npm docs though as this may change between versions.
-                       ;; https://docs.npmjs.com/files/package.json#dependencies
-                       ;;[your-module "github-username/repo-name#commitish"]
-                       ]}
+            [lein-less "1.7.5"]]
 
   :min-lein-version "2.6.1"
 

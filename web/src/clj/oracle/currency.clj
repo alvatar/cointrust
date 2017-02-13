@@ -22,42 +22,42 @@
 (defn get-current-exchange-rates [] @current-rates)
 
 (defn get-coinbase-rates []
-  {:last-update (utils/unix-now)
-   :rates (try
-            {:usd-btc (Double/parseDouble
-                       (-> @(http/get "https://api.coinbase.com/v2/exchange-rates")
-                           :body
-                           bs/to-string
-                           (json/parse-string true)
-                           :data
-                           :rates
-                           :BTC))
-             :btc-usd (Double/parseDouble
-                       (-> @(http/get "https://api.coinbase.com/v2/exchange-rates?currency=btc")
-                           :body
-                           bs/to-string
-                           (json/parse-string true)
-                           :data
-                           :rates
-                           :USD))}
-            (catch Exception e
-              (println e)
-              nil))
-   #_{:usd-btc (rand 1) #_0.001004, :btc-usd (rand 900) #_995.97}
-   })
+  (when-let [rates (try
+                     {:usd-btc (Double/parseDouble
+                                (-> @(http/get "https://api.coinbase.com/v2/exchange-rates")
+                                    :body
+                                    bs/to-string
+                                    (json/parse-string true)
+                                    :data
+                                    :rates
+                                    :BTC))
+                      :btc-usd (Double/parseDouble
+                                (-> @(http/get "https://api.coinbase.com/v2/exchange-rates?currency=btc")
+                                    :body
+                                    bs/to-string
+                                    (json/parse-string true)
+                                    :data
+                                    :rates
+                                    :USD))}
+                     (catch Exception e
+                       (println e)
+                       nil))
+             #_{:usd-btc (rand 1) #_0.001004, :btc-usd (rand 900) #_995.97}]
+    {:last-update (utils/unix-now)
+     :rates rates}))
 
 (defn make-exchange-rates-worker []
   (future
-    (try
-      (loop []
+    (loop []
+      (try
         (when @exchange-rates-worker-running?
           (log/debug "Updating exchange rates")
           (swap! current-rates #(or (get-coinbase-rates) %))
-          (Thread/sleep 60000)
-          (recur)))
-      (catch Exception e
-        (println e)
-        e))))
+          (Thread/sleep 60000))
+        (catch Exception e
+          (println e)
+          e))
+      (recur))))
 
 (defn start-exchange-rates-updates! []
   (when-not @exchange-rates-worker

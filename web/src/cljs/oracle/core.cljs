@@ -560,14 +560,14 @@
                                                                 #(reset! (:ui-mode app-state) :none))))}))
                           (ui/flat-button {:label (if offer-active? "Update" "Sell")
                                            :on-touch-tap (fn []
-                                                           (open-sell-offer {:currency "btc" :min min-val :max max-val})
+                                                           (open-sell-offer {:currency "usd" :min min-val :max max-val})
                                                            (reset! (:ui-mode app-state) :none))})
                           (ui/flat-button {:label "Back"
                                            :primary true
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
                [:div
                 [:h4 "Offer transactions between " [:strong min-val]
-                 " and " [:strong max-val] " (USD " [:strong (round-currency (/ min-val btc-usd))]
+                 " and " [:strong max-val] " USD (" [:strong (round-currency (/ min-val btc-usd))]
                  " - " [:strong (round-currency (/ max-val btc-usd))] " BTC)"]
                 [:h6 {:style {:margin-top "-1rem"}}
                  (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
@@ -886,6 +886,7 @@
         current (peek pending-matches)
         account-info (::account-info state_)]
     (when current
+      (log* "Current sell offer: " current)
       (ui/dialog {:title (gstring/format "Offer Matched for %f %s" (common/currency-as-float
                                                                     (:amount current)
                                                                     (:currency-seller current))
