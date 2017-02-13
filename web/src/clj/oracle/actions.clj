@@ -110,7 +110,7 @@
 
 (defmethod -event-msg-handler :buy-request/decline
   [args]
-  (preemptive-task-handler args :buy-request/accept))
+  (preemptive-task-handler args :buy-request/decline))
 
 (defmethod -event-msg-handler :contract/break
   [args]
