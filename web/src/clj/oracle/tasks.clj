@@ -78,6 +78,10 @@
                                          buyer-wants-currency (get-in buyer-specs [:wants :currency])
                                          ;; In theory, we should check what the seller wants against what the buyer offers
                                          seller-wants (get-in buyer-specs [:offers :currency])]
+                                     (pr-str %)
+                                     (log/debugf "seller offers: %s - "
+                                                 (currency-convert (:min %) seller-wants buyer-wants-currency)
+                                                 (currency-convert (:max %) seller-wants buyer-wants-currency))
                                      (and (>= buyer-wants-amount
                                               (currency-convert (:min %) seller-wants buyer-wants-currency))
                                           (<= buyer-wants-amount

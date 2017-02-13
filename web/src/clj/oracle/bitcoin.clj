@@ -120,7 +120,7 @@
                                   (first (.getOutputs transaction)) (:network-params @current-app)))]
               (log/debugf "Received payment of %s BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
               (if-let [contract (db/get-contract-by-input-address address-payed)]
-                (do (log/debugf "Payment to %s funds contract ID %d" address-payed (:id contract))
+                (do (log/debugf "Payment to %s funds contract ID %s" address-payed contract)
                     (if (>= amount-payed (:amount contract))
                       (do (db/contract-set-escrow-funded! (:id contract))
                           (log/debugf "Contract ID %d successfully funded\n" (:id contract)))
