@@ -798,7 +798,7 @@
   [:div
    [:h4.center "Active contracts"]
    [:div
-    (let [contracts (reverse (rum/react (:contracts app-state)))]
+    (let [contracts (rum/react (:contracts app-state))]
       (cond
         (not contracts)
         [:div "Retrieving contracts..."
