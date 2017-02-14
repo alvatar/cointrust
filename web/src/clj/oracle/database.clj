@@ -305,7 +305,8 @@ WHERE contract.id = ?;
 SELECT contract_event.* FROM contract_event
 INNER JOIN contract
 ON contract.id = contract_event.contract_id
-WHERE contract.id = ? AND contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
+WHERE contract_event.time = ( SELECT MAX(contract_event.time) FROM contract_event
+                              WHERE contract_event.contract_id = ? );
 " contract-id])))
 
 (defn get-contracts-by-user [user-id]
@@ -322,8 +323,9 @@ SELECT contract.*, contract_event.stage FROM contract_event
 INNER JOIN contract
 ON contract.id = contract_event.contract_id
 WHERE (buyer_id = ? OR seller_id = ?)
-      AND contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
-" user-id user-id])))
+      AND contract_event.time = ( SELECT MAX(contract_event.time) FROM contract_event
+                                  WHERE contract_event.contract_id = ? );
+" user-id user-id user-id])))
 
 (defn get-contract-by-id [id]
   (-> (sql/query db ["
@@ -336,9 +338,11 @@ WHERE id = ?
 (defn get-contract-by-id-with-last-event [id]
   (-> (sql/query db ["
 SELECT contract.*, contract_event.stage FROM contract_event
-INNER JOIN contract
-ON contract.id = contract_event.contract_id
-WHERE contract.id = ? AND contract_event.time = (SELECT MAX(contract_event.time) FROM contract_event);
+JOIN contract
+ON contract_event.contract_id = contract.id
+WHERE contract.id = ?
+ORDER BY contract_event.time DESC
+LIMIT 1
 " id])
       first
       ->kebab-case))
@@ -358,9 +362,11 @@ SELECT * FROM contract
 "])))
 
 (defn get-all-events []
-  (sql/query db ["
+  (mapv
+   ->kebab-case
+   (sql/query db ["
 SELECT * FROM contract_event;
-"]))
+"])))
 
 ;; TODO: IS THIS SECURE?
 

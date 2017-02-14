@@ -533,7 +533,7 @@
                  "Maximum number of simultaneous open BUY requests reached."))))
 
 (rum/defc sell-slider [currency [min-val max-val] on-change]
-  (js/React.createElement js/Slider #js {:min 100
+  (js/React.createElement js/Slider #js {:min 1
                                          :max 20000
                                          :range true
                                          :allowCross false
@@ -547,7 +547,7 @@
   (let [offer-active? (boolean @(:sell-offer app-state))
         btc-usd (get (rum/react (:exchange-rates app-state)) :btc-usd)
         ui-values (::ui-values state_)
-        min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 100)
+        min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 1)
         max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)]
     (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoin")
                 :open (= (rum/react (:ui-mode app-state)) :sell-dialog)
@@ -798,7 +798,7 @@
   [:div
    [:h4.center "Active contracts"]
    [:div
-    (let [contracts (rum/react (:contracts app-state))]
+    (let [contracts (reverse (rum/react (:contracts app-state)))]
       (cond
         (not contracts)
         [:div "Retrieving contracts..."
