@@ -1,5 +1,6 @@
 (ns oracle.database
-  (:require [environ.core :refer [env]]
+  (:require [clojure.pprint :refer [pprint]]
+            [environ.core :refer [env]]
             [taoensso.timbre :as log]
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
@@ -319,13 +320,19 @@ WHERE buyer_id = ? OR seller_id = ?
 (defn get-contracts-by-user-with-last-event [user-id]
   (mapv ->kebab-case
         (sql/query db ["
-SELECT contract.*, contract_event.stage FROM contract_event
-INNER JOIN contract
-ON contract.id = contract_event.contract_id
+SELECT * FROM contract
+INNER JOIN (
+  SELECT a.*
+  FROM contract_event a
+  INNER JOIN (
+      SELECT contract_id, MAX(time) AS max_time
+      FROM contract_event
+      GROUP BY contract_id
+  ) b ON a.contract_id = b.contract_id AND a.time = b.max_time
+) latest_events
+ON contract.id = latest_events.contract_id
 WHERE (buyer_id = ? OR seller_id = ?)
-      AND contract_event.time = ( SELECT MAX(contract_event.time) FROM contract_event
-                                  WHERE contract_event.contract_id = ? );
-" user-id user-id user-id])))
+" user-id user-id])))
 
 (defn get-contract-by-id [id]
   (-> (sql/query db ["
@@ -367,6 +374,19 @@ SELECT * FROM contract
    (sql/query db ["
 SELECT * FROM contract_event;
 "])))
+
+(defn get-all-last-events []
+  (mapv ->kebab-case
+        (sql/query db ["
+SELECT a.*
+FROM contract_event a
+INNER JOIN (
+    SELECT contract_id, MAX(time) AS max_time
+    FROM contract_event
+    GROUP BY contract_id
+) b ON a.contract_id = b.contract_id AND a.time = b.max_time
+
+" ])))
 
 ;; TODO: IS THIS SECURE?
 
