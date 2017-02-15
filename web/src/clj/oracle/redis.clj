@@ -17,6 +17,11 @@
 (def redis-conn {:pool {}
                  :spec {:uri redis-url}})
 
+(defn override-url [url]
+  (def redis-url url)
+  (def redis-conn {:pool {}
+                   :spec {:uri redis-url}}))
+
 (defmacro wcar* [& body] `(r/wcar redis-conn ~@body))
 
 (defn redis->json [stored]

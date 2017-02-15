@@ -691,51 +691,54 @@
                     :actions [(ui/flat-button {:label "Close"
                                                :primary true
                                                :on-touch-tap #(reset! (:display-contract app-state) nil)})]}
-                   (let [val-fiat [:strong (common/satoshi->btc (:amount contract)) " "
-                                   (clojure.string/upper-case (:currency-seller contract))]]
-                     (if (am-i-buyer? contract)
-                       ;; Buyer dialog
-                       [:div
-                        [:div (if (:escrow-buyer-has-key contract) {:style {:color "#bbb"}} {})
-                         [:h3 "Step 1"]
-                         (if (:escrow-buyer-has-key contract)
-                           [:p "The key has been extracted and is no longer available in our servers."]
-                           [:div.flex-grid.aligner
-                            [:div.col
-                             (if (and (nil? (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
-                               (ui/raised-button {:label "Get the Escrow Key"
-                                                  :primary true
-                                                  :on-touch-tap (fn [] (chsk-send!
-                                                                        [:escrow/get-user-key {:id (:id contract) :role "buyer"}] 5000
+                   (if (am-i-buyer? contract)
+                     ;; Buyer dialog
+                     [:div
+                      [:div (if (:escrow-buyer-has-key contract) {:style {:color "#bbb"}} {})
+                       [:h3 "Step 1"]
+                       (if (:escrow-buyer-has-key contract)
+                         [:p "The key has been extracted and is no longer available in our servers."]
+                         [:div.flex-grid.aligner
+                          [:div.col
+                           (if (and (nil? (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
+                             (ui/raised-button {:label "Get the Escrow Key"
+                                                :primary true
+                                                :on-touch-tap (fn [] (chsk-send!
+                                                                      [:escrow/get-user-key {:id (:id contract) :role "buyer"}] 5000
+                                                                      #(if (and (sente/cb-success? %) (= :ok (:status %)))
+                                                                         (reset! user-key (:escrow-user-key %))
+                                                                         (log* "Error in escrow/get-user-key" %))))})
+                             (ui/raised-button {:label "I have stored my key in a secure place"
+                                                :primary true
+                                                :on-touch-tap (fn [] (when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
+                                                                       (chsk-send!
+                                                                        [:escrow/forget-user-key {:id (:id contract) :role "buyer"}] 5000
                                                                         #(if (and (sente/cb-success? %) (= :ok (:status %)))
-                                                                           (reset! user-key (:escrow-user-key %))
-                                                                           (log* "Error in escrow/get-user-key" %))))})
-                               (ui/raised-button {:label "I have stored my key in a secure place"
-                                                  :primary true
-                                                  :on-touch-tap (fn [] (when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
-                                                                         (chsk-send!
-                                                                          [:escrow/forget-user-key {:id (:id contract) :role "buyer"}] 5000
-                                                                          #(if (and (sente/cb-success? %) (= :ok (:status %)))
-                                                                             (if-let [found-idx (find-in @(:contracts app-state) (:id contract))]
-                                                                               (swap! (:contracts app-state) assoc-in [found-idx :escrow-buyer-has-key] true)
-                                                                               (log* "Error in escrow/forget-user-key (contract not found)" %))
-                                                                             (log* "Error in escrow/forget-user-key" %)))))}))]
-                            [:div.col (rum/react user-key)]])]
-                        [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}} val-fiat] " to the seller account"]
-                        [:pre {:style {:font-size "small"}} (:transfer-info contract)]
-                        [:div
-                         (ui/raised-button {:label "I've transferred the funds"
-                                            :primary true
-                                            :disabled (or (not (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
-                                            :on-touch-tap #(do (mark-contract-sent (:id contract))
-                                                               (reset! (:display-contract app-state) nil))})]]
-                       ;; Seller dialog
-                       [:div
-                        [:p "Please confirm here when you've received the funds in your bank account"]
-                        (ui/raised-button {:label "I've received the funds"
-                                           :primary true
-                                           :on-touch-tap #(do (mark-contract-received (:id contract))
-                                                              (reset! (:display-contract app-state) nil))})])))
+                                                                           (if-let [found-idx (find-in @(:contracts app-state) (:id contract))]
+                                                                             (swap! (:contracts app-state) assoc-in [found-idx :escrow-buyer-has-key] true)
+                                                                             (log* "Error in escrow/forget-user-key (contract not found)" %))
+                                                                           (log* "Error in escrow/forget-user-key" %)))))}))]
+                          [:div.col (rum/react user-key)]])]
+                      [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
+                                            [:strong (* (common/currency-as-float (:amount contract)
+                                                                                  (:currency-seller contract))
+                                                        (.-rep (:exchange-rate contract)))
+                                             " "
+                                             (clojure.string/upper-case (:currency-buyer contract))]] " to the seller account"]
+                      [:pre {:style {:font-size "small"}} (:transfer-info contract)]
+                      [:div
+                       (ui/raised-button {:label "I've transferred the funds"
+                                          :primary true
+                                          :disabled (or (not (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
+                                          :on-touch-tap #(do (mark-contract-sent (:id contract))
+                                                             (reset! (:display-contract app-state) nil))})]]
+                     ;; Seller dialog
+                     [:div
+                      [:p "Please confirm here when you've received the funds in your bank account"]
+                      (ui/raised-button {:label "I've received the funds"
+                                         :primary true
+                                         :on-touch-tap #(do (mark-contract-received (:id contract))
+                                                            (reset! (:display-contract app-state) nil))})]))
 
         "contract-success"
         (ui/dialog {:title "Contract Action Required"

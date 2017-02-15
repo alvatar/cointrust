@@ -72,3 +72,9 @@
     (reset! exchange-rates-worker nil)
     (log/debug "Exchange rates updater stopped")
     'stopped))
+
+(defn convert [amount from to]
+  (long
+   (* (get (:rates (get-current-exchange-rates))
+           (keyword (str (name to) "-" (name from))))
+      amount)))

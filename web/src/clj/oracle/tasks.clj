@@ -57,12 +57,6 @@
 ;; Matching
 ;;
 
-(defn currency-convert [amount from to]
-  (long
-   (* (get (:rates (currency/get-current-exchange-rates))
-           (keyword (str (name to) "-" (name from))))
-      amount)))
-
 ;; This is the core of Cointrust. When a request to buy is received,
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
@@ -79,13 +73,13 @@
                                          ;; In theory, we should check what the seller wants against what the buyer offers
                                          seller-wants (get-in buyer-specs [:offers :currency])]
                                      (pr-str %)
-                                     (log/debugf "seller offers: %s - "
-                                                 (currency-convert (:min %) seller-wants buyer-wants-currency)
-                                                 (currency-convert (:max %) seller-wants buyer-wants-currency))
+                                     (log/debugf "seller offers: %s - %s"
+                                                 (currency/convert (:min %) seller-wants buyer-wants-currency)
+                                                 (currency/convert (:max %) seller-wants buyer-wants-currency))
                                      (and (>= buyer-wants-amount
-                                              (currency-convert (:min %) seller-wants buyer-wants-currency))
+                                              (currency/convert (:min %) seller-wants buyer-wants-currency))
                                           (<= buyer-wants-amount
-                                              (currency-convert (:max %) seller-wants buyer-wants-currency))))
+                                              (currency/convert (:max %) seller-wants buyer-wants-currency))))
                                   offering)]
     (log/debug "PICK COUNTERPARTY, offering: " (pr-str offering))
     (log/debug "PICK COUNTERPARTY, offering in range: " (pr-str offering-in-range))
@@ -317,7 +311,8 @@
       ;; Seller informs of transfer received
       ;; The buyer is informed of the transfer received
       "holding-period"
-      (cond (> now (utils/unix-after (time-coerce/to-date-time (:holding-period-start contract)) (time/days 100)))
+      (cond (> now (utils/unix-after (time-coerce/to-date-time (:holding-period-start contract))
+                                     (time/seconds 2) #_(time/days 100)))
             (do (db/contract-set-field! contract "escrow_open_for" (:buyer-id contract)) ; Idempotent
                 (events/add-event! (:buyer-id contract) :contract-success contract)
                 (events/add-event! (:seller-id contract) :contract-success contract)
@@ -325,7 +320,11 @@
                   #(db/contract-add-event! contract-id "contract-success" nil %))
                 {:status :success})
             :else
-            {:status :retry :backoffs-ms 20000}))))
+            {:status :retry :backoffs-ms 10000})
+
+      ;; Wrong stage, keep around for observation
+      (log/debugf "Contract creation inconsistent: \n%s \n%s" contract buy-request)
+      {:status :retry :backoffs-ms 3600000})))
 
 ;;
 ;; Preemptive task queues: They mark the accomplished micro-task, for the master

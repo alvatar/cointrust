@@ -332,6 +332,7 @@ INNER JOIN (
 ) latest_events
 ON contract.id = latest_events.contract_id
 WHERE (buyer_id = ? OR seller_id = ?)
+ORDER BY contract.created DESC
 " user-id user-id])))
 
 (defn get-contract-by-id [id]
@@ -363,7 +364,7 @@ WHERE input_address = ?
       ->kebab-case))
 
 (defn get-all-contracts []
-  (into []
+  (mapv ->kebab-case
         (sql/query db ["
 SELECT * FROM contract
 "])))
