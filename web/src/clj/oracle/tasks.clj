@@ -19,6 +19,15 @@
             [oracle.bitcoin :as bitcoin]
             [oracle.currency :as currency]))
 
+
+
+;;
+;; Utils
+;;
+
+(defn add-task-metadata [task-id data]
+  (wcar* (r/hset (str "task-metadata-" task-id) data)))
+
 ;;
 ;; Interface
 ;;
@@ -30,8 +39,8 @@
                                      :handler (ref nil)
                                      :worker (ref nil)}
                   :common-preemptive {:qname "common-preemptive-queue"
-                                     :handler (ref nil)
-                                     :worker (ref nil)}})
+                                      :handler (ref nil)
+                                      :worker (ref nil)}})
 
 (defn initiate-buy-request [buyer-id amount currency-buyer currency-seller]
   (log/debug (format "Initiated buy request from buyer ID %d for %d %s" buyer-id amount currency-seller))
@@ -155,67 +164,64 @@
 ;; 3. When counterparty accepts, trigger contract creation
 (defn buy-requests-master-handler
   [{:keys [qname mid message attempt] :as task}]
-  (let [{:keys [buyer-id amount currency-buyer currency-seller]} message
-        state (idempotency-state-rebuild mid)
-        now (get-in state [:global :now])
-        buy-request (with-idempotent-transaction mid :buy-request-create state
-                      ;; TODO: exchange rate
-                      #(if-let [result (db/buy-request-create! buyer-id amount currency-buyer currency-seller
-                                                               (get-in (oracle.currency/get-current-exchange-rates) [:rates :btc-usd])
-                                                               %)]
-                         (do (log/debug "Buy request created:" result) result)
-                         (throw (Exception. "Couldn't create buy-request"))))
-        buy-request-id (:id buy-request)]
-    ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
-    ;; (log/debugf "STATE: %s" state)
-    ;; (log/debug "Processing buy request ID" buy-request-id)
-    (idempotent-ops mid :event-buy-request-created state
-                    (events/add-event! buyer-id :buy-request-created buy-request))
-    (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
-                         #(db/buy-request-set-seller! buy-request-id (pick-counterparty
-                                                                      buyer-id
-                                                                      ;; Request to buy of what the seller has
-                                                                      ;; TODO: improve semantics upstream to match this
-                                                                      {:wants {:amount amount :currency currency-seller}
-                                                                       :offers {:currency currency-buyer}})
-                                                      %))]
-      (do (idempotent-ops mid :event-sell-offer-matched state
-                          (events/add-event! seller-id :sell-offer-matched buy-request)
-                          (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
-          ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
-          ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))
-          (let [buy-request-status (get-buy-request-status buy-request-id)]
-            (cond
-              ;; Buy request accepted
-              (= buy-request-status "<accepted>")
-              (do (clear-user-blacklist buyer-id)
-                  {:status :success})
-              ;; Buy request declined
-              (or (= buy-request-status "<declined>")
-                  (> now (utils/unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1))))
-              (do (idempotency-state-set! mid :global (merge (:global state) {:started now}))
-                  (idempotency-state-set! mid :pick-counterparty nil)
-                  (idempotency-state-set! mid :event-sell-offer-matched nil)
-                  (db/buy-request-unset-seller! buy-request-id)
-                  (blacklist-counterparty buyer-id seller-id)
-                  (clear-buy-request-status buy-request-id)
-                  (if (= buy-request-status "<declined>")
-                    (events/add-event! seller-id :buy-request-decline buy-request)
-                    (events/add-event! seller-id :buy-request-timed-out buy-request))
-                  {:status :retry :backoff-ms 1})
-              :else
-              {:status :retry :backoff-ms 4000})))
-      (do (log/debug "No seller match. Retrying in 20 seconds.")
-          {:status :retry :backoff-ms 20000}))))
-
-;;
-;;
-;;TODO: HANDLE EXCEPTIONS PROPERLY IN TASKS
-;; RECOVER THEM, ETC
-;;
-;;
-
-
+  (try
+    (let [{:keys [buyer-id amount currency-buyer currency-seller]} message
+          state (idempotency-state-rebuild mid)
+          now (get-in state [:global :now])
+          buy-request (with-idempotent-transaction mid :buy-request-create state
+                        ;; TODO: exchange rate
+                        #(if-let [result (db/buy-request-create! buyer-id amount currency-buyer currency-seller
+                                                                 (get-in (oracle.currency/get-current-exchange-rates) [:rates :btc-usd])
+                                                                 %)]
+                           (do (log/debug "Buy request created:" result) result)
+                           (throw (Exception. "Couldn't create buy-request"))))
+          buy-request-id (:id buy-request)]
+      ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
+      ;; (log/debugf "STATE: %s" state)
+      ;; (log/debug "Processing buy request ID" buy-request-id)
+      (idempotent-ops mid :event-buy-request-created state
+                      (events/add-event! buyer-id :buy-request-created buy-request))
+      (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
+                           #(db/buy-request-set-seller! buy-request-id (pick-counterparty
+                                                                        buyer-id
+                                                                        ;; Request to buy of what the seller has
+                                                                        ;; TODO: improve semantics upstream to match this
+                                                                        {:wants {:amount amount :currency currency-seller}
+                                                                         :offers {:currency currency-buyer}})
+                                                        %))]
+        (do (idempotent-ops mid :event-sell-offer-matched state
+                            (events/add-event! seller-id :sell-offer-matched buy-request)
+                            (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
+            ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
+            ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))
+            (let [buy-request-status (get-buy-request-status buy-request-id)]
+              (cond
+                ;; Buy request accepted
+                (= buy-request-status "<accepted>")
+                (do (clear-user-blacklist buyer-id)
+                    {:status :success})
+                ;; Buy request declined
+                (or (= buy-request-status "<declined>")
+                    (> now (utils/unix-after (time-coerce/to-date-time (:created buy-request)) (time/days 1))))
+                (do (idempotency-state-set! mid :global (merge (:global state) {:started now}))
+                    (idempotency-state-set! mid :pick-counterparty nil)
+                    (idempotency-state-set! mid :event-sell-offer-matched nil)
+                    (db/buy-request-unset-seller! buy-request-id)
+                    (blacklist-counterparty buyer-id seller-id)
+                    (clear-buy-request-status buy-request-id)
+                    (if (= buy-request-status "<declined>")
+                      (events/add-event! seller-id :buy-request-decline buy-request)
+                      (events/add-event! seller-id :buy-request-timed-out buy-request))
+                    {:status :retry :backoff-ms 1})
+                :else
+                {:status :retry :backoff-ms 4000})))
+        (do (log/debug "No seller match. Retrying in 20 seconds.")
+            {:status :retry :backoff-ms 20000})))
+    (catch Exception e
+      (let [prex (with-out-str (pprint e))]
+        (log/debugf "Exception in task: " prex)
+        (add-task-metadata mid {:queue "buy-requests" :exception prex :attempt attempt}))
+      {:status :retry :backoff-ms 360000})))
 
 ;; Contract master handler
 ;; 1. Get current stage
@@ -229,102 +235,109 @@
 ;; different path afterwards, making idempotency irrelevant
 (defn contracts-master-handler
   [{:keys [qname mid message attempt] :as all}]
-  (let [{:keys [id] :as buy-request} message
-        state (idempotency-state-rebuild mid)
-        now (get-in state [:global :now])
-        initial-contract (with-idempotent-transaction mid :contract state
-                           #(if-let [contract (db/contract-create!
-                                               (merge buy-request {:input-address (bitcoin/wallet-get-fresh-address
-                                                                                      (bitcoin/get-current-wallet))})
-                                               %)]
-                              (do (log/debug "Contract created:" contract)
-                                  contract)
-                              (throw (Exception. "Couldn't create contract"))))
-        contract-id (:id initial-contract)
-        ;; Make sure we have the latest version of the contrast (forget idempotent op)
-        contract (db/get-contract-by-id-with-last-event contract-id)]
-    ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
-    ;; Task initialization
-    ;; TODO: THIS WON'T ENSURE EXECUTION OF THESE COMMANDS
-    (when (= attempt 1)
-      ;; Keep in mind that we are deleting the request here, so we rely on the master task
-      ;; to retrieve the buy request info from the idempotency cache in Redis
-      (db/buy-request-delete! (:id buy-request)) ; Idempotent, must be done at the end
-      (events/add-event! (:buyer-id contract) :contract-create contract)
-      (events/add-event! (:seller-id contract) :contract-create contract)
-      (escrow/setup-keys-for-contract! contract-id))
-    (case (:stage contract)
+  (try
+    (let [{:keys [id] :as buy-request} message
+          state (idempotency-state-rebuild mid)
+          now (get-in state [:global :now])
+          initial-contract (with-idempotent-transaction mid :contract state
+                             #(if-let [contract (db/contract-create!
+                                                 (merge buy-request {:input-address (bitcoin/wallet-get-fresh-address
+                                                                                        (bitcoin/get-current-wallet))})
+                                                 %)]
+                                (do (log/debug "Contract created:" contract)
+                                    contract)
+                                (throw (Exception. "Couldn't create contract"))))
+          contract-id (:id initial-contract)
+          ;; Make sure we have the latest version of the contrast (forget idempotent op)
+          contract (db/get-contract-by-id-with-last-event contract-id)]
+      ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
+      ;; Task initialization
+      ;; TODO: THIS WON'T ENSURE EXECUTION OF THESE COMMANDS
+      (when (= attempt 1)
+        ;; Keep in mind that we are deleting the request here, so we rely on the master task
+        ;; to retrieve the buy request info from the idempotency cache in Redis
+        (db/buy-request-delete! (:id buy-request)) ; Idempotent, must be done at the end
+        (events/add-event! (:buyer-id contract) :contract-create contract)
+        (events/add-event! (:seller-id contract) :contract-create contract)
+        (escrow/setup-keys-for-contract! contract-id))
+      (case (:stage contract)
 
-      ;; Currently only used for testing
-      "contract-success"
-      {:status :success}
+        ;; Currently only used for testing
+        "contract-success"
+        {:status :success}
 
-      ;; Contract can be cancelled anytime
-      "contract-broken"
-      (do (events/add-event! (:buyer-id contract) :contract-broken contract)
-          (events/add-event! (:seller-id contract) :contract-broken contract)
-          (db/contract-set-field! contract "escrow_open_for" (:seller-id contract))
-          {:status :success})
+        ;; Contract can be cancelled anytime
+        "contract-broken"
+        (do (events/add-event! (:buyer-id contract) :contract-broken contract)
+            (events/add-event! (:seller-id contract) :contract-broken contract)
+            (db/contract-set-field! contract "escrow_open_for" (:seller-id contract))
+            {:status :success})
 
-      ;; We inform of the expected transaction and the freezing of price.
-      ;; We wait for the seller to fund the escrow and provide the transfer details.
-      "waiting-escrow"
-      (cond (and (:transfer-info contract) (:escrow-funded contract)) ; TODO: Observing the blockchain
-            (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
-                  (fn [idemp]
-                    (log/debug "Contract stage changed to \"waiting-transfer\"")
-                    (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
-                (let [contract (merge contract {:stage "waiting-transfer"})]
-                  (events/add-event! (:seller-id contract) :contract-escrow-funded contract)
-                  (events/add-event! (:buyer-id contract) :contract-escrow-funded contract)
-                  ;;(events/add-event! (:seller-id contract) :contract-waiting-transfer contract)
-                  ;;(events/add-event! (:buyer-id contract) :contract-waiting-transfer contract)
-                  )
-                {:status :retry :backoff-ms 1})
-            (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
-            (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
-                  #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
-                {:status :retry :backoff-ms 1})
-            :else
-            {:status :retry :backoff-ms 1000})
+        ;; We inform of the expected transaction and the freezing of price.
+        ;; We wait for the seller to fund the escrow and provide the transfer details.
+        "waiting-escrow"
+        (cond (and (:transfer-info contract) (:escrow-funded contract)) ; TODO: Observing the blockchain
+              (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
+                    (fn [idemp]
+                      (log/debug "Contract stage changed to \"waiting-transfer\"")
+                      (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
+                  (let [contract (merge contract {:stage "waiting-transfer"})]
+                    (events/add-event! (:seller-id contract) :contract-escrow-funded contract)
+                    (events/add-event! (:buyer-id contract) :contract-escrow-funded contract)
+                    ;;(events/add-event! (:seller-id contract) :contract-waiting-transfer contract)
+                    ;;(events/add-event! (:buyer-id contract) :contract-waiting-transfer contract)
+                    )
+                  {:status :retry :backoff-ms 1})
+              (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
+              (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
+                    #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
+                  {:status :retry :backoff-ms 1})
+              :else
+              {:status :retry :backoff-ms 1000})
 
-      ;; We provide the buyer with A) the transfer info B) the instructions
-      ;; Buyer informs of transfer performed to the system
-      ;; The seller is informed of the transfer initiated
-      "waiting-transfer"
-      (cond (:transfer-received contract)
-            (do (with-idempotent-transaction mid :contract-add-event-holding-period state
-                  (fn [idemp]
-                    (log/debug "Contract stage changed to \"holding-period\"")
-                    (db/contract-add-event! contract-id "holding-period" nil idemp)))
-                (events/add-event! (:buyer-id contract) :contract-holding-period contract)
-                (events/add-event! (:seller-id contract) :contract-holding-period contract)
-                {:status :retry :backoff-ms 1})
-            ;; The transfer waiting period includes both buyer sending and seller receiving notifications
-            (> now (utils/unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/days 1)))
-            (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
-                  #(db/contract-add-event! contract-id "contract-broken" {:reason "transfer waiting period timed out"} %))
-                {:status :retry :backoff-ms 1})
-            :else
-            {:status :retry :backoff-ms 6000})
+        ;; We provide the buyer with A) the transfer info B) the instructions
+        ;; Buyer informs of transfer performed to the system
+        ;; The seller is informed of the transfer initiated
+        "waiting-transfer"
+        (cond (:transfer-received contract)
+              (do (with-idempotent-transaction mid :contract-add-event-holding-period state
+                    (fn [idemp]
+                      (log/debug "Contract stage changed to \"holding-period\"")
+                      (db/contract-add-event! contract-id "holding-period" nil idemp)))
+                  (events/add-event! (:buyer-id contract) :contract-holding-period contract)
+                  (events/add-event! (:seller-id contract) :contract-holding-period contract)
+                  {:status :retry :backoff-ms 1})
+              ;; The transfer waiting period includes both buyer sending and seller receiving notifications
+              (> now (utils/unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/days 1)))
+              (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
+                    #(db/contract-add-event! contract-id "contract-broken" {:reason "transfer waiting period timed out"} %))
+                  {:status :retry :backoff-ms 1})
+              :else
+              {:status :retry :backoff-ms 6000})
 
-      ;; Seller informs of transfer received
-      ;; The buyer is informed of the transfer received
-      "holding-period"
-      (cond (> now (utils/unix-after (time-coerce/to-date-time (:holding-period-start contract))
-                                     (time/seconds 2) #_(time/days 100)))
-            (do (db/contract-set-field! contract "escrow_open_for" (:buyer-id contract)) ; Idempotent
-                (events/add-event! (:buyer-id contract) :contract-success contract)
-                (events/add-event! (:seller-id contract) :contract-success contract)
-                (with-idempotent-transaction mid :contract-success state
-                  #(db/contract-add-event! contract-id "contract-success" nil %))
-                {:status :success})
-            :else
-            {:status :retry :backoffs-ms 10000})
+        ;; Seller informs of transfer received
+        ;; The buyer is informed of the transfer received
+        "holding-period"
+        (cond (> now (utils/unix-after (time-coerce/to-date-time (:holding-period-start contract))
+                                       (time/seconds 2) #_(time/days 100)))
+              (do (db/contract-set-field! contract "escrow_open_for" (:buyer-id contract)) ; Idempotent
+                  (events/add-event! (:buyer-id contract) :contract-success contract)
+                  (events/add-event! (:seller-id contract) :contract-success contract)
+                  (with-idempotent-transaction mid :contract-success state
+                    #(db/contract-add-event! contract-id "contract-success" nil %))
+                  {:status :success})
+              :else
+              {:status :retry :backoffs-ms 10000})
 
-      ;; Wrong stage, keep around for observation
-      (log/debugf "Contract creation inconsistent: \n%s \n%s" contract buy-request)
-      {:status :retry :backoffs-ms 3600000})))
+        ;; Wrong stage, keep around for observation
+        (log/debugf "Contract creation inconsistent: \n%s \n%s" (with-out-str (pprint contract))
+                    (with-out-str (pprint buy-request)))
+        {:status :retry :backoffs-ms 3600000}))
+    (catch Exception e
+      (let [prex (with-out-str (pprint e))]
+        (log/debugf "Exception in task: " prex)
+        (add-task-metadata mid {:queue "contracts" :exception prex :attempt attempt}))
+      {:status :retry :backoff-ms 360000})))
 
 ;;
 ;; Preemptive task queues: They mark the accomplished micro-task, for the master
