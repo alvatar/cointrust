@@ -67,7 +67,7 @@
   :cljsbuild {:builds
               [{:id "dev"
                 :source-paths ["src/cljs" "src/cljc"]
-                :figwheel true
+                :figwheel {:websocket-host :js-client-host}
                 ;; Alternatively, you can configure a function to run every time figwheel reloads.
                 ;; :figwheel {:on-jsload "oracle.core/on-figwheel-reload"}
                 :compiler {:main oracle.core
@@ -98,6 +98,7 @@
   :figwheel {;; :http-server-root "public"       ;; serve static assets from resources/public/
              ;; :server-port 3449                ;; default
              ;; :server-ip "127.0.0.1"           ;; default
+             :server-ip "0.0.0.0"
              :css-dirs ["resources/public/css"]  ;; watch and update CSS
              ;; Instead of booting a separate server on its own port, we embed
              ;; the server ring handler inside figwheel's http-kit server, so

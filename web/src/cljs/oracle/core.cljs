@@ -23,7 +23,7 @@
 ;; Globals
 ;;
 
-(goog-define *is-dev* true)
+(goog-define *is-dev* false)
 (def hook-fake-id?_ false)
 
 (defonce app-error (atom nil))
@@ -49,15 +49,36 @@
 
 (def exchange-rates-refresh-interval 60)
 
+(defonce window (atom {:width (aget js/window "innerWidth")
+                       :height (aget js/window "innerHeight")}))
+(defonce small-display? (atom (or (< (:width @window) 780)
+                                  (< (:height @window) 780))))
+(defonce _small-display-check
+  (. js/window addEventListener "resize"
+     (fn []
+       (let [width (aget js/window "innerWidth")]
+         (swap! window assoc :width width)
+         (swap! window assoc :height (aget js/window "innerHeight"))
+         (reset! small-display? (< width 780))))))
+
 ;;
 ;; Utils
 ;;
 
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
-(defn log* [& args] (when *is-dev* (js/console.log (clojure.string/join " " (map str args)))))
+(defn log* [& args] (when true (js/console.log (clojure.string/join " " (map str args)))))
+
+(defn open-page [url blank?]
+  (if blank?
+    (. js/window open url "_blank")
+    (aset js/window "location" url)))
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
+
+;;
+;; Helpers
+;;
 
 (defn round-currency [val] (/ (long (* 100000 val)) 100000))
 
@@ -98,13 +119,15 @@
 
 ;; For testing
 (when-not hook-fake-id?_
-  (fb/load-sdk (fn []
-                 (js/console.log "Facebook lib loaded")
-                 (fb/init {:appId "1131377006981108"
-                           :status true
-                           :cookies false
-                           :xfbml true
-                           :version "v2.8"}))))
+  (try
+    (fb/load-sdk (fn []
+                   (js/console.log "Facebook lib loaded")
+                   (fb/init {:appId "1131377006981108"
+                             :status true
+                             :cookies false
+                             :xfbml true
+                             :version "v2.8"})))
+    (catch :default e (js/console.log e))))
 
 ;;
 ;; Actions
@@ -495,37 +518,54 @@
         total (* btc-usd (:amount (rum/react input)))
         open? (= (rum/react (:ui-mode app-state)) :buy-dialog)]
     (if (<= (count @(:buy-requests app-state)) 10)
-      (ui/dialog {:title "Buy Bitcoins"
-                  :open open?
-                  :modal true
-                  :actions [(ui/flat-button {:label "Buy"
-                                             :primary true
-                                             :disabled (or (:processing (rum/react input)) (not (valid-val total)))
-                                             :on-touch-tap
-                                             (fn [e] (when (valid-val total)
-                                                       (swap! input assoc :processing true)
-                                                       (create-buy-request (:amount @input)
-                                                                           #(do (reset! (:ui-mode app-state) :none)
-                                                                                (swap! input assoc :processing false)))))})
-                            (ui/flat-button {:label "Cancel"
-                                             :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
-                 [:div
-                  [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
-                   [:h6 {:style {:margin-top "-1rem"}}
-                    (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
-                                                                                 (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
-                   (ui/text-field {:id "amount"
-                                   :autoFocus true
-                                   :value (:amount (rum/react input))
-                                   :on-change #(swap! input assoc :amount (.. % -target -value))
-                                   :error-text (when (not (valid-val total)) "Invalid value")})
-                   (when (> total 0)
-                     (str "for " (round-currency total) " USD"))]
-                  (when (:processing (rum/react input))
-                    [:div
-                     (ui/linear-progress {:size 60 :mode "indeterminate"
-                                          :style {:margin "auto" :left "0" :right "0" :top "1.5rem"}})
-                     [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])])
+      (if (rum/react small-display?)
+        [:div {:style {:display (if open? "block" "none")
+                       :position "fixed"
+                       :top 0 :left 0 :right 0 :bottom 0
+                       :width "100%" :height "100%" :background-color "#fff"}}
+         (ui/flat-button {:label "Buy"
+                          :primary true
+                          :disabled (or (:processing (rum/react input)) (not (valid-val total)))
+                          :on-touch-tap
+                          (fn [e] (when (valid-val total)
+                                    (swap! input assoc :processing true)
+                                    (create-buy-request (:amount @input)
+                                                        #(do (reset! (:ui-mode app-state) :none)
+                                                             (swap! input assoc :processing false)))))})
+         (ui/flat-button {:label "Cancel"
+                          :on-touch-tap #(reset! (:ui-mode app-state) :none)})]
+        (ui/dialog {:title "Buy Bitcoins"
+                    :open open?
+                    :modal true
+                    :actions [(ui/flat-button {:label "Buy"
+                                               :primary true
+                                               :disabled (or (:processing (rum/react input)) (not (valid-val total)))
+                                               :on-touch-tap
+                                               (fn [e] (when (valid-val total)
+                                                         (swap! input assoc :processing true)
+                                                         (create-buy-request (:amount @input)
+                                                                             #(do (reset! (:ui-mode app-state) :none)
+                                                                                  (swap! input assoc :processing false)))))})
+                              (ui/flat-button {:label "Cancel"
+                                               :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
+                   [:div
+                    [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
+                     [:h6 {:style {:margin-top "-1rem"}}
+                      (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
+                                                                                   (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
+                     (ui/text-field {:id "amount"
+                                     :auto-focus true
+                                     :style {:width "100px"}
+                                     :value (:amount (rum/react input))
+                                     :on-change #(swap! input assoc :amount (.. % -target -value))
+                                     :error-text (when (not (valid-val total)) "Invalid value")})
+                     (when (> total 0)
+                       (str "for " (round-currency total) " USD"))]
+                    (when (:processing (rum/react input))
+                      [:div
+                       (ui/linear-progress {:size 60 :mode "indeterminate"
+                                            :style {:margin "auto" :left "0" :right "0" :top "1.5rem"}})
+                       [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])]))
       (ui/dialog {:title "Maximum number reached"
                   :open open?
                   :actions [(ui/flat-button {:label "OK"
@@ -565,14 +605,24 @@
                           (ui/flat-button {:label "Back"
                                            :primary true
                                            :on-touch-tap #(reset! (:ui-mode app-state) :none)})]}
-               [:div
-                [:h4 "Offer transactions between " [:strong min-val]
-                 " and " [:strong max-val] " USD (" [:strong (round-currency (/ min-val btc-usd))]
-                 " - " [:strong (round-currency (/ max-val btc-usd))] " BTC)"]
-                [:h6 {:style {:margin-top "-1rem"}}
-                 (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
-                                                                              (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
-                (sell-slider "usd" [min-val max-val] (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))])))
+               (if (rum/react small-display?)
+                 [:div
+                  [:h4 "Set sell offer between: "
+                   [:br]
+                   [:strong min-val] " - " [:strong max-val] " USD"
+                   [:br]
+                   [:strong (round-currency (/ min-val btc-usd))] " - " [:strong (round-currency (/ max-val btc-usd))] " BTC"]
+                  [:h6 (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
+                                                                                    (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
+                  (sell-slider "usd" [min-val max-val] (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))]
+                 [:div
+                  [:h4 "Set sell offer between " [:strong min-val]
+                   " and " [:strong max-val] " USD (" [:strong (round-currency (/ min-val btc-usd))]
+                   " - " [:strong (round-currency (/ max-val btc-usd))] " BTC)"]
+                  [:h6 {:style {:margin-top "-1rem"}}
+                   (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
+                                                                                (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
+                  (sell-slider "usd" [min-val max-val] (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))]))))
 
 (rum/defc menu-controls-comp
   < rum/reactive
