@@ -24,7 +24,7 @@
 ;;
 
 (goog-define *is-dev* false)
-(def hook-fake-id?_ true)
+(def hook-fake-id?_ *is-dev*)
 
 (defonce app-error (atom nil))
 (defonce app-state {:scene (atom "main-menu")
