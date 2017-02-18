@@ -26,7 +26,7 @@
 ;;
 
 (defn add-task-metadata [task-id data]
-  (wcar* (r/hset (str "task-metadata-" task-id) data)))
+  (wcar* (r/set (str "task-metadata-" task-id) data)))
 
 ;;
 ;; Interface
@@ -90,8 +90,8 @@
                                           (<= buyer-wants-amount
                                               (currency/convert (:max %) seller-wants buyer-wants-currency))))
                                   offering)]
-    (log/debug "PICK COUNTERPARTY, offering: " (pr-str offering))
-    (log/debug "PICK COUNTERPARTY, offering in range: " (pr-str offering-in-range))
+    ;;(log/debug "PICK COUNTERPARTY, offering: " (pr-str offering))
+    ;;(log/debug "PICK COUNTERPARTY, offering in range: " (pr-str offering-in-range))
     (:user (or (empty? offering-in-range) (rand-nth offering-in-range)))))
 
 (defn blacklist-counterparty [buyer-id seller-id]
@@ -219,7 +219,7 @@
             {:status :retry :backoff-ms 20000})))
     (catch Exception e
       (let [prex (with-out-str (pprint e))]
-        (log/debugf "Exception in task: " prex)
+        (log/debugf "Exception in task: %s" prex)
         (add-task-metadata mid {:queue "buy-requests" :exception prex :attempt attempt}))
       {:status :retry :backoff-ms 360000})))
 
@@ -510,6 +510,8 @@
 
 ;; Seller accepts buy request
 ;; (oracle.database/buy-request-set-seller! 1 2)
+;; IMPORTANT: if done outside the task, the seller will be reset to nil if that was the value
+;; of the imdepotency storage
 #_(oracle.tasks/initiate-preemptive-task :buy-request/accept
                                        {:id 1
                                         :transfer-info "Hakuna Matata Bank.

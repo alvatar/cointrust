@@ -10,8 +10,30 @@ p,a,h3,h4,h5,h6,div {
     font-family: 'Abel', sans-serif;
 }
 
+.group:after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
 .center {
     text-align: center;
+}
+
+.margin-1rem {
+    margin: 1rem;
+}
+
+.margin-1rem-top {
+    margin-top: 1rem;
+}
+
+.margin-2rem {
+    margin: 2rem;
+}
+
+.padding-1rem {
+    padding: 1rem;
 }
 
 .title {
@@ -57,7 +79,7 @@ p,a,h3,h4,h5,h6,div {
 
 .offer-matched-column {
     float: left;
-    height: 320px;
+    height: 100%;
     width: 50%;
 }
 
@@ -126,4 +148,24 @@ p,a,h3,h4,h5,h6,div {
 
 .aligner-item--bottom {
   align-self: flex-end;
+}
+
+// Overlay
+
+.noscroll {
+    overflow: hidden;
+    position: relative;
+    background-color: #f00;
+}
+
+[aria-hidden="true"] {
+    width: 100%;
+    z-index: -1;
+    opacity: 0;
+}
+
+[aria-hidden="false"] {
+    width: 100%;
+    z-index: 1;
+    opacity: 1;
 }

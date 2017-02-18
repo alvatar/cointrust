@@ -10,15 +10,15 @@
                  [com.cognitect/transit-cljs "0.8.239"]
                  [environ "1.1.0"]
                  [ring "1.5.1"]
-                 [ring/ring-defaults "0.2.2"]
+                 [ring/ring-defaults "0.2.3"]
                  [bk/ring-gzip "0.2.1"]
                  [aleph "0.4.2-alpha12"]
                  [manifold "0.1.5"]
                  [byte-streams "0.2.2"]
                  [compojure "1.5.2"]
-                 [com.taoensso/nippy "2.12.2"]
+                 [com.taoensso/nippy "2.13.0"]
                  [com.taoensso/sente "1.11.0"]
-                 [com.taoensso/encore "2.88.2"]
+                 [com.taoensso/encore "2.89.0"]
                  [com.taoensso/timbre "4.8.0"]
                  ;; Database
                  [org.clojure/java.jdbc "0.6.1"]
@@ -127,11 +127,11 @@
          :target-path "resources/public/css"}
 
   :profiles {:dev
-             {:dependencies [[figwheel "0.5.8" :exclusions [com.google.guava/guava]]
-                             [figwheel-sidecar "0.5.8" :exclusions [com.google.guava/guava]]
+             {:dependencies [[figwheel "0.5.9" :exclusions [com.google.guava/guava]]
+                             [figwheel-sidecar "0.5.9" :exclusions [com.google.guava/guava]]
                              [com.cemerick/piggieback "0.2.1"]
                              [org.clojure/tools.nrepl "0.2.12"]]
-              :plugins [[lein-figwheel "0.5.8"]
+              :plugins [[lein-figwheel "0.5.9"]
                         [lein-doo "0.1.6"]
                         [lein-ancient "0.6.10"]]
               :source-paths ["dev"]
