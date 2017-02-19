@@ -51,7 +51,9 @@
 (defn initiate-contract [buy-request]
   (if (:id buy-request)
     (log/debug "Initiated contract from buy request ID" (:id buy-request))
-    (throw (Exception. "The buy request doesn't have an seller ID")))
+    (do
+      (log/debugf "Buy request: %s" (with-out-str (pprint buy-request)))
+      (throw (Exception. "The buy request doesn't have a seller ID"))))
   (when-not (:seller-id buy-request) (throw (Exception. "The buy request doesn't have an seller ID")))
   (wcar* (mq/enqueue (get-in workers [:contracts-master :qname])
                      buy-request
@@ -215,7 +217,7 @@
                     {:status :retry :backoff-ms 1})
                 :else
                 {:status :retry :backoff-ms 4000})))
-        (do (log/debug "No seller match. Retrying in 20 seconds.")
+        (do (log/debugf "No seller match (buy request ID %s). Retrying in 20 seconds." buy-request-id)
             {:status :retry :backoff-ms 20000})))
     (catch Exception e
       (let [prex (with-out-str (pprint e))]
@@ -320,7 +322,7 @@
         "holding-period"
         (cond (> now (utils/unix-after (time-coerce/to-date-time (:holding-period-start contract))
                                        (time/seconds 2) #_(time/days 100)))
-              (do (db/contract-set-field! contract "escrow_open_for" (:buyer-id contract)) ; Idempotent
+              (do (db/contract-set-field! contract-id "escrow_open_for" (:buyer-id contract)) ; Idempotent
                   (events/add-event! (:buyer-id contract) :contract-success contract)
                   (events/add-event! (:seller-id contract) :contract-success contract)
                   (with-idempotent-transaction mid :contract-success state
@@ -335,7 +337,7 @@
         {:status :retry :backoffs-ms 3600000}))
     (catch Exception e
       (let [prex (with-out-str (pprint e))]
-        (log/debugf "Exception in task: " prex)
+        (log/debugf "Exception in task: %s" prex)
         (add-task-metadata mid {:queue "contracts" :exception prex :attempt attempt}))
       {:status :retry :backoff-ms 360000})))
 

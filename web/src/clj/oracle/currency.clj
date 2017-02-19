@@ -51,7 +51,7 @@
     (loop []
       (try
         (when @exchange-rates-worker-running?
-          (log/debug "Updating exchange rates")
+          ;; (log/debug "Updating exchange rates")
           (swap! current-rates #(or (get-coinbase-rates) %))
           (Thread/sleep 60000))
         (catch Exception e
