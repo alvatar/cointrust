@@ -411,17 +411,24 @@
 (defmethod common-preemptive-handler :escrow/release-to-user
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
-        contract-id (:id data)]
+        contract-id (:id data)
+        contract (db/get-contract-by-id contract-id)]
     (log/debug message)
+    ;; TEMPORARY APPROACH
+    (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
+      @bitcoin/current-app
+      (:output-address contract)
+      (long (* (:amount contract) 0.98)))
+    ;;
     ;; TODO: Handle bitcoin release
-    ;; For done and confirmed, use escrow/released
+    (db/contract-set-field! contract-id "escrow_released" true)
     {:status :success}))
 
-(defmethod common-preemptive-handler :escrow/released
-  [{:keys [?data ?reply-fn]}]
-  (try (db/contract-set-field! (:id ?data) "released" true)
-       (?reply-fn {:status :ok})
-       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+;; (defmethod common-preemptive-handler :escrow/released
+;;   [{:keys [?data ?reply-fn]}]
+;;   (try (db/contract-set-field! (:id ?data) "released" true)
+;;        (?reply-fn {:status :ok})
+;;        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 ;;
 ;; Lifecyle

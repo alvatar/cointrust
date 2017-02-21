@@ -576,33 +576,68 @@
                     :actions buttons}
                    content)))))
 
-(rum/defc sell-slider [currency [min-val max-val] on-change]
-  (js/React.createElement js/Slider #js {:min 1
-                                         :max 20000
-                                         :range true
-                                         :allowCross false
-                                         :value #js [min-val max-val]
-                                         :tipFormatter nil
-                                         :onChange on-change}))
+;; (rum/defc sell-slider [currency [min-val max-val] on-change]
+;;   (js/React.createElement js/Slider #js {:min 1
+;;                                          :max 20000
+;;                                          :range true
+;;                                          :allowCross false
+;;                                          :value #js [min-val max-val]
+;;                                          :tipFormatter nil
+;;                                          :onChange on-change}))
 
 (rum/defcs sell-dialog
   < rum/reactive (rum/local {} ::ui-values)
   [state_]
   (let [offer-active? (boolean @(:sell-offer app-state))
-        btc-usd (get (rum/react (:exchange-rates app-state)) :btc-usd)
         ui-values (::ui-values state_)
-        min-val (or (:min @ui-values) (:min @(:sell-offer app-state)) 1)
-        max-val (or (:max @ui-values) (:max @(:sell-offer app-state)) 20000)
+        currency (or (:currency @ui-values) "usd")
+        ex-rate (get (rum/react (:exchange-rates app-state)) (if (= currency "usd") :usd-btc :btc-usd))
+        min-val (or (:min (rum/react ui-values)) (:min @(:sell-offer app-state)) 1)
+        max-val (or (:max (rum/react ui-values)) (:max @(:sell-offer app-state)) 20000)
+        parsed-min-val (let [p (js/parseFloat min-val)] (when-not (js/isNaN p) p))
+        parsed-max-val (let [p (js/parseFloat max-val)] (when-not (js/isNaN p) p))
         open? (= (rum/react (:ui-mode app-state)) :sell-dialog)
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                 [:h4 "Set sell offer between " [:br]
-                  [:strong min-val]
-                  " and " [:strong max-val] " USD (" [:strong (round-currency (/ min-val btc-usd))]
-                  " - " [:strong (round-currency (/ max-val btc-usd))] " BTC)"]
-                 [:h6 {:style {:margin-top "-1rem"}}
-                  (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
-                                                                               (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
-                 (sell-slider "usd" [min-val max-val] (fn [[mi ma]] (reset! ui-values {:min mi :max ma})))]
+                 [:div
+                  [:h4 "Set a range you are willing to sell"]
+                  (ui/select-field {:value currency
+                                    :floating-label-text "Currency"
+                                    :on-change (fn [ev idx val] (swap! ui-values assoc :currency val))
+                                    :style {:width "8rem"}}
+                                   (ui/menu-item {:value "usd" :primary-text "USD"})
+                                   (ui/menu-item {:value "btc" :primary-text "BTC"}))
+                  [:h6 {:style {:margin-top "1px"}}
+                   (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
+                                                                                (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]]
+                 [:div.group
+                  [:div {:style {:float "left"}}
+                   (ui/text-field {:id "min"
+                                   :floating-label-text "Min."
+                                   :style {:margin-top "0px" :width "8rem"}
+                                   :error-text (when-not (pos? parsed-min-val) "Invalid value")
+                                   :value min-val
+                                   :on-change #(swap! ui-values assoc :min (.. % -target -value))})]
+                  (when parsed-min-val
+                    [:div {:style {:float "left" :width "50%" :margin-top "2.5rem"}}
+                     (clojure.string/upper-case currency) " - ("
+                     (if (= currency "btc")
+                       (str (round-currency (* ex-rate min-val) 2) " USD)")
+                       (str (round-currency (* ex-rate min-val)) " BTC)"))])]
+                 [:div.group
+                  [:div {:style {:float "left"}}
+                   (ui/text-field {:id "max"
+                                   :floating-label-text "Max."
+                                   :style {:margin-top "0px" :width "8rem"}
+                                   :error-text (cond (not (pos? parsed-max-val)) "Invalid value"
+                                                     (> parsed-min-val parsed-max-val) "Max should be larger than Min")
+                                   :value max-val
+                                   :on-change #(swap! ui-values assoc :max (.. % -target -value))})]
+                  (when parsed-max-val
+                    [:div {:style {:float "left" :width "50%" :margin-top "2.5rem"}}
+                     (clojure.string/upper-case currency) " - ("
+                     (if (= currency "btc")
+                       (str (round-currency (* ex-rate max-val) 2) " USD)")
+                       (str (round-currency (* ex-rate max-val)) " BTC)"))])]]
         buttons [(when offer-active?
                    (ui/flat-button {:label "Remove"
                                     :on-touch-tap (fn []
@@ -611,7 +646,7 @@
                                                        #(reset! (:ui-mode app-state) :none))))}))
                  (ui/flat-button {:label (if offer-active? "Update" "Sell")
                                   :on-touch-tap (fn []
-                                                  (open-sell-offer {:currency "usd" :min min-val :max max-val})
+                                                  (open-sell-offer {:currency currency :min min-val :max max-val})
                                                   (reset! (:ui-mode app-state) :none))})
                  (ui/flat-button {:label "Back"
                                   :primary true
@@ -621,7 +656,7 @@
       (ui/dialog {:title (if offer-active? "Active offer" "Sell Bitcoin")
                   :open open?
                   :modal true
-                  :content-style {:max-width "500px"}
+                  :content-style {:max-width "400px"}
                   :actions buttons}
                  content))))
 
@@ -886,9 +921,10 @@
            [:div
             [(if _small-display? :div.center :div.column-half)
              [:strong (if (am-i-seller? contract) "SELLER" "BUYER")] (str " // " (:hash contract))]
-            (let [action-required [(if _small-display? :div.center.margin-1rem-top :div.column-half)
-                                   [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))}
-                                    "ACTION REQUIRED"]]
+            (let [action-required (do (when-not (:display-contract app-state) (reset! (:display-contract app-state) (:id contract)))
+                                      [(if _small-display? :div.center.margin-1rem-top :div.column-half)
+                                       [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))}
+                                        "ACTION REQUIRED"]])
                   status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
                   waiting [status-class [:div.center "WAITING"]]
                   releasing [status-class [:div.center (if (am-i-buyer? contract) (str "RELEASING TO: " (:output-address contract)) "RELEASING TO BUYER")]]
@@ -938,20 +974,20 @@
   []
   (let [notifications (rum/react (:notifications app-state))
         current (peek notifications)]
-    (ui/dialog {:title (or (:title current) "Notification")
-                :open (boolean (not-empty notifications))
-                :actions [(ui/flat-button {:label "OK"
-                                           :primary true
-                                           :on-touch-tap (or (:on-touch-tap current)
-                                                             (fn [] (chsk-send!
-                                                                     [:notification/ack {:user-hash @(:user-hash app-state)
-                                                                                         :uuid (:uuid current)}]
-                                                                     5000
-                                                                     #(when (sente/cb-success? %)
-                                                                        (swap! (:notifications app-state) pop)))))})]}
-               [:div
-                (for [chunk (clojure.string/split (:message current) #"\n")]
-                  [:p chunk])])))
+    (swap! (:notifications app-state) pop)
+    (ui/snackbar {:open (boolean (not-empty notifications))
+                  :auto-hide-duration 4000
+                  :message (str (:title current) " " (:message current))
+                  ;; :actions [(ui/flat-button {:label "OK"
+                  ;;                            :primary true
+                  ;;                            :on-touch-tap (or (:on-touch-tap current)
+                  ;;                                              (fn [] (chsk-send!
+                  ;;                                                      [:notification/ack {:user-hash @(:user-hash app-state)
+                  ;;                                                                          :uuid (:uuid current)}]
+                  ;;                                                      5000
+                  ;;                                                      #(when (sente/cb-success? %)
+                  ;;                                                         (swap! (:notifications app-state) pop)))))})]
+                  })))
 
 (rum/defcs sell-offer-matched-dialog
   < rum/reactive
@@ -964,7 +1000,7 @@
         current (peek pending-matches)
         account-info (::account-info state_)]
     (when current
-      (log* "Current sell offer: " current)
+      ;; (log* "Current sell offer: " current)
       (let [buttons [(ui/flat-button {:label "Accept"
                                       :primary true
                                       :on-touch-tap (fn []

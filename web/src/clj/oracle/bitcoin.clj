@@ -64,11 +64,11 @@
                                 (SPVBlockStore. network-params (File. ".spvchain"))
                                 ;; According to the documentation 1000 blocks stored is safe
                                 #_(PostgresFullPrunedBlockStore.
-                                 network-params 1000
-                                 (format "%s:%s" (:host uri) (:port uri))
-                                 (subs (:path uri) 1)
-                                 (:username uri)
-                                 (:password uri)))]
+                                   network-params 1000
+                                   (format "%s:%s" (:host uri) (:port uri))
+                                   (subs (:path uri) 1)
+                                   (:username uri)
+                                   (:password uri)))]
     (. BriefLogFormatter init)
     (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
 
@@ -109,6 +109,14 @@
 ;; Wallet
 ;;
 
+(defn wallet-serialize [wallet]
+  (let [bs (ByteArrayOutputStream.)]
+    (.saveToFileStream wallet bs)
+    (.toByteArray bs)))
+
+(defn wallet-deserialize [sr]
+  (. Wallet loadFromFileStream (ByteArrayInputStream. sr) nil))
+
 (defn wallet-init-listeners! [wallet]
   (.addCoinsReceivedEventListener
    wallet
@@ -118,20 +126,23 @@
                   address-payed (.toString
                                  (.getAddressFromP2PKHScript
                                   (first (.getOutputs transaction)) (:network-params @current-app)))]
-              (log/debugf "Received payment of %s BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
-              (if-let [contract (db/get-contract-by-input-address address-payed)]
-                (do (log/debugf "Payment to %s funds contract ID %s" address-payed contract)
-                    (if (>= amount-payed (:amount contract))
-                      (do (db/contract-set-escrow-funded! (:id contract))
-                          (log/debugf "Contract ID %d successfully funded\n" (:id contract)))
-                      (do (log/errorf "The received payment is insufficient. Amount payed: %s, amount expected: %s"
-                                      amount-payed (:amount contract))
-                          (db/log-manual-op! (format "Payment insufficient for contract %s. Received %s, expected %s"
-                                                     (:id contract)
-                                                     amount-payed
-                                                     (:amount contract))))))
-                (log/errorf "CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
-                            (common/satoshi->btc amount-payed) address-payed)))
+              (if (pos? amount-payed)
+                (do (log/debugf "Received payment of %s BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
+                    (if-let [contract (not-empty (db/get-contract-by-input-address address-payed))]
+                      (do (log/debugf "Payment to %s funds contract ID %s" address-payed contract)
+                          (if (>= amount-payed (:amount contract))
+                            (do (db/contract-set-escrow-funded! (:id contract))
+                                (log/debugf "Contract ID %d successfully funded\n" (:id contract)))
+                            (do (log/errorf "The received payment is insufficient. Amount payed: %s, amount expected: %s"
+                                            amount-payed (:amount contract))
+                                (db/log-manual-op! (format "Payment insufficient for contract %s. Received %s, expected %s"
+                                                           (:id contract)
+                                                           amount-payed
+                                                           (:amount contract)))))
+                          (db/save-current-wallet (wallet-serialize wallet)))
+                      (log/errorf "CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
+                                  (common/satoshi->btc amount-payed) address-payed)))
+                (log/debugf "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed)))
             (catch Exception e (log/error e))))))
   wallet)
 
@@ -158,14 +169,6 @@
 (defn wallet-send-all-funds-to [wallet app target-address]
   (wallet-send-coins wallet app target-address
                      (substract-satoshi-fee (wallet-get-balance wallet))))
-
-(defn wallet-serialize [wallet]
-  (let [bs (ByteArrayOutputStream.)]
-    (.saveToFileStream wallet bs)
-    (.toByteArray bs)))
-
-(defn wallet-deserialize [sr]
-  (. Wallet loadFromFileStream (ByteArrayInputStream. sr) nil))
 
 ;;
 ;; Multisig
@@ -249,11 +252,15 @@
 (defn system-start! []
   (swap! current-app #(or % (make-app)))
   (swap! current-wallet #(or %
-                             (when-let [w (db/get-current-wallet)]
+                             (when-let [w (wallet-deserialize (db/load-current-wallet))]
                                (log/debug "Restoring wallet from database...")
-                               (wallet-init-listeners! (wallet-deserialize w)))
+                               (log/debugf "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance w)))
+                               (wallet-init-listeners! w))
                              (do (log/warn "Creating new wallet!")
-                                 (wallet-init-listeners! (make-wallet @current-app)))))
+                                 (let [w (make-wallet @current-app)]
+                                   (wallet-init-listeners! w)
+                                   (db/save-current-wallet (wallet-serialize w))
+                                   w))))
   (app-add-wallet @current-app @current-wallet)
   (app-start! @current-app))
 

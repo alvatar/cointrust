@@ -409,7 +409,7 @@ WHERE id = ?
 ;; Wallet
 ;;
 
-(defn get-current-wallet []
+(defn load-current-wallet []
   (->
    (sql/query db ["
 SELECT data FROM wallet;
@@ -417,7 +417,7 @@ SELECT data FROM wallet;
    first
    :data))
 
-(defn set-current-wallet [w]
+(defn save-current-wallet [w]
   (sql/execute! db ["
 INSERT INTO wallet (data) VALUES (?)
 ON CONFLICT (lock) DO UPDATE SET data = ?;
