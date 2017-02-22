@@ -65,7 +65,9 @@
   (try (db/sell-offer-set! (:user-id ?data) (:currency ?data)
                            (common/currency-as-long (:min ?data) (:currency ?data))
                            (common/currency-as-long (:max ?data) (:currency ?data)))
-       (?reply-fn {:status :ok :min (:min ?data) :max (:max ?data)})
+       (?reply-fn {:min (:min ?data)
+                   :max (:max ?data)
+                   :currency (:currency ?data)})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/get

@@ -82,15 +82,18 @@
         offering-in-range (filter #(let [buyer-wants-amount (get-in buyer-specs [:wants :amount])
                                          buyer-wants-currency (get-in buyer-specs [:wants :currency])
                                          ;; In theory, we should check what the seller wants against what the buyer offers
-                                         seller-wants (get-in buyer-specs [:offers :currency])]
+                                         ;; Instead, we set the currency wanted by the seller as the one offered by the buyer
+                                         ;; seller-wants-currency (get-in buyer-specs [:offers :currency])
+                                         ]
                                      (pr-str %)
-                                     (log/debugf "seller offers: %s - %s"
-                                                 (currency/convert (:min %) seller-wants buyer-wants-currency)
-                                                 (currency/convert (:max %) seller-wants buyer-wants-currency))
                                      (and (>= buyer-wants-amount
-                                              (currency/convert (:min %) seller-wants buyer-wants-currency))
+                                              (if (= (:currency %) buyer-wants-currency)
+                                                (:min %)
+                                                (currency/convert (:min %) (:currency %) buyer-wants-currency)))
                                           (<= buyer-wants-amount
-                                              (currency/convert (:max %) seller-wants buyer-wants-currency))))
+                                              (if (= (:currency %) buyer-wants-currency)
+                                                (:max %)
+                                                (currency/convert (:max %) (:currency %) buyer-wants-currency)))))
                                   offering)]
     ;;(log/debug "PICK COUNTERPARTY, offering: " (pr-str offering))
     ;;(log/debug "PICK COUNTERPARTY, offering in range: " (pr-str offering-in-range))

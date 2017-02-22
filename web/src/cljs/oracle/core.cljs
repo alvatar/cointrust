@@ -245,8 +245,8 @@
   (chsk-send!
    [:offer/open {:user-id @(:user-id app-state) :min min :max max :currency currency}] 5000
    (fn [resp]
-     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:sell-offer app-state) (select-keys resp [:min :max]))
+     (if (sente/cb-success? resp)
+       (reset! (:sell-offer app-state) resp)
        (reset! app-error "There was an error opening the sell offer. Please try again.")))))
 
 (defn get-active-sell-offer []
@@ -590,16 +590,17 @@
   [state_]
   (let [offer-active? (boolean @(:sell-offer app-state))
         ui-values (::ui-values state_)
-        currency (or (:currency @ui-values) "usd")
+        sell-offer (:sell-offer app-state)
+        min-val (or (:min (rum/react ui-values)) (:min (rum/react sell-offer)) 0.1)
+        max-val (or (:max (rum/react ui-values)) (:max (rum/react sell-offer)) 10000)
+        parsed-min-val (let [p (js/Number min-val)] (when-not (js/isNaN p) p))
+        parsed-max-val (let [p (js/Number max-val)] (when-not (js/isNaN p) p))
+        currency (or (:currency (rum/react ui-values)) (:currency (rum/react sell-offer)) "")
         ex-rate (get (rum/react (:exchange-rates app-state)) (if (= currency "usd") :usd-btc :btc-usd))
-        min-val (or (:min (rum/react ui-values)) (:min @(:sell-offer app-state)) 1)
-        max-val (or (:max (rum/react ui-values)) (:max @(:sell-offer app-state)) 20000)
-        parsed-min-val (let [p (js/parseFloat min-val)] (when-not (js/isNaN p) p))
-        parsed-max-val (let [p (js/parseFloat max-val)] (when-not (js/isNaN p) p))
         open? (= (rum/react (:ui-mode app-state)) :sell-dialog)
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                  [:div
-                  [:h4 "Set a range you are willing to sell"]
+                  [:h4 "Set a range you are willing to sell. Choose the currency you want to use as reference."]
                   (ui/select-field {:value currency
                                     :floating-label-text "Currency"
                                     :on-change (fn [ev idx val] (swap! ui-values assoc :currency val))
@@ -621,8 +622,8 @@
                     [:div {:style {:float "left" :width "50%" :margin-top "2.5rem"}}
                      (clojure.string/upper-case currency) " - ("
                      (if (= currency "btc")
-                       (str (round-currency (* ex-rate min-val) 2) " USD)")
-                       (str (round-currency (* ex-rate min-val)) " BTC)"))])]
+                       (str (round-currency (* ex-rate parsed-min-val) 2) " USD)")
+                       (str (round-currency (* ex-rate parsed-min-val)) " BTC)"))])]
                  [:div.group
                   [:div {:style {:float "left"}}
                    (ui/text-field {:id "max"
@@ -636,8 +637,8 @@
                     [:div {:style {:float "left" :width "50%" :margin-top "2.5rem"}}
                      (clojure.string/upper-case currency) " - ("
                      (if (= currency "btc")
-                       (str (round-currency (* ex-rate max-val) 2) " USD)")
-                       (str (round-currency (* ex-rate max-val)) " BTC)"))])]]
+                       (str (round-currency (* ex-rate parsed-max-val) 2) " USD)")
+                       (str (round-currency (* ex-rate parsed-max-val)) " BTC)"))])]]
         buttons [(when offer-active?
                    (ui/flat-button {:label "Remove"
                                     :on-touch-tap (fn []
@@ -682,12 +683,14 @@
   < rum/reactive
   []
   (when-let [sell-offer (rum/react (:sell-offer app-state))]
-    (let [btc-usd (get (rum/react (:exchange-rates app-state)) :btc-usd)]
+    (let [currency (:currency sell-offer)
+          ex-rate (get (rum/react (:exchange-rates app-state)) (if (= currency "usd") :usd-btc :btc-usd))]
       [:div
        [:h4 {:style {:text-align "center"}} "Sell offer"]
-       [:p.center [:strong (:min sell-offer)] " to " [:strong (:max sell-offer)] " USD ("
-        (round-currency (/ (:min sell-offer) btc-usd)) " - "
-        (round-currency (/ (:max sell-offer) btc-usd)) " BTC)"]])))
+       [:p.center [:strong (:min sell-offer)] " to " [:strong (:max sell-offer)] " "
+        (clojure.string/upper-case currency) " ("
+        (round-currency (* (:min sell-offer) ex-rate)) " - "
+        (round-currency (* (:max sell-offer) ex-rate)) " " (if (= currency "usd") "BTC" "USD") ")"]])))
 
 (rum/defc request-listing-comp
   < rum/reactive
