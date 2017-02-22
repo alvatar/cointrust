@@ -595,7 +595,7 @@
         max-val (or (:max (rum/react ui-values)) (:max (rum/react sell-offer)) 10000)
         parsed-min-val (let [p (js/Number min-val)] (when-not (js/isNaN p) p))
         parsed-max-val (let [p (js/Number max-val)] (when-not (js/isNaN p) p))
-        currency (or (:currency (rum/react ui-values)) (:currency (rum/react sell-offer)) "")
+        currency (or (:currency (rum/react ui-values)) (:currency (rum/react sell-offer)) "usd")
         ex-rate (get (rum/react (:exchange-rates app-state)) (if (= currency "usd") :usd-btc :btc-usd))
         open? (= (rum/react (:ui-mode app-state)) :sell-dialog)
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
