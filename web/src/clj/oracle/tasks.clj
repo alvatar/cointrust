@@ -423,7 +423,6 @@
       (:output-address contract)
       (long (* (:amount contract) 0.98)))
     ;;
-    ;; TODO: Handle bitcoin release
     (db/contract-set-field! contract-id "escrow_released" true)
     {:status :success}))
 

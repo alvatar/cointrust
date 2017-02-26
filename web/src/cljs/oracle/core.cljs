@@ -478,7 +478,7 @@
   (if (:error msg)
     (log* "Error in :contract/escrow-released" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :released] true)
+      (swap! (:contracts app-state) assoc-in [found-idx :escrow-released] true)
       (do (reset! app-error "There was an error releasing the Escrow. Please inform us of this event.")
           (log* "Error in contract/escrow-released" msg)))))
 
@@ -943,7 +943,7 @@
                                        action-required waiting))
                 "contract-success" (cond
                                      (and (am-i-buyer? contract) (empty? (:output-address contract))) action-required
-                                     (:released contract) released
+                                     (:escrow-released contract) released
                                      :else releasing)
                 waiting))
             [:div {:style {:clear "both"}}]]
