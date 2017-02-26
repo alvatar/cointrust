@@ -424,6 +424,8 @@
       (long (* (:amount contract) 0.98)))
     ;;
     (db/contract-set-field! contract-id "escrow_released" true)
+    (events/add-event! (:buyer-id contract) :contract-escrow-released contract) ; Allow repetition
+    (events/add-event! (:seller-id contract) :contract-escrow-released contract) ; Allow repetition
     {:status :success}))
 
 ;; (defmethod common-preemptive-handler :escrow/released
