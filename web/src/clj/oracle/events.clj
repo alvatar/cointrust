@@ -46,58 +46,46 @@
       :buy-request-created
       (future
         (chsk-send! uid [:buy-request/create args])
-        (notification uid "Buy request created"
-                      "Looking for a trusted partner"))
+        (notification uid "Buy request created. Looking for a trusted partner." ""))
       :buy-request-matched
       (future
         (chsk-send! uid [:buy-request/match args])
-        (notification uid "Partner found. Waiting response" ""))
+        (notification uid "Partner found. Waiting response." ""))
       :sell-offer-matched
       (future
         (chsk-send! uid [:sell-offer/match args]))
       :buy-request-accept
       (future
         (chsk-send! uid [:buy-request/accepted args])
-        (notification uid "Buy request accepted" ""))
+        (notification uid "Buy request accepted." ""))
       :buy-request-decline
       (future
         (chsk-send! uid [:buy-request/declined args])
-        (notification uid "Buy request declined" ""))
+        (notification uid "Buy request declined." ""))
       :buy-request-timed-out
       (future
         (chsk-send! uid [:buy-request/timed-out args])
-        (notification uid "Buy request timed out" ""))
+        (notification uid "Buy request timed out." ""))
       :contract-create
       (future
         (chsk-send! uid [:contract/create args]))
       :contract-escrow-funded
       (future
         (chsk-send! uid [:contract/escrow-funded args])
-        (notification uid "Escrow funds received" ""))
-      ;; :contract-waiting-transfer
-      ;; (future
-      ;;   (chsk-send! uid [:contract/waiting-transfer args]))
-      :contract-mark-transfer-sent-ack
-      (future
-        (chsk-send! uid [:contract/mark-transfer-sent-ack args])
-        (notification uid "Transfer sent" ""))
+        (notification uid "Escrow funds received." ""))
       :contract-mark-transfer-received-ack
       (future
         (chsk-send! uid [:contract/mark-transfer-received-ack args])
-        (notification uid "Transfer received" ""))
-      :contract-holding-period
-      (future
-        (chsk-send! uid [:contract/holding-period args])
-        (notification uid "Holding period" ""))
+        (notification uid "Transfer received." ""))
       :contract-success
       (future
         (chsk-send! uid [:contract/success args])
-        (notification uid "Contract success!" ""))
+        (notification uid "Contract executed successfully." ""))
       :contract-broken
       (future
         (chsk-send! uid [:contract/broken args])
-        (notification uid "Contract broken" ""))
+        (notification uid "Contract broken." ""))
       :contract-escrow-released
       (future
         (chsk-send! uid [:contract/escrow-released args])
-        (notification uid "Escrow Released!" "")))))
+        (notification uid "Escrow Released." "")))))

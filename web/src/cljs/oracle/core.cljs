@@ -150,6 +150,9 @@
 ;; Actions
 ;;
 
+(defn push-error [message]
+  (swap! (:notifications app-state) conj {:title "Error" :message message}))
+
 (defn logout [] (aset js/window "location" "/"))
 
 (defn get-friends2 []
@@ -158,7 +161,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:friends2 app-state) (:friends2 resp))
-       (do (reset! app-error "There was an error with your login. Please try again.")
+       (do (push-error "There was an error with your login. Please try again.")
            (log* "Error in handle-enter:" resp)))
      (log* "Friends^2" (str @(:friends2 app-state))))))
 
@@ -168,7 +171,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:user-id app-state) (:found-user resp))
-       (do (reset! app-error "There was an error with your login. Please try again.")
+       (do (push-error "There was an error with your login. Please try again.")
            (log* "Error in try-enter:" resp))))))
 
 (defn- set-fake-facebooks-ids [hashed-id]
@@ -212,7 +215,7 @@
        (when-let [requests (:buy-requests resp)]
          (log* "Received requests" requests)
          (reset! (:buy-requests app-state) requests))
-       (do (reset! app-error "There was an error retrieving your previous buy requests. Please try again.")
+       (do (push-error "There was an error retrieving your previous buy requests. Please try again.")
            (log* "Error in get-user-requests:" resp))))))
 
 (defn get-user-contracts []
@@ -226,7 +229,7 @@
          (if-let [contract-id (some #(and (= (:seller-id %) @(:user-id app-state)) (:id %))
                                     contracts)]
            (reset! (:display-contract app-state) contract-id)))
-       (do (reset! app-error "There was an error retrieving your previous contracts. Please try again.")
+       (do (push-error "There was an error retrieving your previous contracts. Please try again.")
            (log* "Error in get-user-contract:" resp))))))
 
 (defn get-user-pending-notifications []
@@ -238,7 +241,7 @@
          (log* "Received notifications" notifications)
          (doseq [notif notifications]
            (swap! (:notifications app-state) conj notif)))
-       (do (reset! app-error "There was an error retrieving your pending notifications. Please try again.")
+       (do (push-error "There was an error retrieving your pending notifications. Please try again.")
            (log* "Error in get-user-pending-notifications:" resp))))))
 
 (defn open-sell-offer [{:as vals :keys [currency min max]}]
@@ -247,7 +250,7 @@
    (fn [resp]
      (if (sente/cb-success? resp)
        (reset! (:sell-offer app-state) resp)
-       (reset! app-error "There was an error opening the sell offer. Please try again.")))))
+       (push-error "There was an error opening the sell offer. Please try again.")))))
 
 (defn get-active-sell-offer []
   (chsk-send!
@@ -260,7 +263,7 @@
                    {:min (common/currency-as-float (float (:min offer)) (:currency offer))
                     :max (common/currency-as-float (float (:max offer)) (:currency offer))
                     :currency (:currency offer)})))
-       (reset! app-error "There was an error retrieving the sell offer.")))))
+       (push-error "There was an error retrieving the sell offer.")))))
 
 (defn close-sell-offer [callback]
   (chsk-send!
@@ -269,7 +272,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (do (reset! (:sell-offer app-state) nil)
            (callback))
-       (reset! app-error "There was an error closing the sell offer. Please try again.")))))
+       (push-error "There was an error closing the sell offer. Please try again.")))))
 
 (defn get-sell-offer-matches []
   (chsk-send!
@@ -279,7 +282,7 @@
        (let [offer-matches (:offer-matches resp)]
          (do (log* "Received offer matches" offer-matches)
              (doseq [m offer-matches] (swap! (:sell-offer-matches app-state) conj m))))
-       (reset! app-error "There was an error retrieving the sell offer matches.")))))
+       (push-error "There was an error retrieving the sell offer matches.")))))
 
 (defn create-buy-request [amount callback]
   (chsk-send!
@@ -290,7 +293,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* "Buy request created successfully")
-       (do (reset! app-error "There was an error creating the buy request. Please try again.")
+       (do (push-error "There was an error creating the buy request. Please try again.")
            (log* "Error in create-buy-request:" resp)))
      (callback))))
 
@@ -301,7 +304,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* (gstring/format "Buy request ID %d accepted" buy-request-id))
        (do (log* (gstring/format "Error accepting buy request ID %d" buy-request-id))
-           (reset! app-error "There was an error accepting the buy request. Please try again."))))))
+           (push-error "There was an error accepting the buy request. Please try again."))))))
 
 (defn decline-buy-request [buy-request-id]
   (chsk-send!
@@ -310,7 +313,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* (gstring/format "Buy request ID %d declined" buy-request-id))
        (do (log* (gstring/format "Error declining buy request ID %d" buy-request-id))
-           (reset! app-error "There was an error declining the buy request. Please try again."))))))
+           (push-error "There was an error declining the buy request. Please try again."))))))
 
 (defn mark-contract-sent [contract-id]
   (chsk-send!
@@ -319,7 +322,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* (gstring/format "Contract ID %d marked as transfer SENT" contract-id))
        (do (log* (gstring/format "Error marking contract ID %d as transfer SENT" contract-id))
-           (reset! app-error "There was an error marking the contract. Please try again."))))))
+           (push-error "There was an error marking the contract. Please try again."))))))
 
 (defn mark-contract-received [contract-id]
   (chsk-send!
@@ -328,7 +331,7 @@
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (log* (gstring/format "Contract ID %d marked as transfer RECEIVED" contract-id))
        (do (log* (gstring/format "Error marking contract ID %d as transfer RECEIVED" contract-id))
-           (reset! app-error "There was an error marking the contract. Please try again."))))))
+           (push-error "There was an error marking the contract. Please try again."))))))
 
 ;;
 ;; Event Handlers
@@ -362,7 +365,7 @@
     (log* "Error in :buy-request/match" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] (:seller-id msg))
-      (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
+      (do (push-error "There was an error when matching the buy request. Please inform us of this event.")
           (log* "Error in buy-request/match" msg)))))
 
 (defmethod app-msg-handler :buy-request/timed-out
@@ -371,7 +374,7 @@
     (log* "Error in :buy-request/timed-out" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
-      (do (reset! app-error "There was an error when restarting the buy request. Please inform us of this event.")
+      (do (push-error "There was an error when restarting the buy request. Please inform us of this event.")
           (log* "Error in buy-request/timed-out" msg)))))
 
 (defmethod app-msg-handler :buy-request/accepted
@@ -380,7 +383,7 @@
     (log* "Error in :buy-request/accepted" msg)
     (try (swap! (:buy-requests app-state) (fn [q] (remove #(= (:id msg)) q)))
          (catch :default e
-           (reset! app-error "There was an error when accepting the buy request. Please inform us of this event.")
+           (push-error "There was an error when accepting the buy request. Please inform us of this event.")
            (log* "Error in buy-request/accepted:" e)))))
 
 (defmethod app-msg-handler :buy-request/declined
@@ -389,7 +392,7 @@
     (log* "Error in :buy-request/declined" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests app-state) assoc-in [found-idx :seller-id] nil)
-      (do (reset! app-error "There was an error when matching the buy request. Please inform us of this event.")
+      (do (push-error "There was an error when matching the buy request. Please inform us of this event.")
           (log* "Error in buy-request/declined" msg)))))
 
 (defmethod app-msg-handler :contract/create
@@ -400,7 +403,7 @@
          (when (= (:seller-id msg) @(:user-id app-state))
            (reset! (:display-contract app-state) (:id msg)))
          (catch :default e
-           (do (reset! app-error "There was an error when creating the contract. Please inform us of this event.")
+           (do (push-error "There was an error when creating the contract. Please inform us of this event.")
                (log* "Error in contract/create" msg))))))
 
 (defmethod app-msg-handler :contract/update
@@ -416,7 +419,7 @@
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (do (reset! (:display-contract app-state) nil)
           (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer"))
-      (do (reset! app-error "There was an error in funding the Escrow. Please inform us of this event.")
+      (do (push-error "There was an error in funding the Escrow. Please inform us of this event.")
           (log* "Error in contract/escrow-funded" msg)))))
 
 ;; (defmethod app-msg-handler :contract/waiting-transfer
@@ -434,7 +437,7 @@
     (log* "Error in :contract/mark-transfer-sent-ack" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (swap! (:contracts app-state) assoc-in [found-idx :transfer-sent] true)
-      (do (reset! app-error "There was an error when marking the transfer as sent. Please inform us of this event.")
+      (do (push-error "There was an error when marking the transfer as sent. Please inform us of this event.")
           (log* "Error in contract/mark-transfer-sent-ack" msg)))))
 
 (defmethod app-msg-handler :contract/mark-transfer-received-ack
@@ -443,7 +446,7 @@
     (log* "Error in :contract/mark-transfer-received-ack" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (swap! (:contracts app-state) assoc-in [found-idx :transfer-received] true)
-      (do (reset! app-error "There was an error when marking the transfer as received. Please inform us of this event.")
+      (do (push-error "There was an error when marking the transfer as received. Please inform us of this event.")
           (log* "Error in contract/mark-transfer-received-ack" msg)))))
 
 (defmethod app-msg-handler :contract/holding-period
@@ -452,7 +455,7 @@
     (log* "Error in :contract/holding-period" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (swap! (:contracts app-state) assoc-in [found-idx :stage] "holding-period")
-      (do (reset! app-error "There was an error when starting the contract holding period. Please inform us of this event.")
+      (do (push-error "There was an error when starting the contract holding period. Please inform us of this event.")
           (log* "Error in contract/holding-period" msg)))))
 
 (defmethod app-msg-handler :contract/success
@@ -461,7 +464,7 @@
     (log* "Error in :contract/success" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-success")
-      (do (reset! app-error "There was an error setting the contract as successful. Please inform us of this event.")
+      (do (push-error "There was an error setting the contract as successful. Please inform us of this event.")
           (log* "Error in contract/holding-period" msg)))))
 
 (defmethod app-msg-handler :contract/broken
@@ -470,7 +473,7 @@
     (log* "Error in :contract/broken" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-broken")
-      (do (reset! app-error "There was an error setting the contract as broken. Please inform us of this event.")
+      (do (push-error "There was an error setting the contract as broken. Please inform us of this event.")
           (log* "Error in contract/broken" msg)))))
 
 (defmethod app-msg-handler :contract/escrow-released
@@ -479,7 +482,7 @@
     (log* "Error in :contract/escrow-released" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
       (swap! (:contracts app-state) assoc-in [found-idx :escrow-released] true)
-      (do (reset! app-error "There was an error releasing the Escrow. Please inform us of this event.")
+      (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
           (log* "Error in contract/escrow-released" msg)))))
 
 (defmethod app-msg-handler :notification/create
@@ -701,7 +704,7 @@
   < rum/reactive
   []
   [:div
-   [:h4 {:style {:text-align "center"}} "Buy requests"]
+   [:h4 {:style {:text-align "center"}} "Open requests"]
    [:div
     (let [requests (rum/react (:buy-requests app-state))]
       (cond
@@ -709,7 +712,7 @@
         [:div "Retrieving requests..."
          (ui/linear-progress {:size 60 :mode "indeterminate"})]
         (empty? requests)
-        [:p.center "No active requests"]
+        [:p.center "No open requests"]
         :else
         (ui/list
          (for [req requests]
@@ -912,7 +915,7 @@
   < rum/reactive
   []
   [:div
-   [:h4.center "Active contracts"]
+   [:h4.center "Contracts"]
    [:div
     (let [_small-display? (rum/react small-display?)
           contracts (rum/react (:contracts app-state))]
@@ -930,7 +933,7 @@
              [:strong (if (am-i-seller? contract) "SELLER" "BUYER")] (str " // " (:human-id contract))]
             (let [action-required [(if _small-display? :div.center.margin-1rem-top :div.column-half)
                                    [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))}
-                                    "ACTION REQUIRED"]]
+                                    "ACTIVE (XX:XX left)"]]
                   status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
                   waiting [status-class [:div.center "WAITING"]]
                   releasing [status-class [:div.center (if (am-i-buyer? contract) (str "RELEASING TO: " (:output-address contract)) "RELEASING TO BUYER")]]
@@ -981,7 +984,7 @@
   (let [notifications (rum/react (:notifications app-state))
         current (peek notifications)]
     (ui/snackbar {:open (boolean (not-empty notifications))
-                  :auto-hide-duration 4000
+                  :auto-hide-duration 5000
                   :message (str (:title current) " " (:message current))
                   :on-request-close #(swap! (:notifications app-state) pop)
                   ;; :actions [(ui/flat-button {:label "OK"

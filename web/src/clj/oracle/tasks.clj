@@ -187,13 +187,14 @@
       (idempotent-ops mid :event-buy-request-created state
                       (events/add-event! buyer-id :buy-request-created buy-request))
       (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
-                           #(db/buy-request-set-seller! buy-request-id (pick-counterparty
-                                                                        buyer-id
-                                                                        ;; Request to buy of what the seller has
-                                                                        ;; TODO: improve semantics upstream to match this
-                                                                        {:wants {:amount amount :currency currency-seller}
-                                                                         :offers {:currency currency-buyer}})
-                                                        %))]
+                           #(when-let [counterparty (pick-counterparty
+                                                     buyer-id
+                                                     ;; Request to buy of what the seller has
+                                                     ;; TODO: improve semantics upstream to match this
+                                                     {:wants {:amount amount :currency currency-seller}
+                                                      :offers {:currency currency-buyer}})]
+                              (db/buy-request-set-seller! buy-request-id counterparty %)
+                              (log/debugf "Buyer ID %s - Seller ID % match for %s %s" buyer-id counterparty amount currency-seller)))]
         (do (idempotent-ops mid :event-sell-offer-matched state
                             (events/add-event! seller-id :sell-offer-matched buy-request)
                             (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
@@ -219,9 +220,9 @@
                       (events/add-event! seller-id :buy-request-timed-out buy-request))
                     {:status :retry :backoff-ms 1})
                 :else
-                {:status :retry :backoff-ms 4000})))
-        (do (log/debugf "No seller match (buy request ID %s). Retrying in 20 seconds." buy-request-id)
-            {:status :retry :backoff-ms 20000})))
+                {:status :retry :backoff-ms 1000})))
+        (do ;; (log/debugf "No seller match (buy request ID %s). Retrying in 5 seconds." buy-request-id)
+            {:status :retry :backoff-ms 5000})))
     (catch Exception e
       (let [prex (with-out-str (pprint e))]
         (log/debugf "Exception in task: %s" prex)
@@ -314,7 +315,7 @@
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "running contract timed out"} %))
                   {:status :success})
               :else
-              {:status :retry :backoff-ms 5000})
+              {:status :retry :backoff-ms 1000})
 
         ;; Wrong stage, keep around for observation
         (do
@@ -372,17 +373,6 @@
       #(db/contract-add-event! contract-id "contract-broken" nil %))
     {:status :success}))
 
-(defmethod common-preemptive-handler :contract/mark-transfer-sent
-  [{:keys [mid message attempt]}]
-  (let [{:keys [tag data]} message
-        contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)]
-    (log/debug message)
-    (db/contract-set-field! contract-id "transfer_sent" true)
-    (events/add-event! (:seller-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
-    (events/add-event! (:buyer-id contract) :contract-mark-transfer-sent-ack contract) ; Allow repetition
-    {:status :success}))
-
 (defmethod common-preemptive-handler :contract/mark-transfer-received
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
@@ -390,8 +380,6 @@
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
     (db/contract-set-field! contract-id "transfer_received" true)
-    (events/add-event! (:buyer-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
-    (events/add-event! (:seller-id contract) :contract-mark-transfer-received-ack contract) ; Allow repetition
     {:status :success}))
 
 (defmethod common-preemptive-handler :escrow/release-to-user
