@@ -591,8 +591,9 @@
   (let [offer-active? (boolean @(:sell-offer app-state))
         ui-values (::ui-values state_)
         sell-offer (:sell-offer app-state)
+        max-allowed 3000
         min-val (or (:min (rum/react ui-values)) (:min (rum/react sell-offer)) 0.1)
-        max-val (or (:max (rum/react ui-values)) (:max (rum/react sell-offer)) 10000)
+        max-val (or (:max (rum/react ui-values)) (:max (rum/react sell-offer)) max-allowed)
         parsed-min-val (let [p (js/Number min-val)] (when-not (js/isNaN p) p))
         parsed-max-val (let [p (js/Number max-val)] (when-not (js/isNaN p) p))
         currency (or (:currency (rum/react ui-values)) (:currency (rum/react sell-offer)) "usd")
@@ -630,7 +631,8 @@
                                    :floating-label-text "Max."
                                    :style {:margin-top "0px" :width "8rem"}
                                    :error-text (cond (not (pos? parsed-max-val)) "Invalid value"
-                                                     (> parsed-min-val parsed-max-val) "Max should be larger than Min")
+                                                     (> parsed-min-val parsed-max-val) "Max should be larger than Min"
+                                                     (> (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) max-allowed) (str "Max. of " max-allowed))
                                    :value max-val
                                    :on-change #(swap! ui-values assoc :max (.. % -target -value))})]
                   (when parsed-max-val
@@ -646,6 +648,9 @@
                                                       (close-sell-offer
                                                        #(reset! (:ui-mode app-state) :none))))}))
                  (ui/flat-button {:label (if offer-active? "Update" "Sell")
+                                  :disabled (not (and (pos? parsed-min-val) (pos? parsed-max-val)
+                                                      (<= (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) 3000)
+                                                      (> parsed-max-val parsed-min-val)))
                                   :on-touch-tap (fn []
                                                   (open-sell-offer {:currency currency :min min-val :max max-val})
                                                   (reset! (:ui-mode app-state) :none))})
@@ -737,6 +742,7 @@
                                         :on-touch-tap #(reset! (:display-contract app-state) nil)})]
               content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                        [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
+                        [:h3 "TODO: TIMER COUNTDOWN"]
                         [:h3 "Step 1"]
                         (if (:escrow-seller-has-key contract)
                           [:p "The key has been extracted and is no longer available in our servers."]
@@ -771,7 +777,7 @@
           (when (am-i-seller? contract)  ; make sure we are the seller
             (if (rum/react small-display?)
               (mobile-overlay true content buttons)
-              (ui/dialog {:title "Contract Action Required"
+              (ui/dialog {:title (str "Action Required for " (:human-id contract))
                           :open (boolean contract)
                           :modal true
                           :actions buttons}
@@ -808,7 +814,9 @@
                                                                       (log* "Error in escrow/forget-user-key" %)))))}))]
                      [:div.center.margin-2rem
                       [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
-                 [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
+                 [:h3 "Step 2: send a video following these instructions:"]
+                 [:p "<TODO: INSTRUCTIONS>"]
+                 [:h3 "Step 3: send " [:span {:style {:color "rgb(0, 188, 212)"}}
                                        [:strong (round-currency
                                                  (* (common/currency-as-float (:amount contract)
                                                                               (:currency-seller contract))
@@ -816,15 +824,11 @@
                                                  2)
                                         " "
                                         (clojure.string/upper-case (:currency-buyer contract))]] " to the seller account"]
-                 [:pre {:style {:font-size "small"}} (:transfer-info contract)]
-                 [:div.center
-                  (ui/raised-button {:label "I've transferred the funds"
-                                     :primary true
-                                     :disabled (or (not (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
-                                     :on-touch-tap #(do (mark-contract-sent (:id contract))
-                                                        (reset! (:display-contract app-state) nil))})]]
+                 [:pre {:style {:font-size "small"}} (:transfer-info contract)]]
                 ;; Seller dialog
                 [:div.center.padding-1rem
+                 [:p "<TODO: INSTRUCTIONS>"]
+                 [:p "<TODO: TIMER>"]
                  [:p "Please confirm here when you've received the funds in your bank account"]
                  (ui/raised-button {:label "I've received the funds"
                                     :primary true
@@ -836,7 +840,7 @@
                                 :on-touch-tap #(reset! (:display-contract app-state) nil)})]]
           (if (rum/react small-display?)
             (mobile-overlay true content [:div {:style {:height "2rem"}}] buttons)
-            (ui/dialog {:title "Contract Action Required"
+            (ui/dialog {:title (str "Action Required for " (:human-id contract))
                         :open true
                         :modal true
                         :content-style {:width "500px"}
@@ -896,7 +900,7 @@
                                                          (swap! input assoc :buyer-key (.. % -target -value)))})]]
             (if (rum/react small-display?)
               (mobile-overlay true content buttons)
-              (ui/dialog {:title "Contract Action Required"
+              (ui/dialog {:title (str "Action Required for " (:human-id contract))
                           :open true
                           :modal true
                           :actions buttons}
@@ -923,11 +927,10 @@
           [:div {:key (:hash contract)}
            [:div
             [(if _small-display? :div.center :div.column-half)
-             [:strong (if (am-i-seller? contract) "SELLER" "BUYER")] (str " // " (:hash contract))]
-            (let [action-required (do (when-not (:display-contract app-state) (reset! (:display-contract app-state) (:id contract)))
-                                      [(if _small-display? :div.center.margin-1rem-top :div.column-half)
-                                       [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))}
-                                        "ACTION REQUIRED"]])
+             [:strong (if (am-i-seller? contract) "SELLER" "BUYER")] (str " // " (:human-id contract))]
+            (let [action-required [(if _small-display? :div.center.margin-1rem-top :div.column-half)
+                                   [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))}
+                                    "ACTION REQUIRED"]]
                   status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
                   waiting [status-class [:div.center "WAITING"]]
                   releasing [status-class [:div.center (if (am-i-buyer? contract) (str "RELEASING TO: " (:output-address contract)) "RELEASING TO BUYER")]]
@@ -950,26 +953,26 @@
            [:div
             (ui/stepper ((if _small-display? #(assoc % :connector nil) identity)
                          {:active-step (case (:stage contract)
-                                         "waiting-escrow" 0
-                                         "waiting-transfer" (if (:transfer-sent contract) 2 1)
-                                         "holding-period" 3
-                                         ("contract-success" "contract-broken") 4)
+                                         "waiting-escrow" 1
+                                         "waiting-transfer" 2
+                                         ("contract-success" "contract-broken") 3)
                           :orientation (if _small-display? "vertical" "horizontal")})
+                        (ui/step (ui/step-label "Contract creation"))
                         (ui/step (ui/step-label "Escrow funding"))
-                        (ui/step (ui/step-label "Send transfer"))
-                        (ui/step (ui/step-label "Receive transfer"))
-                        (ui/step (ui/step-label "Holding period")))]
+                        (ui/step (ui/step-label "Contract execution")))]
            (case (:stage contract)
-             "contract-success"
-             [:div.contract-done [:div.contract-done-text "CONTRACT FINALIZED"]]
-             "contract-broken"
-             [:div.contract-done [:h6 "CONTRACT BROKEN"]]
+             ;; "contract-success"
+             ;; [:div.contract-done [:div.contract-done-text "CONTRACT FINALIZED"]]
+             ;; "contract-broken"
+             ;; [:div.contract-done [:h6 "CONTRACT BROKEN"]]
+             "waiting-transfer"
              [:div.center {:style {:margin-bottom "5rem"}}
               (ui/flat-button {:label "Break contract"
                                :disabled (or (= (:stage contract) "contract-success")
                                              (= (:stage contract) "contract-broken"))
                                :style {:margin "0 1rem 0 1rem"}
-                               :on-touch-tap #(js/alert "NOT IMPLEMENTED") #_#(js/confirm "Are you sure?")})])
+                               :on-touch-tap #(js/alert "NOT IMPLEMENTED")})]
+             nil)
            (contract-dialog)])))]])
 
 (rum/defc generic-notifications
@@ -977,10 +980,10 @@
   []
   (let [notifications (rum/react (:notifications app-state))
         current (peek notifications)]
-    (swap! (:notifications app-state) pop)
     (ui/snackbar {:open (boolean (not-empty notifications))
                   :auto-hide-duration 4000
                   :message (str (:title current) " " (:message current))
+                  :on-request-close #(swap! (:notifications app-state) pop)
                   ;; :actions [(ui/flat-button {:label "OK"
                   ;;                            :primary true
                   ;;                            :on-touch-tap (or (:on-touch-tap current)
@@ -994,25 +997,23 @@
 
 (rum/defcs sell-offer-matched-dialog
   < rum/reactive
-  (rum/local true ::decline-lock)
-  (rum/local {:number "" :name "" :address "" :iban "" :swift ""} ::account-info)
+  (rum/local {:name ""} ::account-info)
   [state_]
-  (let [decline-lock (::decline-lock state_)
-        pending-matches (rum/react (:sell-offer-matches app-state))
+  (let [pending-matches (rum/react (:sell-offer-matches app-state))
         open? (boolean (not-empty pending-matches))
         current (peek pending-matches)
         account-info (::account-info state_)]
     (when current
-      ;; (log* "Current sell offer: " current)
       (let [buttons [(ui/flat-button {:label "Accept"
                                       :primary true
+                                      :disabled (clojure.string/blank? (:name (rum/react account-info)))
                                       :on-touch-tap (fn []
                                                       (accept-buy-request
                                                        (:id current)
-                                                       (clojure.string/join "\n" (map (fn [[k v]] (gstring/format "%s: %s" (name k) v)) @account-info)))
+                                                       ;;(clojure.string/join "\n" (map (fn [[k v]] (gstring/format "%s: %s" (name k) v)) @account-info))
+                                                       (:name @account-info))
                                                       (swap! (:sell-offer-matches app-state) pop))})
                      (ui/flat-button {:label "Decline"
-                                      :disabled (rum/react decline-lock)
                                       :on-touch-tap (fn []
                                                       (decline-buy-request (:id current))
                                                       (close-sell-offer #(swap! (:sell-offer-matches app-state) pop)))})]
@@ -1020,50 +1021,25 @@
                                                              (:amount current)
                                                              (:currency-seller current))
                                   (clojure.string/upper-case (:currency-seller current)))
-            div-account-number (ui/text-field {:id "account-number"
-                                               :floating-label-text "Account Number"
-                                               :value (:number (rum/react account-info))
-                                               :on-change #(swap! account-info assoc :number (.. % -target -value))})
             div-account-name (ui/text-field {:id "account-name"
-                                             :floating-label-text "Account Name"
+                                             :floating-label-text "Venmo ID"
                                              :value (:name (rum/react account-info))
-                                             :on-change #(swap! account-info assoc :name (.. % -target -value))})
-            div-account-address (ui/text-field {:id "account-address"
-                                                :floating-label-text "Account Address"
-                                                :value (:address (rum/react account-info))
-                                                :on-change #(swap! account-info assoc :address (.. % -target -value))})
-            div-account-iban (ui/text-field {:id "account-iban"
-                                             :floating-label-text "IBAN"
-                                             :value (:iban (rum/react account-info))
-                                             :on-change #(swap! account-info assoc :iban (.. % -target -value))})
-            div-account-swift (ui/text-field {:id "account-swift"
-                                              :floating-label-text "SWIFT"
-                                              :value (:swift (rum/react account-info))
-                                              :on-change #(swap! account-info assoc :swift (.. % -target -value))})
-            decline-checkbox [:h6  "To decline it, first check this, but your sell offer will be removed."
-                              [:br]
-                              (ui/checkbox {:label "I understand"
-                                            :checked (not (rum/react decline-lock))
-                                            :on-check #(reset! decline-lock (not %2))})]]
+                                             :on-change #(swap! account-info assoc :name (.. % -target -value))})]
         (if (rum/react small-display?)
           (mobile-overlay
            open?
            [:div.padding-1rem
             [:h3 title]
-            div-account-number div-account-name div-account-address div-account-iban div-account-swift
-            decline-checkbox
+            [:div div-account-name]
             buttons])
           (ui/dialog {:title title
                       :open open?
                       :modal true
-                      :actions buttons}
-                     [:div {:style {:height "270px"}}
+                      :actions buttons
+                      :content-style {:width "300px"}}
+                     [:div.center
                       [:div.offer-matched-column
-                       [:div div-account-number div-account-name div-account-address]]
-                      [:div.offer-matched-column
-                       [:div div-account-iban div-account-swift]]
-                      [:div {:style {:position "absolute" :bottom 0 :margin-bottom "2rem"}}
-                       decline-checkbox]]))))))
+                       [:div div-account-name]]]))))))
 
 (rum/defc footer
   []
@@ -1071,29 +1047,34 @@
    [:p.logout {:on-click logout} "Logout"]
    [:p.year (gstring/format "Cointrust © %d" (.getFullYear (js/Date.)))]])
 
-(rum/defc login-comp
-  []
-  [:div {:style {:text-align "center"}}
-   (ui/raised-button {:label "Ephemeral Login"
-                      :style {:margin "1rem"}
-                      :on-touch-tap
-                      (fn [e]
-                        (if hook-fake-id?_
-                          (let [hashed-id "asdf" user-id 1]
-                            (log* "Connected with fake user hash: " hashed-id)
-                            (set-fake-facebooks-ids hashed-id))
-                          (try
-                            (fb/get-login-status
-                             (fn [response]
-                               (case (:status response)
-                                 "connected"
-                                 (set-facebook-ids response)
-                                 (fb/login #(fb/get-login-status set-facebook-ids) {:scope "user_friends,public_profile,email"}))))
-                            (catch :default e
-                              (swap! (:notifications app-state) conj {:title "Please refresh this web page"
-                                                                      :message (str "We had trouble connecting to facebook.  The easy fix is to refresh your web page.  This will probably work.  If it doesn't please check that you don't have a browser extension that disables the use of Social Logins.  Cointrust uses the social graph to find optimal matches for trading. /// Error /// " e)
-                                                                      :on-touch-tap #(swap! (:notifications app-state) pop)})))))})
-   (generic-notifications)])
+(rum/defcs login-comp
+  < rum/reactive
+  (rum/local false ::fb-error)
+  [state_]
+  (let [fb-error (::fb-error state_)]
+    [:div {:style {:text-align "center"}}
+     (ui/dialog {:title "Please refresh this web page"
+                 :open (rum/react fb-error)
+                 :message (str "We had trouble connecting to facebook.  Please refresh your web page.  This will probably work.  If it doesn't please check that you don't have a browser extension that disables the use of Social Logins.  Cointrust uses the social graph to find optimal matches for trading. /// Error /// " (str (rum/react fb-error)))
+                 :on-touch-tap #(swap! (:notifications app-state) pop)}
+                "Maximum number of simultaneous open BUY requests reached.")
+     (ui/raised-button {:label "Ephemeral Login"
+                        :style {:margin "1rem"}
+                        :on-touch-tap
+                        (fn [e]
+                          (if hook-fake-id?_
+                            (let [hashed-id "asdf" user-id 1]
+                              (log* "Connected with fake user hash: " hashed-id)
+                              (set-fake-facebooks-ids hashed-id))
+                            (try
+                              (fb/get-login-status
+                               (fn [response]
+                                 (case (:status response)
+                                   "connected"
+                                   (set-facebook-ids response)
+                                   (fb/login #(fb/get-login-status set-facebook-ids) {:scope "user_friends,public_profile,email"}))))
+                              (catch :default e
+                                (reset! fb-error e)))))})]))
 
 (rum/defc main-comp
   []

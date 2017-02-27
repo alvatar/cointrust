@@ -281,63 +281,46 @@
         ;; We inform of the expected transaction and the freezing of price.
         ;; We wait for the seller to fund the escrow and provide the transfer details.
         "waiting-escrow"
-        (cond (and (:transfer-info contract) (:escrow-funded contract)) ; TODO: Observing the blockchain
+        (cond (and (:transfer-info contract) (:escrow-funded contract))
               (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
                     (fn [idemp]
                       (log/debug "Contract stage changed to \"waiting-transfer\"")
                       (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
                   (let [contract (merge contract {:stage "waiting-transfer"})]
                     (events/add-event! (:seller-id contract) :contract-escrow-funded contract)
-                    (events/add-event! (:buyer-id contract) :contract-escrow-funded contract)
-                    ;;(events/add-event! (:seller-id contract) :contract-waiting-transfer contract)
-                    ;;(events/add-event! (:buyer-id contract) :contract-waiting-transfer contract)
-                    )
+                    (events/add-event! (:buyer-id contract) :contract-escrow-funded contract))
                   {:status :retry :backoff-ms 1})
-              (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/days 1)))
+              (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/minutes 20)))
               (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
+                  ;; Let the success contract stage handle it
                   {:status :retry :backoff-ms 1})
               :else
               {:status :retry :backoff-ms 1000})
 
-        ;; We provide the buyer with A) the transfer info B) the instructions
-        ;; Buyer informs of transfer performed to the system
-        ;; The seller is informed of the transfer initiated
+        ;; The seller finalizes the contract when acknowledges reception of funds
         "waiting-transfer"
         (cond (:transfer-received contract)
-              (do (with-idempotent-transaction mid :contract-add-event-holding-period state
-                    (fn [idemp]
-                      (log/debug "Contract stage changed to \"holding-period\"")
-                      (db/contract-add-event! contract-id "holding-period" nil idemp)))
-                  (events/add-event! (:buyer-id contract) :contract-holding-period contract)
-                  (events/add-event! (:seller-id contract) :contract-holding-period contract)
-                  {:status :retry :backoff-ms 1})
-              ;; The transfer waiting period includes both buyer sending and seller receiving notifications
-              (> now (utils/unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/days 1)))
-              (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
-                    #(db/contract-add-event! contract-id "contract-broken" {:reason "transfer waiting period timed out"} %))
-                  {:status :retry :backoff-ms 1})
-              :else
-              {:status :retry :backoff-ms 6000})
-
-        ;; Seller informs of transfer received
-        ;; The buyer is informed of the transfer received
-        "holding-period"
-        (cond (> now (utils/unix-after (time-coerce/to-date-time (:holding-period-start contract))
-                                       (time/seconds 2) #_(time/days 100)))
               (do (db/contract-set-field! contract-id "escrow_open_for" (:buyer-id contract)) ; Idempotent
                   (events/add-event! (:buyer-id contract) :contract-success contract)
                   (events/add-event! (:seller-id contract) :contract-success contract)
                   (with-idempotent-transaction mid :contract-success state
                     #(db/contract-add-event! contract-id "contract-success" nil %))
+                  ;; Let the success contract stage handle it
+                  {:status :retry :backoff-ms 1})
+              ;; The countdown
+              (> now (utils/unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/minutes 10)))
+              (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
+                    #(db/contract-add-event! contract-id "contract-broken" {:reason "running contract timed out"} %))
                   {:status :success})
               :else
-              {:status :retry :backoffs-ms 10000})
+              {:status :retry :backoff-ms 5000})
 
         ;; Wrong stage, keep around for observation
-        (log/debugf "Contract creation inconsistent: \n%s \n%s" (with-out-str (pprint contract))
-                    (with-out-str (pprint buy-request)))
-        {:status :retry :backoffs-ms 3600000}))
+        (do
+          (log/debugf "Contract creation inconsistent: \n%s \n%s" (with-out-str (pprint contract))
+                      (with-out-str (pprint buy-request)))
+          {:status :retry :backoffs-ms 3600000})))
     (catch Exception e
       (let [prex (with-out-str (pprint e))]
         (log/debugf "Exception in task: %s" prex)
@@ -489,11 +472,11 @@
 
 (defn total-wipeout!!! []
   (workers-stop!)
-  (bitcoin/system-reset!!!)
+  ;;(bitcoin/system-reset!!!)
   (redis/flush!!!)
   (db/reset-database!!!)
   (populate-test-database!)
-  (bitcoin/system-start!)
+  ;;(bitcoin/system-start!)
   (workers-start!))
 
 
@@ -501,15 +484,18 @@
 ;; Seller tests
 ;;
 
-;; Create a buy request
+;; 1. Create a buy request
 ;; (initiate-buy-request 2 (oracle.common/currency-as-long 1.0 :btc) "usd" "btc")
 
-;; Initialize Escrow
-;; (oracle.escrow/set-seller-key 1 "fdsafdsa")
+;; 2. Accept buy request
 
-;; Seller sends money to Escrow
+;; 3. Seller sends money to Escrow
 ;; (oracle.database/contract-set-escrow-funded! 1)
 
+
+;; -- EXTRA
+;; Initialize Escrow
+;; (oracle.escrow/set-seller-key 1 "fdsafdsa")
 ;; Buyer marks transfer sent
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-sent {:id 1})
 
@@ -518,20 +504,25 @@
 ;; Buyer tests
 ;;
 
+;; 1. Seller accepts buy request
+;; IMPORTANT: if done outside the task, the seller will be reset to nil if that was the value of the imdepotency storage
+#_(do
+  (oracle.database/buy-request-set-seller! 1 2)
+  (oracle.tasks/initiate-preemptive-task :buy-request/accept
+                                         {:id 1
+                                          :transfer-info "transfer info"}))
+
+;; 2. Escrow initialization
+;; (oracle.database/contract-set-escrow-funded! 1)
+
+;; 3. Seller marks transfer received
+;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
+
+
+;; -- EXTRA
+
 ;; Seller declines buy request
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/decline {:id 1})
-
-;; Seller accepts buy request
-;; (oracle.database/buy-request-set-seller! 1 2)
-;; IMPORTANT: if done outside the task, the seller will be reset to nil if that was the value
-;; of the imdepotency storage
-#_(oracle.tasks/initiate-preemptive-task :buy-request/accept
-                                       {:id 1
-                                        :transfer-info "Hakuna Matata Bank.
-Publius Cornelius Scipio.
-Ibiza, Spain.
-IBAN 12341234123431234
-SWIFT YUPYUP12"})
 
 ;; Directly create contract
 #_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "btc", :exchange-rate 1000.000000M, :transfer-info "Hakuna Matata Bank.
@@ -539,12 +530,6 @@ Publius Cornelius Scipio
 Ibiza, Spain.
 IBAN 12341234123431234
 SWIFT YUPYUP12"})
-
-;; Escrow initialization
-;; (oracle.database/contract-set-escrow-funded! 1)
-
-;; Seller marks transfer received
-;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
 
 (defn contract-force-success [id]
   (let [contract (db/get-contract-by-id id)]

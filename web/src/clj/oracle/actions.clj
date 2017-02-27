@@ -118,10 +118,6 @@
   [args]
   (preemptive-task-handler args :contract/break))
 
-(defmethod -event-msg-handler :contract/mark-transfer-sent
-  [args]
-  (preemptive-task-handler args :contract/mark-transfer-sent))
-
 (defmethod -event-msg-handler :contract/mark-transfer-received
   [args]
   (preemptive-task-handler args :contract/mark-transfer-received))

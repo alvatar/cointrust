@@ -5,7 +5,8 @@
             [clojure.java.jdbc :as sql]
             [crypto.random :as crypto]
             [cheshire.core :as json]
-            [camel-snake-kebab.core :as case-shift]))
+            [camel-snake-kebab.core :as case-shift]
+            [taoensso.nippy :as nippy]))
 
 ;; CURRENCY-BUYER: the currency on the side of the buyer before the transaction (what the buyer *has*)
 ;; CURRENCY-SELLER: the currency on the side of the seller before the transaction (what the seller *has*)
@@ -264,30 +265,38 @@ SELECT * FROM buy_request;
 ;; Contracts
 ;;
 
+;; TODO
+(defn human-id-generator []
+  "ALPHA POTATO GRAMINEA ZEBRA")
+
 (defn contract-create!
   [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info input-address] :as params} & [txcb]]
-  (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
-    (sql/with-db-transaction
-      [tx db]
-      (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (hash, buyer_id, seller_id, amount, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (try
+    (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
+      (sql/with-db-transaction
+        [tx db]
+        (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
+INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
-        (sql/execute! tx ["
+" (human-id-generator) (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
+          (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
-        (let [contract (merge contract {:stage init-stage})]
-          (log! tx "contract-create" params)
-          (when txcb (txcb contract))
-          contract)))))
+          (let [contract (merge contract {:stage init-stage})]
+            (log! tx "contract-create" params)
+            (when txcb (txcb contract))
+            contract))))
+    (catch Exception e
+      (log/debugf "Error in contract creation with params: %s" (with-out-str (pprint params)))
+      (throw e))))
 
 (defn contract-add-event! [contract-id stage & [data txcb]]
   (sql/with-db-transaction
     [tx db]
     (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage, data) VALUES (?, ?, ?);
-" contract-id stage (or data "")])
+" contract-id stage (when data (nippy/freeze data) "")])
     (log! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
     (when txcb (txcb nil))))
 
@@ -395,7 +404,7 @@ INNER JOIN (
 
 (defn contract-set-escrow-funded! [id]
   (sql/execute! db ["
-UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP, holding_period_start = CURRENT_TIMESTAMP
+UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP
 WHERE id = ?
 " id]))
 
@@ -472,6 +481,7 @@ CREATE TABLE buy_request (
 CREATE TABLE contract (
   id                               SERIAL PRIMARY KEY,
   hash                             TEXT NOT NULL UNIQUE,
+  human_id                         TEXT NOT NULL UNIQUE,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
@@ -491,8 +501,7 @@ CREATE TABLE contract (
   transfer_info                    TEXT NOT NULL,
   transfer_sent                    BOOLEAN DEFAULT false,
   transfer_received                BOOLEAN DEFAULT false,
-  waiting_transfer_start           TIMESTAMP,
-  holding_period_start             TIMESTAMP
+  waiting_transfer_start           TIMESTAMP
 );"
                        "
 CREATE TABLE contract_event (

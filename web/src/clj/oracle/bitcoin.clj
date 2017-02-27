@@ -252,10 +252,11 @@
 (defn system-start! []
   (swap! current-app #(or % (make-app)))
   (swap! current-wallet #(or %
-                             (when-let [w (wallet-deserialize (db/load-current-wallet))]
-                               (log/debug "Restoring wallet from database...")
-                               (log/debugf "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance w)))
-                               (wallet-init-listeners! w))
+                             (when-let [w (db/load-current-wallet)]
+                               (let [wallet (wallet-deserialize w)]
+                                 (log/debug "Restoring wallet from database...")
+                                 (log/debugf "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+                                 (wallet-init-listeners! wallet)))
                              (do (log/warn "Creating new wallet!")
                                  (let [w (make-wallet @current-app)]
                                    (wallet-init-listeners! w)
