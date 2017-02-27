@@ -194,7 +194,7 @@
                                                      {:wants {:amount amount :currency currency-seller}
                                                       :offers {:currency currency-buyer}})]
                               (db/buy-request-set-seller! buy-request-id counterparty %)
-                              (log/debugf "Buyer ID %s - Seller ID % match for %s %s" buyer-id counterparty amount currency-seller)))]
+                              (log/debugf "Buyer ID %s - Seller ID %s match for %s %s" buyer-id counterparty amount currency-seller)))]
         (do (idempotent-ops mid :event-sell-offer-matched state
                             (events/add-event! seller-id :sell-offer-matched buy-request)
                             (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
@@ -276,7 +276,7 @@
         "contract-broken"
         (do (events/add-event! (:buyer-id contract) :contract-broken contract)
             (events/add-event! (:seller-id contract) :contract-broken contract)
-            (db/contract-set-field! contract "escrow_open_for" (:seller-id contract))
+            (db/contract-set-field! contract-id "escrow_open_for" (:seller-id contract))
             {:status :success})
 
         ;; We inform of the expected transaction and the freezing of price.
