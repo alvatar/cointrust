@@ -117,32 +117,34 @@
 (defn wallet-deserialize [sr]
   (. Wallet loadFromFileStream (ByteArrayInputStream. sr) nil))
 
+(defn log! [m] (db/log! "info" "bitcoin" m))
+
+(defn log-action-required! [m] (db/log! "action-required" "bitcoin" m))
+
 (defn wallet-init-listeners! [wallet]
   (.addCoinsReceivedEventListener
    wallet
    (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
      (onCoinsReceived [this wallet transaction prev-balance new-balance]
-       (try (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))
+       (try (log! "Wallet balance PRE-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+            (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))
                   address-payed (.toString
                                  (.getAddressFromP2PKHScript
                                   (first (.getOutputs transaction)) (:network-params @current-app)))]
+              (log! "Transaction Memo: %s" (.getMemo transaction))
               (if (pos? amount-payed)
-                (do (log/debugf "Received payment of %s BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
+                (do (log! "Received payment of %s BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
                     (if-let [contract (not-empty (db/get-contract-by-input-address address-payed))]
-                      (do (log/debugf "Payment to %s funds contract ID %s" address-payed contract)
+                      (do (log/infof "BITCOIN *** Payment to %s funds contract ID %s" address-payed (:id contract))
                           (if (>= amount-payed (:amount contract))
                             (do (db/contract-set-escrow-funded! (:id contract))
-                                (log/debugf "Contract ID %d successfully funded\n" (:id contract)))
-                            (do (log/errorf "The received payment is insufficient. Amount payed: %s, amount expected: %s"
-                                            amount-payed (:amount contract))
-                                (db/log-manual-op! (format "Payment insufficient for contract %s. Received %s, expected %s"
-                                                           (:id contract)
-                                                           amount-payed
-                                                           (:amount contract)))))
+                                (log/infof "BITCOIN *** Contract ID %d successfully funded\n" (:id contract)))
+                            (log/infof "BITCOIN *** The received payment is insufficient. Amount payed: %s, amount expected: %s" amount-payed (:amount contract)))
                           (db/save-current-wallet (wallet-serialize wallet)))
-                      (log/errorf "CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
+                      (log/errorf "BITCOIN *** CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
                                   (common/satoshi->btc amount-payed) address-payed)))
-                (log/debugf "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed)))
+                (log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed)))
+            (log! "Wallet balance POST-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
             (catch Exception e (log/error e))))))
   wallet)
 

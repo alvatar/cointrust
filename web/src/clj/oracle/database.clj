@@ -42,20 +42,14 @@
 ;; Events
 ;;
 
-(defn log! [tx type datamap]
-  (sql/execute! tx ["
+(defn log! [level type datamap]
+  (sql/insert! db :logs {:level level :type type :data (json/generate-string datamap)}))
+
+;; Used only internally to log database operations
+(defn- log-op! [tx-or-db type datamap]
+  (sql/execute! tx-or-db ["
 INSERT INTO logs (level, type, data) VALUES ('debug', ?, ?) RETURNING *;
 " type (json/generate-string datamap)]))
-
-(defn log-message! [data]
-  (sql/insert! db :logs {:level (str (:level data))
-                         :type "message"
-                         :data (force (:output_ data))}))
-
-(defn log-manual-op! [data]
-  (sql/insert! db :logs {:level "info"
-                         :type "manual-op"
-                         :data data}))
 
 (defn get-all-logs [limit]
   (sql/query db ["SELECT * FROM logs LIMIT ?" limit]))
@@ -94,7 +88,7 @@ VALUES (?, ?)
 ON CONFLICT DO NOTHING
 " user-id1 user-id2]))))
                 friend-ids)]
-      (log! tx "user-insert" {:user-hash user-hash
+      (log-op! tx "user-insert" {:user-hash user-hash
                               :friend-hashes friend-hashes})
       {:user user-id
        :friends friend-ids})))
@@ -161,7 +155,7 @@ WHERE (user_id1 IN (SELECT u FROM user_friends) OR user_id2 IN (SELECT u FROM us
 INSERT INTO sell_offer (user_id, currency, min, max) VALUES (?, ?, ?, ?)
 ON CONFLICT (user_id) DO UPDATE SET currency = ?, min = ?, max = ?
 " user-id currency minval maxval currency minval maxval])
-    (log! tx "sell-offer-set" {:user-id user-id :min minval :max maxval})))
+    (log-op! tx "sell-offer-set" {:user-id user-id :min minval :max maxval})))
 
 (defn sell-offer-get-by-user [user-id]
   (first
@@ -175,7 +169,7 @@ SELECT user_id AS user, min, max, currency FROM sell_offer WHERE user_id = ?;
     (sql/execute! tx ["
 DELETE FROM sell_offer WHERE user_id = ?;
 " user-id])
-    (log! tx "sell-offer-unset" {:user-id user-id})))
+    (log-op! tx "sell-offer-unset" {:user-id user-id})))
 
 (defn get-all-sell-offers []
   (into []
@@ -198,7 +192,7 @@ INSERT INTO buy_request (buyer_id, amount, currency_buyer, currency_seller, exch
 VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 " user-id amount currency-buyer currency-seller exchange-rate]))]
-      (log! tx "buy-request-create" {:user-id user-id
+      (log-op! tx "buy-request-create" {:user-id user-id
                                      :amount amount
                                      :currency-buyer currency-buyer
                                      :currency-seller currency-seller
@@ -233,7 +227,7 @@ SELECT * FROM buy_request WHERE id = ?;
 UPDATE buy_request SET seller_id = ?
 WHERE id = ?
 " seller-id buy-request])
-    (log! tx "buy-request-set-seller" {:id buy-request :seller-id seller-id})
+    (log-op! tx "buy-request-set-seller" {:id buy-request :seller-id seller-id})
     (when txcb (txcb seller-id)))
   seller-id)
 
@@ -244,7 +238,7 @@ WHERE id = ?
 UPDATE buy_request SET seller_id = NULL
 WHERE id = ?
 " buy-request])
-    (log! tx "buy-request-unset-seller" {:id buy-request})))
+    (log-op! tx "buy-request-unset-seller" {:id buy-request})))
 
 (defn buy-request-delete! [buy-request]
   (sql/with-db-transaction
@@ -252,7 +246,7 @@ WHERE id = ?
     (sql/execute! tx ["
 DELETE FROM buy_request WHERE id = ?;
 " buy-request])
-    (log! tx "buy-request-delete" {:id buy-request}))
+    (log-op! tx "buy-request-delete" {:id buy-request}))
   'ok)
 
 (defn get-all-buy-requests []
@@ -284,7 +278,7 @@ RETURNING *;
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
           (let [contract (merge contract {:stage init-stage})]
-            (log! tx "contract-create" params)
+            (log-op! tx "contract-create" params)
             (when txcb (txcb contract))
             contract))))
     (catch Exception e
@@ -297,7 +291,7 @@ INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
     (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage, data) VALUES (?, ?, ?);
 " contract-id stage (when data (nippy/freeze data) "")])
-    (log! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
+    (log-op! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
     (when txcb (txcb nil))))
 
 (defn get-contract-events [contract-id]
