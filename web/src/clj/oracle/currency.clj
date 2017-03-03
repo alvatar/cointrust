@@ -8,6 +8,7 @@
             [aleph.http :as http]
             [cheshire.core :as json]
             ;; -----
+            [oracle.common :as common]
             [oracle.utils :as utils]))
 
 ;;
@@ -73,8 +74,9 @@
     (log/debug "Exchange rates updater stopped")
     'stopped))
 
-(defn convert [amount from to & [exchange-rates]]
-  (long
-   (* (get (:rates (or exchange-rates (get-current-exchange-rates)))
-           (keyword (str (name to) "-" (name from))))
-      amount)))
+(defn convert-as-long [amount from to & [exchange-rates]]
+  (common/currency-as-long
+   (/ (common/currency-as-float amount from)
+      (get (:rates (or exchange-rates (get-current-exchange-rates)))
+           (keyword (str (name to) "-" (name from)))))
+   to))

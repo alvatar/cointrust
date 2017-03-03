@@ -79,7 +79,7 @@
   (let [buyer-id (:buyer-id buy-request)
         blacklisted (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
         available (remove (fn [x] (some #(= % x) blacklisted)) (db/get-user-friends-of-friends buyer-id))
-        exchange-rates (oracle.currency/get-current-exchange-rates)
+        exchange-rates (currency/get-current-exchange-rates)
         offering (filter identity (map db/get-sell-offer-by-user available))
         offering-in-range (filter #(let [buyer-wants-amount (get-in buyer-specs [:wants :amount])
                                          buyer-wants-currency (get-in buyer-specs [:wants :currency])
@@ -91,12 +91,20 @@
                                      (and (>= buyer-wants-amount
                                               (if (= (:currency %) buyer-wants-currency)
                                                 (:min %)
-                                                (currency/convert (:min %) (:currency %) buyer-wants-currency exchange-rates)))
+                                                (currency/convert-as-long (:min %) (:currency %) buyer-wants-currency exchange-rates)))
                                           (<= buyer-wants-amount
                                               (if (= (:currency %) buyer-wants-currency)
                                                 (:max %)
-                                                (currency/convert (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
+                                                (currency/convert-as-long (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
                                   offering)]
+    (println (common/satoshi->btc (currency/convert-as-long 100000 :usd :btc exchange-rates)))
+    ;; (println "AVAILABLE:")
+    ;; (pr-str available)
+    ;; (println "OFFERING:")
+    ;; (pr-str offering)
+    ;; (println "IN RANGE:")
+    ;; (pr-str offering-in-range)
+
     (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
       ;; Freeze exchange rate if matched, and set the premium of the offer
       (db/buy-request-set-field! (:id buy-request) "exchange_rate" (get-in exchange-rates [:rates :btc-usd]))
@@ -198,7 +206,7 @@
                                                      {:wants {:amount amount :currency currency-seller}
                                                       :offers {:currency currency-buyer}})]
                               (db/buy-request-set-seller! buy-request-id counterparty %)
-                              (log/debugf "Buyer ID %s - Seller ID %s match for %s %s" buyer-id counterparty amount currency-seller)))]
+                              (log/debugf "Buyer ID %s - Seller ID %s match for %s %s" buyer-id counterparty (common/currency-as-float amount currency-seller) currency-seller)))]
         (do (idempotent-ops mid :event-sell-offer-matched state
                             (events/add-event! seller-id :sell-offer-matched buy-request)
                             (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
