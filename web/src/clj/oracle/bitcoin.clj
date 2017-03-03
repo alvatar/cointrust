@@ -19,8 +19,7 @@
             [cemerick.url :refer [url]]
             ;; -----
             [oracle.common :as common]
-            [oracle.database :as db]
-            [oracle.redis :as redis]))
+            [oracle.database :as db]))
 
 ;;
 ;; Utils
@@ -39,6 +38,10 @@
     (onBroadcastProgress [this p] (println p))))
 
 (defn make-private-key [] (.getPrivKeyBytes (ECKey.)))
+
+(defn make-address [app s]
+  (try (. Address fromBase58 (:network-params app) s)
+       (catch Exception e)))
 
 ;;
 ;; Globals
@@ -121,8 +124,7 @@
 
 (defn log-action-required! [m] (db/log! "action-required" "bitcoin" m))
 
-(defn make-wallet [app]
-  (Wallet. (:network-params app)))
+(defn make-wallet [app] (Wallet. (:network-params app)))
 
 (defn get-current-wallet [] @current-wallet)
 

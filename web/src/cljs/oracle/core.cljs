@@ -852,6 +852,7 @@
                                             :floating-label-text "Destination Address"
                                             :error-text (:output-address (rum/react errors))
                                             :value (:output-address (rum/react input))
+                                            :style {:width "100%"}
                                             :on-change #(do (reset! errors {})
                                                             (swap! input assoc :output-address (.. % -target -value)))})
                             [:br]
@@ -859,6 +860,7 @@
                                             :floating-label-text "Escrow Release Key"
                                             :error-text (:key (rum/react errors))
                                             :value (:key (rum/react input))
+                                            :style {:width "100%"}
                                             :on-change #(do (reset! errors {})
                                                             (swap! input assoc :key (.. % -target -value)))})]]
                (if (rum/react small-display?)
@@ -986,7 +988,8 @@
           (when (am-i-buyer? contract) (escrow-release-dialog :buyer))
 
           "contract-broken"
-          (when (am-i-seller? contract) (escrow-release-dialog :seller))
+          (when (and (am-i-seller? contract) (:escrow-funded contract))
+            (escrow-release-dialog :seller))
 
           "contract-broken/escrow-insufficient"
           (when (am-i-seller? contract) (escrow-release-dialog :seller))

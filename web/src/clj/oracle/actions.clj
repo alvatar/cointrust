@@ -11,7 +11,9 @@
             [oracle.tasks :as tasks]
             [oracle.events :as events]
             [oracle.escrow :as escrow]
-            [oracle.currency :as currency]))
+            [oracle.currency :as currency]
+            [oracle.bitcoin :as bitcoin]
+            [oracle.escrow :as escrow]))
 
 ;;
 ;; Sente event handlers
@@ -158,15 +160,24 @@
   [{:keys [?data ?reply-fn]}]
   (let [output-address (clojure.string/trim (:output-address ?data))
         escrow-user-key (clojure.string/trim (:escrow-user-key ?data))]
-   (if (or (empty? output-address)
-           (empty? escrow-user-key))
-     (?reply-fn {:status :error-missing-parameters})
-     ;; TODO check validity of address before initiating task
-     (try (db/contract-set-field! (:id ?data) "output_address" output-address)
-          (db/contract-set-field! (:id ?data) "escrow_release" "<processing>")
-          (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
-          (?reply-fn {:status :ok})
-          (catch Exception e (pprint e) (?reply-fn {:status :error}))))))
+    (println (escrow/get-seller-key (:id ?data)))
+    (cond
+      (or (empty? output-address) (empty? escrow-user-key))
+      (?reply-fn {:status :error-missing-parameters})
+      (not (bitcoin/make-address @bitcoin/current-app output-address))
+      (?reply-fn {:status :error-wrong-address})
+      ;; TEMPORARY CHECK, should be 2-of-3
+      (not= escrow-user-key (if (= (:user-role ?data) "buyer")
+                              (escrow/encode-key (escrow/get-buyer-key (:id ?data)))
+                              (escrow/encode-key (escrow/get-seller-key (:id ?data)))))
+      (?reply-fn {:status :error-wrong-key})
+      ;;
+      :else
+      (try (db/contract-set-field! (:id ?data) "output_address" output-address)
+           (db/contract-set-field! (:id ?data) "escrow_release" "<processing>")
+           (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
+           (?reply-fn {:status :ok})
+           (catch Exception e (pprint e) (?reply-fn {:status :error}))))))
 
 (defmethod -event-msg-handler :notification/ack
   [{:keys [?data ?reply-fn]}]
