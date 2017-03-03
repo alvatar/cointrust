@@ -51,6 +51,7 @@
 (def db-conn (d/create-conn db-schema))
 
 (def exchange-rates-refresh-interval 60)
+(def max-allowed-transaction-in-usd 3000)
 
 (defonce window (atom {:width (aget js/window "innerWidth")
                        :height (aget js/window "innerHeight")}))
@@ -597,25 +598,35 @@
 ;;
 
 (rum/defcs buy-dialog
-  < rum/reactive (rum/local {:amount 1.0} ::input)
+  < rum/reactive (rum/local {:amount 1.0 :currency "btc"} ::input)
   [state]
   (let [input (::input state)
-        valid-val #(and (number? %) (> % 0))
-        btc-usd (get (rum/react (:exchange-rates app-state)) :btc-usd)
-        total (* btc-usd (:amount (rum/react input)))
+        exchange-rates (rum/react (:exchange-rates app-state))
+        parsed-val (js/parseFloat (:amount (rum/react input)))
         open? (= (rum/react (:ui-mode app-state)) :buy-dialog)
+        currency (:currency (rum/react input))
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                 [:div [:h4 "Bitcoin price: " btc-usd " BTC/USD (Coinbase reference rate)"]
-                  [:h6.margin-1rem-top
+                 [:div [:h4 "Bitcoin price: " (:btc-usd exchange-rates) " BTC/USD (Coinbase reference rate)"]
+                  [:h6 {:style {:margin-top "-1rem"}}
                    (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
                                                                                 (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
+                  [:div
+                   (ui/select-field {:value currency
+                                     :floating-label-text "Currency"
+                                     :on-change (fn [ev idx val] (swap! input assoc :currency val))
+                                     :style {:width "8rem"}}
+                                    (ui/menu-item {:value "usd" :primary-text "USD"})
+                                    (ui/menu-item {:value "btc" :primary-text "BTC"}))]
                   (ui/text-field {:id "amount"
                                   :style {:width "10rem" :margin-right "1rem"}
                                   :value (:amount (rum/react input))
                                   :on-change #(swap! input assoc :amount (.. % -target -value))
-                                  :error-text (when (not (valid-val total)) "Invalid value")})
-                  (when (> total 0)
-                    (str "for " (round-currency total) " USD"))]
+                                  :error-text (when-not (and parsed-val (pos? parsed-val)) "Invalid value")})
+                  (when (and parsed-val (pos? parsed-val))
+                    (case currency
+                      "btc" (gstring/format "for %s USD" (round-currency (* (:btc-usd exchange-rates) parsed-val)))
+                      "usd" (gstring/format "gets you %s BTC" (round-currency (* (:usd-btc exchange-rates) parsed-val)))))
+                  [:h6 "IMPORTANT: fees and seller premium will be deducted from the purchased BTC"]]
                  (when (:processing (rum/react input))
                    [:div
                     (ui/linear-progress {:size 60 :mode "indeterminate"
@@ -623,11 +634,13 @@
                     [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])]
         buttons [(ui/flat-button {:label "Buy"
                                   :primary true
-                                  :disabled (or (:processing (rum/react input)) (not (valid-val total)))
+                                  :disabled (or (:processing (rum/react input)) (not (and parsed-val (pos? parsed-val))))
                                   :on-touch-tap
-                                  (fn [e] (when (valid-val total)
+                                  (fn [e] (when (and parsed-val (pos? parsed-val))
                                             (swap! input assoc :processing true)
-                                            (create-buy-request (:amount @input)
+                                            (create-buy-request (case (:currency @input)
+                                                                  "btc" parsed-val
+                                                                  "usd" (* (:usd-btc exchange-rates) parsed-val))
                                                                 #(do (reset! (:ui-mode app-state) :none)
                                                                      (swap! input assoc :processing false)))))})
                  (ui/flat-button {:label "Cancel"
@@ -662,9 +675,8 @@
   (let [offer-active? (boolean @(:sell-offer app-state))
         ui-values (::ui-values state_)
         sell-offer (:sell-offer app-state)
-        max-allowed 3000
         min-val (or (:min (rum/react ui-values)) (:min (rum/react sell-offer)) 0.1)
-        max-val (or (:max (rum/react ui-values)) (:max (rum/react sell-offer)) max-allowed)
+        max-val (or (:max (rum/react ui-values)) (:max (rum/react sell-offer)) max-allowed-transaction-in-usd)
         parsed-min-val (let [p (js/Number min-val)] (when-not (js/isNaN p) p))
         parsed-max-val (let [p (js/Number max-val)] (when-not (js/isNaN p) p))
         currency (or (:currency (rum/react ui-values)) (:currency (rum/react sell-offer)) "usd")
@@ -703,7 +715,8 @@
                                    :style {:margin-top "0px" :width "8rem"}
                                    :error-text (cond (not (pos? parsed-max-val)) "Invalid value"
                                                      (> parsed-min-val parsed-max-val) "Max should be larger than Min"
-                                                     (> (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) max-allowed) (str "Max. of " max-allowed))
+                                                     (> (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) max-allowed-transaction-in-usd)
+                                                     (str "Max. of " max-allowed-transaction-in-usd))
                                    :value max-val
                                    :on-change #(swap! ui-values assoc :max (.. % -target -value))})]
                   (when parsed-max-val

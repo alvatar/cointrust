@@ -74,9 +74,17 @@
     (log/debug "Exchange rates updater stopped")
     'stopped))
 
+(defn convert-as-float [amount from to & [exchange-rates]]
+  (if (= (name from) (name to))
+    amount
+    (/ (get (:rates (or exchange-rates (get-current-exchange-rates)))
+            (keyword (str (name to) "-" (name from)))))))
+
 (defn convert-as-long [amount from to & [exchange-rates]]
-  (common/currency-as-long
-   (/ (common/currency-as-float amount from)
-      (get (:rates (or exchange-rates (get-current-exchange-rates)))
-           (keyword (str (name to) "-" (name from)))))
-   to))
+  (if (= (name from) (name to))
+    amount
+    (common/currency-as-long
+     (/ (common/currency-as-float amount from)
+        (get (:rates (or exchange-rates (get-current-exchange-rates)))
+             (keyword (str (name to) "-" (name from)))))
+     to)))
