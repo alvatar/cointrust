@@ -464,7 +464,7 @@ CREATE TABLE friends (
 CREATE TABLE sell_offer (
   user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
-  currency                         TEXT NOT NULL,
+  currency                         CHAR(3) NOT NULL,
   min                              BIGINT NOT NULL,
   max                              BIGINT NOT NULL,
   premium                          INT NOT NULL
@@ -477,28 +477,28 @@ CREATE TABLE buy_request (
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   amount                           BIGINT NOT NULL,
   premium                          INT,
-  currency_buyer                   TEXT NOT NULL,
-  currency_seller                  TEXT NOT NULL,
+  currency_buyer                   CHAR(3) NOT NULL,
+  currency_seller                  CHAR(3) NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL
 );"
                        "
 CREATE TABLE contract (
   id                               SERIAL PRIMARY KEY,
-  hash                             TEXT NOT NULL UNIQUE,
-  human_id                         TEXT NOT NULL UNIQUE,
+  hash                             VARCHAR(128) NOT NULL UNIQUE,
+  human_id                         VARCHAR(256) NOT NULL UNIQUE,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   amount                           BIGINT NOT NULL,
-  currency_buyer                   TEXT NOT NULL,
-  currency_seller                  TEXT NOT NULL,
+  currency_buyer                   CHAR(3) NOT NULL,
+  currency_seller                  CHAR(3) NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL,
   fee                              INT NOT NULL,
   premium                          INT NOT NULL,
-  input_address                    TEXT,
-  escrow_address                   TEXT,
-  output_address                   TEXT,
-  escrow_our_key                   TEXT,
+  input_address                    VARCHAR(128),
+  escrow_address                   VARCHAR(128),
+  output_address                   VARCHAR(128),
+  escrow_our_key                   VARCHAR(128),
   escrow_buyer_has_key             BOOLEAN DEFAULT false,
   escrow_seller_has_key            BOOLEAN DEFAULT false,
   escrow_funded                    BOOLEAN DEFAULT false,
@@ -515,7 +515,7 @@ CREATE TABLE contract_event (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   contract_id                      INTEGER REFERENCES contract(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
-  stage                            TEXT NOT NULL,
+  stage                            VARCHAR(64) NOT NULL,
   data                             TEXT
 );"
                        "
@@ -530,8 +530,8 @@ CREATE TABLE wallet (
 CREATE TABLE logs (
   id                               SERIAL PRIMARY KEY,
   time                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  level                            TEXT NOT NULL,
-  type                             TEXT NOT NULL,
+  level                            VARCHAR(8) NOT NULL,
+  type                             VARCHAR(64) NOT NULL,
   data                             TEXT NOT NULL
 );"
                        ]))
