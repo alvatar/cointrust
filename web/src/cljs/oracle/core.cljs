@@ -261,12 +261,15 @@
    [:offer/get {:user-id @(:user-id app-state)}] 5000
    (fn [resp]
      (if (sente/cb-success? resp)
-       (let [offer (select-keys resp [:min :max :currency])]
-         (when (not-empty offer)
-           (reset! (:sell-offer app-state)
-                   {:min (common/currency-as-float (float (:min offer)) (:currency offer))
-                    :max (common/currency-as-float (float (:max offer)) (:currency offer))
-                    :currency (:currency offer)})))
+       (case (:status resp)
+         :error
+         (push-error (str "Internal error retrieving sell offer " (:message resp)))
+         :no-offer nil
+         (reset! (:sell-offer app-state)
+                 {:min (common/currency-as-float (float (:min resp)) (:currency resp))
+                  :max (common/currency-as-float (float (:max resp)) (:currency resp))
+                  :currency (:currency resp)
+                  :premium (:premium resp)}))
        (push-error "There was an error retrieving the sell offer.")))))
 
 (defn close-sell-offer [callback]
@@ -718,7 +721,7 @@
         (round-currency (* (:max sell-offer) ex-rate)) " " (if (= currency "usd") "BTC" "USD") ")"
         [:br]]
        [:h6.center {:style {:margin-top "-0.8rem" :margin-bottom "1rem"}}
-        "conversion excluding premium: " (float (/ (:premium sell-offer) 100)) "%"]])))
+        "conversion excluding " (float (/ (:premium sell-offer) 100)) "% premium"]])))
 
 (rum/defc request-listing-comp
   < rum/reactive

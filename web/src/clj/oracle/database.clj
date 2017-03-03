@@ -160,12 +160,6 @@ ON CONFLICT (user_id) DO UPDATE SET currency = ?, min = ?, max = ?, premium = ?
     (log-op! tx "sell-offer-set"
              {:user-id user-id :currency currency :min minval :max maxval :premium premium})))
 
-(defn sell-offer-get-by-user [user-id]
-  (first
-   (sql/query db ["
-SELECT user_id AS user, currency, min, max, premium FROM sell_offer WHERE user_id = ?;
-" user-id])))
-
 (defn sell-offer-unset! [user-id]
   (sql/with-db-transaction
     [tx db]
@@ -173,6 +167,12 @@ SELECT user_id AS user, currency, min, max, premium FROM sell_offer WHERE user_i
 DELETE FROM sell_offer WHERE user_id = ?;
 " user-id])
     (log-op! tx "sell-offer-unset" {:user-id user-id})))
+
+(defn get-sell-offer-by-user [user-id]
+  (first
+   (sql/query db ["
+SELECT user_id AS user, currency, min, max, premium FROM sell_offer WHERE user_id = ?;
+" user-id])))
 
 (defn get-all-sell-offers []
   (into []
@@ -222,6 +222,12 @@ SELECT * FROM buy_request WHERE id = ?;
 " buy-request])
       first
       ->kebab-case))
+
+(defn buy-request-set-field! [id field value]
+  (sql/execute! db [(format "
+UPDATE buy_request SET %s = ?
+WHERE id = ?
+" field) value id]))
 
 (defn buy-request-set-seller! [buy-request seller-id & [txcb]]
   (sql/with-db-transaction
@@ -486,6 +492,7 @@ CREATE TABLE contract (
   currency_buyer                   TEXT NOT NULL,
   currency_seller                  TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL,
+  fee                              INT NOT NULL,
   premium                          INT NOT NULL,
   input_address                    TEXT,
   escrow_address                   TEXT,

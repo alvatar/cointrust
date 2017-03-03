@@ -75,9 +75,11 @@
 ;; TODO: currently currency is ignored
 ;; TODO: transductors, optimize
 ;; TODO iterate ofer all friends^2 for their sell offer is extremely innefficient
-(defn pick-counterparty [buyer-id buyer-specs]
-  (let [blacklisted (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
+(defn pick-counterparty [buy-request buyer-specs]
+  (let [buyer-id (:buyer-id buy-request)
+        blacklisted (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
         available (remove (fn [x] (some #(= % x) blacklisted)) (db/get-user-friends-of-friends buyer-id))
+        exchange-rates (oracle.currency/get-current-exchange-rates)
         offering (filter identity (map db/sell-offer-get-by-user available))
         offering-in-range (filter #(let [buyer-wants-amount (get-in buyer-specs [:wants :amount])
                                          buyer-wants-currency (get-in buyer-specs [:wants :currency])
@@ -89,15 +91,16 @@
                                      (and (>= buyer-wants-amount
                                               (if (= (:currency %) buyer-wants-currency)
                                                 (:min %)
-                                                (currency/convert (:min %) (:currency %) buyer-wants-currency)))
+                                                (currency/convert (:min %) (:currency %) buyer-wants-currency exchange-rates)))
                                           (<= buyer-wants-amount
                                               (if (= (:currency %) buyer-wants-currency)
                                                 (:max %)
-                                                (currency/convert (:max %) (:currency %) buyer-wants-currency)))))
+                                                (currency/convert (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
                                   offering)]
-    ;;(log/debug "PICK COUNTERPARTY, offering: " (pr-str offering))
-    ;;(log/debug "PICK COUNTERPARTY, offering in range: " (pr-str offering-in-range))
-    (:user (or (empty? offering-in-range) (rand-nth offering-in-range)))))
+    (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
+      ;; Freeze exchange rate if matched
+      (db/buy-request-set-field! (:id buy-request) (get-in exchange-rates [:rates :btc-usd]))
+      (:user offer))))
 
 (defn blacklist-counterparty [buyer-id seller-id]
   (wcar* (r/sadd (str "buyer->blacklist:" buyer-id) seller-id)))
@@ -188,7 +191,7 @@
                       (events/add-event! buyer-id :buy-request-created buy-request))
       (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
                            #(when-let [counterparty (pick-counterparty
-                                                     buyer-id
+                                                     buy-request
                                                      ;; Request to buy of what the seller has
                                                      ;; TODO: improve semantics upstream to match this
                                                      {:wants {:amount amount :currency currency-seller}
@@ -390,7 +393,8 @@
     (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
           @bitcoin/current-app
           (:output-address contract)
-          (long (* (:amount contract) 0.98)))
+          ;; Substract the fee (applying also the premium)
+          (long (* (:amount contract) (- 1 (:fee contract)) (- 1 (:premium contract)))))
       (do 
         (db/contract-set-field! contract-id "escrow_released" true)
         (events/add-event! (:buyer-id contract) :contract-escrow-released contract) ; Allow repetition

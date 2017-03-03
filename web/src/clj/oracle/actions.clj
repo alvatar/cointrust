@@ -73,14 +73,14 @@
 
 (defmethod -event-msg-handler :offer/get
   [{:keys [?data ?reply-fn]}]
-  (try (let [{:keys [min max currency premium]} (db/sell-offer-get-by-user (:user-id ?data))]
+  (try (let [{:keys [min max currency premium]} (db/get-sell-offer-by-user (:user-id ?data))]
          (cond
            (and min max)
            (?reply-fn {:min min :max max :currency currency :premium premium})
            (and (not min) (not max))
            (?reply-fn {:status :no-offer})
            :else
-           (?reply-fn {:status :error :id :internal-mismatch-in-offer})))
+           (?reply-fn {:status :error :message "Internal mismatch in offer"})))
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/close
