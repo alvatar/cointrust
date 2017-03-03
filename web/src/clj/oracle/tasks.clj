@@ -251,7 +251,8 @@
           initial-contract (with-idempotent-transaction mid :contract state
                              #(if-let [contract (db/contract-create!
                                                  (merge buy-request {:input-address (bitcoin/wallet-get-fresh-address
-                                                                                        (bitcoin/get-current-wallet))})
+                                                                                        (bitcoin/get-current-wallet))
+                                                                     :fee 100})
                                                  %)]
                                 (do (log/debug "Contract created:" contract)
                                     contract)

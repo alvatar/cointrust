@@ -269,7 +269,7 @@
                  {:min (common/currency-as-float (float (:min resp)) (:currency resp))
                   :max (common/currency-as-float (float (:max resp)) (:currency resp))
                   :currency (:currency resp)
-                  :premium (:premium resp)}))
+                  :premium (float (/ (:premium resp) 100))}))
        (push-error "There was an error retrieving the sell offer.")))))
 
 (defn close-sell-offer [callback]
@@ -721,7 +721,7 @@
         (round-currency (* (:max sell-offer) ex-rate)) " " (if (= currency "usd") "BTC" "USD") ")"
         [:br]]
        [:h6.center {:style {:margin-top "-0.8rem" :margin-bottom "1rem"}}
-        "conversion excluding " (float (/ (:premium sell-offer) 100)) "% premium"]])))
+        "conversion excluding " (:premium sell-offer) "% premium"]])))
 
 (rum/defc request-listing-comp
   < rum/reactive
@@ -1045,9 +1045,10 @@
                                       :on-touch-tap (fn []
                                                       (decline-buy-request (:id current))
                                                       (close-sell-offer #(swap! (:sell-offer-matches app-state) pop)))})]
-            title (gstring/format "Offer Matched for %f %s" (common/currency-as-float
-                                                             (:amount current)
-                                                             (:currency-seller current))
+            title (gstring/format "Offer Matched for %f %s" (* (common/currency-as-float
+                                                                (:amount current)
+                                                                (:currency-seller current))
+                                                               (- 1 (:premium current)))
                                   (clojure.string/upper-case (:currency-seller current)))
             div-account-name (ui/text-field {:id "account-name"
                                              :floating-label-text "Venmo ID"
