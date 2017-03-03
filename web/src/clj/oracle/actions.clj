@@ -29,6 +29,10 @@
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (when ?reply-fn (?reply-fn {:umatched-event-as-echoed-from-from-server event})))
 
+(defmethod -event-msg-handler :server/time
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  (?reply-fn {:server-time (System/currentTimeMillis)}))
+
 (defmethod -event-msg-handler :currency/get-exchange-rates
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (?reply-fn {:exchange-rates (currency/get-current-exchange-rates)}))
@@ -91,8 +95,9 @@
 
 (defmethod -event-msg-handler :offer/get-matches
   [{:keys [?data ?reply-fn]}]
-  (try (?reply-fn {:offer-matches (db/get-buy-requests-by-counterparty (:user-id ?data))})
-       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+  (let [offer-matches (db/get-buy-requests-by-counterparty (:user-id ?data))]
+   (try (?reply-fn {:offer-matches offer-matches})
+        (catch Exception e (pprint e) (?reply-fn {:status :error})))))
 
 (defmethod -event-msg-handler :buy-request/create
   [{:keys [?data ?reply-fn]}]

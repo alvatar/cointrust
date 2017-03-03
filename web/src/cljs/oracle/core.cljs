@@ -44,7 +44,8 @@
                     :buy-requests (atom [])
                     :contracts (atom nil)
                     :notifications (atom cljs.core/PersistentQueue.EMPTY)
-                    :display-contract (atom nil)})
+                    :display-contract (atom nil)
+                    :server-time (atom nil)})
 
 (def db-schema {})
 (def db-conn (d/create-conn db-schema))
@@ -77,6 +78,22 @@
     (aset js/window "location" url)))
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
+
+(defn contract-time-left [contract]
+  (let [milliseconds->mins
+        (fn [mil]
+          (let [secs-raw (long (/ mil 1000))
+                mins (quot secs-raw 60)
+                secs (mod secs-raw 60)]
+            {:mins (if (pos? mins) mins 0)
+             :seconds (if (pos? secs) secs 0)}))
+        time-diff (- (:created contract) (rum/react (:server-time app-state)))]
+   (case (:stage contract)
+     "waiting-escrow" ;; 60 mins
+     (milliseconds->mins (+ time-diff (* 60 60 1000)))
+     "waiting-transfer" ;; 30 mins
+     (milliseconds->mins (+ time-diff (* 30 60 1000)))
+     0)))
 
 ;;
 ;; Helpers
@@ -203,6 +220,15 @@
                   (init-sente! hashed-id)))))
     (log* "Not logged in: " (clj->js response))))
 
+;; TODO: make desync differences smooth
+(defn get-server-time []
+  (chsk-send!
+   [:server/time {}] 5000
+   (fn [resp]
+     (if (sente/cb-success? resp)
+       (reset! (:server-time app-state) (:server-time resp))
+       (log* "Error in server/clock" resp)))))
+
 (defn get-exchange-rates []
   (chsk-send!
    [:currency/get-exchange-rates {:user-id @(:user-id app-state)}] 5000
@@ -288,7 +314,8 @@
      (if (sente/cb-success? resp)
        (let [offer-matches (:offer-matches resp)]
          (do (log* "Received offer matches" offer-matches)
-             (doseq [m offer-matches] (swap! (:sell-offer-matches app-state) conj m))))
+             (doseq [m offer-matches] (swap! (:sell-offer-matches app-state) conj
+                                             (update m :premium #(float (/ % 100)))))))
        (push-error "There was an error retrieving the sell offer matches.")))))
 
 (defn create-buy-request [amount callback]
@@ -557,8 +584,11 @@
   (let [[?uid ?csrf-token ?handshake-data] ?data]
     (log* "Handshake completed...")))
 
+
 (defmethod -event-msg-handler :chsk/recv
-  [{:as ev-msg :keys [?data]}]
+  [{:as ev-msg :keys [?data ?reply-fn event]}]
+  (when (and (= ?data [:chsk/ws-ping]) ?reply-fn)
+    (?reply-fn {:chsk/ws-ping event}))
   (log* "Push event from server: " (str ?data))
   (app-msg-handler ?data))
 
@@ -778,7 +808,8 @@
         errors (::errors _state)
         contract-id (rum/react (:display-contract app-state))]
     (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts app-state)))]
-      (let [escrow-release-dialog
+      (let [time-left (contract-time-left contract)
+            escrow-release-dialog
             (fn [role]
              (let [buttons
                    [(ui/flat-button {:label "Ok"
@@ -846,7 +877,7 @@
                                           :on-touch-tap #(reset! (:display-contract app-state) nil)})]
                 content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                          [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
-                          [:h3 "TODO: TIMER COUNTDOWN"]
+                          [:h3 (gstring/format "WAITING ESCROW (%s min. %s sec. left)" (:mins time-left) (:seconds time-left))]
                           [:h3 "Step 1"]
                           (if (:escrow-seller-has-key contract)
                             [:p "The key has been extracted and is no longer available in our servers."]
@@ -986,17 +1017,23 @@
                                     [(if _small-display? :div.center.margin-1rem-top :div.column-half)
                                      [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} text]])
                   status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
-                  waiting [status-class [:div.center "WAITING"]]]
+                  waiting [status-class [:div.center "WAITING"]]
+                  time-left (contract-time-left contract)]
               (case (:stage contract)
-                "waiting-escrow" (if (am-i-seller? contract) (action-required "ACTIVE (XX:XX left)") waiting)
+                "waiting-escrow" (if (am-i-seller? contract)
+                                   (action-required (gstring/format
+                                                     "ACTIVE (%s min. %s sec. left)" (:mins time-left) (:seconds time-left)))
+                                   waiting)
                 "waiting-transfer" (if (am-i-buyer? contract)
                                      (if (or (not (:transfer-sent contract))
                                              (not (:escrow-buyer-has-key contract)))
-                                       (action-required "ACTIVE (XX:XX left)")
+                                       (action-required (gstring/format
+                                                         "ACTIVE (%s min. %s sec. left)" (:mins time-left) (:seconds time-left)))
                                        waiting)
                                      (if (or (and (:transfer-sent contract) (not (:transfer-received contract)))
                                              (not (:escrow-seller-has-key contract)))
-                                       (action-required "ACTIVE (XX:XX left)")
+                                       (action-required (gstring/format
+                                                         "ACTIVE (%s min. %s sec. left)" (:mins time-left) (:seconds time-left)))
                                        waiting))
                 "contract-success" (if (am-i-seller? contract)
                                      [status-class [:div.center "RELEASING TO BUYER"]]
@@ -1008,12 +1045,14 @@
                                        [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
                 "contract-broken" (if (am-i-buyer? contract)
                                     [status-class [:div.center "PERFORM CHARGEBACK"]]
-                                    (case (:escrow-release contract)
-                                      "<fresh>" (action-required "RELEASE FUNDS")
-                                      "<failure>" (action-required "FAILED RELEASE")
-                                      "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
-                                      "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
-                                      [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
+                                    (if (:escrow-funded contract)
+                                      (case (:escrow-release contract)
+                                        "<fresh>" (action-required "RELEASE FUNDS")
+                                        "<failure>" (action-required "FAILED RELEASE")
+                                        "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                        "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                        [status-class [:div.center "UNKNOWN ESCROW STATE"]])
+                                      [status-class [:div.center "CONTRACT BROKEN"]]))
                 "contract-broken/escrow-insufficient" (if (am-i-buyer? contract)
                                                         [status-class [:div.center "SELLER FAILED TO FUND"]]
                                                         (case (:escrow-release contract)
@@ -1085,15 +1124,17 @@
                                       :on-touch-tap (fn []
                                                       (decline-buy-request (:id current))
                                                       (close-sell-offer #(swap! (:sell-offer-matches app-state) pop)))})]
+            ;; Here we calculate the amount the seller is going to put in the escrow
             title (gstring/format "Offer Matched for %f %s" (* (common/currency-as-float
                                                                 (:amount current)
                                                                 (:currency-seller current))
-                                                               (- 1 (:premium current)))
+                                                               (- 1 (/ (:premium current) 100)))
                                   (clojure.string/upper-case (:currency-seller current)))
-            div-account-name (ui/text-field {:id "account-name"
-                                             :floating-label-text "Venmo ID"
-                                             :value (:name (rum/react account-info))
-                                             :on-change #(swap! account-info assoc :name (.. % -target -value))})]
+            div-account-name [:div.left [:span {:style {:margin-right "2px"}} "@"]
+                              (ui/text-field {:id "account-name"
+                                              :floating-label-text "Venmo ID"
+                                              :value (:name (rum/react account-info))
+                                              :on-change #(swap! account-info assoc :name (.. % -target -value))})]]
         (if (rum/react small-display?)
           (mobile-overlay
            open?
@@ -1105,10 +1146,8 @@
                       :open open?
                       :modal true
                       :actions buttons
-                      :content-style {:width "300px"}}
-                     [:div.center
-                      [:div.offer-matched-column
-                       [:div "@" div-account-name]]]))))))
+                      :content-style {:width "340px"}}
+                     [:div.center div-account-name]))))))
 
 (rum/defc footer
   []
@@ -1184,6 +1223,9 @@
 (add-watch (:user-id app-state) :got-user-id
            (fn [_1 _2 _3 _4]
              (when _4
+               (get-server-time)
+               (js/setInterval get-server-time 20000)
+               (js/setInterval #(swap! (:server-time app-state) (partial + 1000)) 1000)
                (get-exchange-rates)
                (js/setInterval #(let [a (:seconds-since-last-exchange-rates-refresh app-state)]
                                   (if (< @a exchange-rates-refresh-interval) (swap! a inc) (do (get-exchange-rates) (reset! a 0))))

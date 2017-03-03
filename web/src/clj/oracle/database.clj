@@ -406,7 +406,7 @@ INNER JOIN (
 
 (defn contract-set-escrow-funded! [id amount-received]
   (sql/execute! db ["
-UPDATE contract SET escrow_funded = true, escrow_amount = ?, waiting_transfer_start = CURRENT_TIMESTAMP
+UPDATE contract SET escrow_funded = true, escrow_amount = ?, escrow_funded_timestamp = CURRENT_TIMESTAMP
 WHERE id = ?
 " amount-received id]))
 
@@ -502,13 +502,13 @@ CREATE TABLE contract (
   escrow_buyer_has_key             BOOLEAN DEFAULT false,
   escrow_seller_has_key            BOOLEAN DEFAULT false,
   escrow_funded                    BOOLEAN DEFAULT false,
+  escrow_funded_timestamp          TIMESTAMP,
   escrow_amount                    BIGINT,
   escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   escrow_release                   VARCHAR(64) DEFAULT '<fresh>',
   transfer_info                    TEXT NOT NULL,
   transfer_sent                    BOOLEAN DEFAULT false,
-  transfer_received                BOOLEAN DEFAULT false,
-  waiting_transfer_start           TIMESTAMP
+  transfer_received                BOOLEAN DEFAULT false
 );"
                        "
 CREATE TABLE contract_event (

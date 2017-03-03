@@ -295,6 +295,7 @@
         ;; We wait for the seller to fund the escrow and provide the transfer details.
         "waiting-escrow"
         (cond (and (:transfer-info contract) (:escrow-funded contract))
+              ;; Amount expected: amount - premium
               (if (>= (:escrow-amount contract) (* (:amount contract) (common/long->decr (:premium contract))))
                 ;; Received the right amount
                 (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
@@ -314,7 +315,8 @@
                       (events/add-event! (:seller-id contract) :contract-escrow-insufficient contract)
                       (events/add-event! (:buyer-id contract) :contract-escrow-insufficient contract))
                     {:status :retry :backoff-ms 1}))
-              (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/minutes 20)))
+              ;; The countdown
+              (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/minutes 60)))
               (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
                   ;; Let the success contract stage handle it
@@ -333,7 +335,7 @@
                   ;; Let the success contract stage handle it
                   {:status :retry :backoff-ms 1})
               ;; The countdown
-              (> now (utils/unix-after (time-coerce/to-date-time (:waiting-transfer-start contract)) (time/minutes 10)))
+              (> now (utils/unix-after (time-coerce/to-date-time (:escrow-funded-timestamp contract)) (time/minutes 30)))
               (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "running contract timed out"} %))
                   {:status :success})
