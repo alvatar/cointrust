@@ -75,13 +75,13 @@
                            :output-to "resources/public/js/compiled/oracle.js"
                            :output-dir "resources/public/js/compiled/out"
                            :source-map-timestamp true
-                           :closure-defines {oracle.core/*is-dev* true}}}
+                           :closure-defines {oracle.core/*env* "dev"}}}
                {:id "test"
                 :source-paths ["src/cljs" "test/cljs" "src/cljc" "test/cljc"]
                 :compiler {:output-to "resources/public/js/compiled/testable.js"
                            :main oracle.test-runner
                            :optimizations :none
-                           :closure-defines {oracle.core/*is-dev* true}}}
+                           :closure-defines {oracle.core/*env* "test"}}}
                {:id "min"
                 :source-paths ["src/cljs" "src/cljc"]
                 :jar true
@@ -90,7 +90,8 @@
                            :output-dir "target"
                            :source-map-timestamp true
                            :optimizations :simple
-                           :pretty-print false}}]}
+                           :pretty-print false
+                           :closure-defines {oracle.core/*env* ~(or (System/getenv "ENV") "dev")}}}]}
   ;; When running figwheel from nREPL, figwheel will read this configuration
   ;; stanza, but it will read it without passing through leiningen's profile
   ;; merging. So don't put a :figwheel section under the :dev profile, it will

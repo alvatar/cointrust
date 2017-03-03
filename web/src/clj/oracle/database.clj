@@ -6,7 +6,9 @@
             [crypto.random :as crypto]
             [cheshire.core :as json]
             [camel-snake-kebab.core :as case-shift]
-            [taoensso.nippy :as nippy]))
+            [taoensso.nippy :as nippy]
+            ;; -----
+            [oracle.utils :as utils]))
 
 ;; CURRENCY-BUYER: the currency on the side of the buyer before the transaction (what the buyer *has*)
 ;; CURRENCY-SELLER: the currency on the side of the seller before the transaction (what the seller *has*)
@@ -148,19 +150,20 @@ WHERE (user_id1 IN (SELECT u FROM user_friends) OR user_id2 IN (SELECT u FROM us
 ;; Sell Offers
 ;;
 
-(defn sell-offer-set! [user-id currency minval maxval]
+(defn sell-offer-set! [user-id currency minval maxval premium]
   (sql/with-db-transaction
     [tx db]
     (sql/execute! tx ["
-INSERT INTO sell_offer (user_id, currency, min, max) VALUES (?, ?, ?, ?)
-ON CONFLICT (user_id) DO UPDATE SET currency = ?, min = ?, max = ?
-" user-id currency minval maxval currency minval maxval])
-    (log-op! tx "sell-offer-set" {:user-id user-id :min minval :max maxval})))
+INSERT INTO sell_offer (user_id, currency, min, max, premium) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (user_id) DO UPDATE SET currency = ?, min = ?, max = ?, premium = ?
+" user-id currency minval maxval premium currency minval maxval premium])
+    (log-op! tx "sell-offer-set"
+             {:user-id user-id :currency currency :min minval :max maxval :premium premium})))
 
 (defn sell-offer-get-by-user [user-id]
   (first
    (sql/query db ["
-SELECT user_id AS user, min, max, currency FROM sell_offer WHERE user_id = ?;
+SELECT user_id AS user, currency, min, max, premium FROM sell_offer WHERE user_id = ?;
 " user-id])))
 
 (defn sell-offer-unset! [user-id]
@@ -259,28 +262,27 @@ SELECT * FROM buy_request;
 ;; Contracts
 ;;
 
-;; TODO
-(defn human-id-generator []
-  "ALPHA POTATO GRAMINEA ZEBRA")
-
 (defn contract-create!
-  [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info input-address] :as params} & [txcb]]
+  [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate premium transfer-info input-address] :as params} & [txcb]]
   (try
     (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
       (sql/with-db-transaction
         [tx db]
-        (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (loop [human-id (utils/human-id-generator)]
+          (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
+            (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
+            (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
+INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" (human-id-generator) (random-string 27) buyer-id seller-id amount currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
-          (sql/execute! tx ["
+" human-id (random-string 27) buyer-id seller-id amount premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
+              (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
-          (let [contract (merge contract {:stage init-stage})]
-            (log-op! tx "contract-create" params)
-            (when txcb (txcb contract))
-            contract))))
+              (let [contract (merge contract {:stage init-stage})]
+                (log-op! tx "contract-create" params)
+                (when txcb (txcb contract))
+                contract))))))
     (catch Exception e
       (log/debugf "Error in contract creation with params: %s" (with-out-str (pprint params)))
       (throw e))))
@@ -456,9 +458,10 @@ CREATE TABLE friends (
 CREATE TABLE sell_offer (
   user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
+  currency                         TEXT NOT NULL,
   min                              BIGINT NOT NULL,
   max                              BIGINT NOT NULL,
-  currency                         TEXT NOT NULL
+  premium                          INT NOT NULL
 );"
                        "
 CREATE TABLE buy_request (
@@ -483,6 +486,7 @@ CREATE TABLE contract (
   currency_buyer                   TEXT NOT NULL,
   currency_seller                  TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL,
+  premium                          INT NOT NULL,
   input_address                    TEXT,
   escrow_address                   TEXT,
   output_address                   TEXT,

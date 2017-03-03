@@ -62,20 +62,21 @@
 
 (defmethod -event-msg-handler :offer/open
   [{:keys [?data ?reply-fn]}]
-  (try (db/sell-offer-set! (:user-id ?data) (:currency ?data)
-                           (common/currency-as-long (:min ?data) (:currency ?data))
-                           (common/currency-as-long (:max ?data) (:currency ?data)))
-       (?reply-fn {:min (:min ?data)
-                   :max (:max ?data)
-                   :currency (:currency ?data)})
+  (try (let [{:keys [user-id min max currency]} ?data
+             premium 100]
+         (db/sell-offer-set! user-id currency
+                             (common/currency-as-long min currency)
+                             (common/currency-as-long max currency)
+                             premium)
+         (?reply-fn {:min min :max max :currency currency :premium premium}))
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/get
   [{:keys [?data ?reply-fn]}]
-  (try (let [{:keys [min max currency]} (db/sell-offer-get-by-user (:user-id ?data))]
+  (try (let [{:keys [min max currency premium]} (db/sell-offer-get-by-user (:user-id ?data))]
          (cond
            (and min max)
-           (?reply-fn {:min min :max max :currency currency})
+           (?reply-fn {:min min :max max :currency currency :premium premium})
            (and (not min) (not max))
            (?reply-fn {:status :no-offer})
            :else
@@ -153,8 +154,8 @@
   (if (or (empty? (:output-address ?data))
           (empty? (:escrow-user-key ?data)))
     (?reply-fn {:status :error-missing-parameters})
-    (try (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
-         (db/contract-set-field! (:id ?data) "output_address" (:output-address ?data))
+    (try (db/contract-set-field! (:id ?data) "output_address" (:output-address ?data))
+         (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
          (?reply-fn {:status :ok})
          (catch Exception e (pprint e) (?reply-fn {:status :error})))))
 

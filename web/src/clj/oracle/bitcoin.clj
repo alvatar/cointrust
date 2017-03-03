@@ -55,7 +55,7 @@
 
 (defn make-app []
   (let [network-params (case (env :env)
-                         "production" (. MainNetParams get)
+                         "production" (. TestNet3Params get) ;; (. MainNetParams get)
                          "staging" (. TestNet3Params get)
                          (. RegTestParams get))
         uri (url (str "http" (subs (or (env :database-url) "postgres://alvatar:@localhost:5432/oracledev") 8)))
@@ -121,6 +121,32 @@
 
 (defn log-action-required! [m] (db/log! "action-required" "bitcoin" m))
 
+(defn make-wallet [app]
+  (Wallet. (:network-params app)))
+
+(defn get-current-wallet [] @current-wallet)
+
+(defn wallet-get-current-address [wallet]
+  (.toString (.currentReceiveAddress wallet)))
+
+(defn wallet-get-fresh-address [wallet]
+  (.toString (.freshReceiveAddress wallet)))
+
+(defn wallet-get-balance [wallet]
+  (.getValue (.getBalance wallet)))
+
+(defn wallet-send-coins [wallet app target-address amount]
+  (try (.sendCoins wallet
+                   (:peergroup app)
+                   (. Address fromBase58 (.getNetworkParameters wallet) target-address)
+                   (. Coin valueOf amount))
+       (catch Exception e
+         (log/debugf "Error sending coins: %s" e) nil)))
+
+(defn wallet-send-all-funds-to [wallet app target-address]
+  (wallet-send-coins wallet app target-address
+                     (substract-satoshi-fee (wallet-get-balance wallet))))
+
 (defn wallet-init-listeners! [wallet]
   (.addCoinsReceivedEventListener
    wallet
@@ -147,30 +173,6 @@
             (log! "Wallet balance POST-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
             (catch Exception e (log/error e))))))
   wallet)
-
-(defn make-wallet [app]
-  (Wallet. (:network-params app)))
-
-(defn get-current-wallet [] @current-wallet)
-
-(defn wallet-get-current-address [wallet]
-  (.toString (.currentReceiveAddress wallet)))
-
-(defn wallet-get-fresh-address [wallet]
-  (.toString (.freshReceiveAddress wallet)))
-
-(defn wallet-get-balance [wallet]
-  (.getValue (.getBalance wallet)))
-
-(defn wallet-send-coins [wallet app target-address amount]
-  (.sendCoins wallet
-              (:peergroup app)
-              (. Address fromBase58 (.getNetworkParameters wallet) target-address)
-              (. Coin valueOf amount)))
-
-(defn wallet-send-all-funds-to [wallet app target-address]
-  (wallet-send-coins wallet app target-address
-                     (substract-satoshi-fee (wallet-get-balance wallet))))
 
 ;;
 ;; Multisig

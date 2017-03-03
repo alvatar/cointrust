@@ -368,9 +368,7 @@
         contract-id (:id data)
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
-    ;; TODO: make sure this one is the last one somehow, or at least seen!
-    (with-idempotent-transaction mid :preemptive-contract-broken
-      #(db/contract-add-event! contract-id "contract-broken" nil %))
+    (db/contract-add-event! contract-id "contract-broken" nil)
     {:status :success}))
 
 (defmethod common-preemptive-handler :contract/mark-transfer-received
@@ -389,14 +387,18 @@
         contract (db/get-contract-by-id contract-id)]
     (log/debug message)
     ;; TEMPORARY APPROACH
-    (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
-      @bitcoin/current-app
-      (:output-address contract)
-      (long (* (:amount contract) 0.98)))
-    ;;
-    (db/contract-set-field! contract-id "escrow_released" true)
-    (events/add-event! (:buyer-id contract) :contract-escrow-released contract) ; Allow repetition
-    (events/add-event! (:seller-id contract) :contract-escrow-released contract) ; Allow repetition
+    (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
+          @bitcoin/current-app
+          (:output-address contract)
+          (long (* (:amount contract) 0.98)))
+      (do 
+        (db/contract-set-field! contract-id "escrow_released" true)
+        (events/add-event! (:buyer-id contract) :contract-escrow-released contract) ; Allow repetition
+        (events/add-event! (:seller-id contract) :contract-escrow-released contract))
+      (do
+        ;; HERE: HANDLE FAILURE
+        (events/add-event! (:buyer-id contract) :contract-escrow-released contract) ; Allow repetition
+        (events/add-event! (:seller-id contract) :contract-escrow-released contract))) ; Allow repetition
     {:status :success}))
 
 ;; (defmethod common-preemptive-handler :escrow/released
