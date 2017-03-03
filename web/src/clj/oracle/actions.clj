@@ -171,6 +171,8 @@
                               (escrow/encode-key (escrow/get-buyer-key (:id ?data)))
                               (escrow/encode-key (escrow/get-seller-key (:id ?data)))))
       (?reply-fn {:status :error-wrong-key})
+      (not (:escrow-funded (db/get-contract-by-id (:id ?data))))
+      (?reply-fn {:status :error-escrow-not-funded})
       ;;
       :else
       (try (db/contract-set-field! (:id ?data) "output_address" output-address)
