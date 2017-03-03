@@ -97,14 +97,6 @@
                                                 (:max %)
                                                 (currency/convert-as-long (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
                                   offering)]
-    (println (common/satoshi->btc (currency/convert-as-long 100000 :usd :btc exchange-rates)))
-    ;; (println "AVAILABLE:")
-    ;; (pr-str available)
-    ;; (println "OFFERING:")
-    ;; (pr-str offering)
-    ;; (println "IN RANGE:")
-    ;; (pr-str offering-in-range)
-
     (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
       ;; Freeze exchange rate if matched, and set the premium of the offer
       (db/buy-request-set-field! (:id buy-request) "exchange_rate" (get-in exchange-rates [:rates :btc-usd]))
