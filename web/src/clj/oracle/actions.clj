@@ -151,13 +151,17 @@
 
 (defmethod -event-msg-handler :escrow/release-to-user
   [{:keys [?data ?reply-fn]}]
-  (if (or (empty? (:output-address ?data))
-          (empty? (:escrow-user-key ?data)))
-    (?reply-fn {:status :error-missing-parameters})
-    (try (db/contract-set-field! (:id ?data) "output_address" (:output-address ?data))
-         (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
-         (?reply-fn {:status :ok})
-         (catch Exception e (pprint e) (?reply-fn {:status :error})))))
+  (let [output-address (clojure.string/trim (:output-address ?data))
+        escrow-user-key (clojure.string/trim (:escrow-user-key ?data))]
+   (if (or (empty? output-address)
+           (empty? escrow-user-key))
+     (?reply-fn {:status :error-missing-parameters})
+     ;; TODO check validity of address before initiating task
+     (try (db/contract-set-field! (:id ?data) "output_address" output-address)
+          (db/contract-set-field! (:id ?data) "escrow_release" "<processing>")
+          (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
+          (?reply-fn {:status :ok})
+          (catch Exception e (pprint e) (?reply-fn {:status :error}))))))
 
 (defmethod -event-msg-handler :notification/ack
   [{:keys [?data ?reply-fn]}]

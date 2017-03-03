@@ -187,7 +187,7 @@
           buy-request-id (:id buy-request)]
       ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
       ;; (log/debugf "STATE: %s" state)
-      (log/debug "Processing buy request: " buy-request)
+      ;; (log/debug "Processing buy request: " buy-request)
       (idempotent-ops mid :event-buy-request-created state
                       (events/add-event! buyer-id :buy-request-created buy-request))
       (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
@@ -226,7 +226,7 @@
                 :else
                 {:status :retry :backoff-ms 1000})))
         (do ;; (log/debugf "No seller match (buy request ID %s). Retrying in 5 seconds." buy-request-id)
-            {:status :retry :backoff-ms 5000})))
+            {:status :retry :backoff-ms 1000})))
     (catch Exception e
       (let [prex (with-out-str (pprint e))]
         (log/errorf "Exception in task: %s" prex)
@@ -284,18 +284,36 @@
             (db/contract-set-field! contract-id "escrow_open_for" (:seller-id contract))
             {:status :success})
 
+        ;; Contract can be cancelled anytime
+        "contract-broken/escrow-insufficient"
+        (do (events/add-event! (:buyer-id contract) :contract-escrow-insufficient contract)
+            (events/add-event! (:seller-id contract) :contract-escrow-insufficient contract)
+            (db/contract-set-field! contract-id "escrow_open_for" (:seller-id contract))
+            {:status :success})
+
         ;; We inform of the expected transaction and the freezing of price.
         ;; We wait for the seller to fund the escrow and provide the transfer details.
         "waiting-escrow"
         (cond (and (:transfer-info contract) (:escrow-funded contract))
-              (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
-                    (fn [idemp]
-                      (log/debug "Contract stage changed to \"waiting-transfer\"")
-                      (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
-                  (let [contract (merge contract {:stage "waiting-transfer"})]
-                    (events/add-event! (:seller-id contract) :contract-escrow-funded contract)
-                    (events/add-event! (:buyer-id contract) :contract-escrow-funded contract))
-                  {:status :retry :backoff-ms 1})
+              (if (>= (:escrow-amount contract) (* (:amount contract) (common/long->decr (:premium contract))))
+                ;; Received the right amount
+                (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
+                      (fn [idemp]
+                        (log/debug "Contract stage changed to \"waiting-transfer\"")
+                        (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
+                    (let [contract (merge contract {:stage "waiting-transfer"})]
+                      (events/add-event! (:seller-id contract) :contract-escrow-funded contract)
+                      (events/add-event! (:buyer-id contract) :contract-escrow-funded contract))
+                    {:status :retry :backoff-ms 1})
+                ;; Received less than required
+                (do (with-idempotent-transaction mid :contract-add-event-escrow-insufficient state
+                      (fn [idemp]
+                        (log/debug "Contract stage changed to \"contract-broken/escrow-insufficient\"")
+                        (db/contract-add-event! contract-id "contract-broken/escrow-insufficient" nil idemp)))
+                    (let [contract (merge contract {:stage "contract-broken/escrow-insufficient"})]
+                      (events/add-event! (:seller-id contract) :contract-escrow-insufficient contract)
+                      (events/add-event! (:buyer-id contract) :contract-escrow-insufficient contract))
+                    {:status :retry :backoff-ms 1}))
               (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/minutes 20)))
               (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
@@ -396,22 +414,19 @@
           @bitcoin/current-app
           (:output-address contract)
           ;; Substract the fee (applying also the premium)
-          (long (* (:amount contract) (- 1 (:fee contract)) (- 1 (:premium contract)))))
-      (do 
-        (db/contract-set-field! contract-id "escrow_released" true)
-        (events/add-event! (:buyer-id contract) :contract-escrow-released contract) ; Allow repetition
-        (events/add-event! (:seller-id contract) :contract-escrow-released contract))
+          (long (* (:amount contract)
+                   (common/long->decr (:fee contract))
+                   (common/long->decr (:premium contract)))))
       (do
-        ;; HERE: HANDLE FAILURE
-        (events/add-event! (:buyer-id contract) :contract-escrow-released contract) ; Allow repetition
-        (events/add-event! (:seller-id contract) :contract-escrow-released contract))) ; Allow repetition
+        (db/contract-set-field! contract-id "escrow_release" "<success>")
+        (events/add-event! (:buyer-id contract) :contract-escrow-release-success contract) ; Allow repetition
+        (events/add-event! (:seller-id contract) :contract-escrow-release-success contract) ; Allow repetition
+        (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
+      (do
+        (events/add-event! (:buyer-id contract) :contract-escrow-release-failure contract) ; Allow repetition
+        (events/add-event! (:seller-id contract) :contract-escrow-release-failure contract) ; Allow repetition
+        (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"})))
     {:status :success}))
-
-;; (defmethod common-preemptive-handler :escrow/released
-;;   [{:keys [?data ?reply-fn]}]
-;;   (try (db/contract-set-field! (:id ?data) "released" true)
-;;        (?reply-fn {:status :ok})
-;;        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 ;;
 ;; Lifecyle
@@ -486,7 +501,7 @@
 ;; 2. Accept buy request
 
 ;; 3. Seller sends money to Escrow
-;; (oracle.database/contract-set-escrow-funded! 1)
+;; (oracle.database/contract-set-escrow-funded! 1 (common/btc->satoshi 2))
 
 
 ;; -- EXTRA
@@ -507,7 +522,7 @@
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1 :transfer-info "transfer info"})
 
 ;; 3. Escrow initialization
-;; (oracle.database/contract-set-escrow-funded! 1)
+;; (oracle.database/contract-set-escrow-funded! 1 (common/btc->satoshi 2))
 
 ;; 4. Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})

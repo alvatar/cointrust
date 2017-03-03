@@ -404,11 +404,11 @@ INNER JOIN (
 
 ;; TODO: instead of setting the timestamp here, use the timestamp from latest event
 
-(defn contract-set-escrow-funded! [id]
+(defn contract-set-escrow-funded! [id amount-received]
   (sql/execute! db ["
-UPDATE contract SET escrow_funded = true, waiting_transfer_start = CURRENT_TIMESTAMP
+UPDATE contract SET escrow_funded = true, escrow_amount = ?, waiting_transfer_start = CURRENT_TIMESTAMP
 WHERE id = ?
-" id]))
+" amount-received id]))
 
 (defn contract-set-field! [id field value]
   (sql/execute! db [(format "
@@ -502,8 +502,9 @@ CREATE TABLE contract (
   escrow_buyer_has_key             BOOLEAN DEFAULT false,
   escrow_seller_has_key            BOOLEAN DEFAULT false,
   escrow_funded                    BOOLEAN DEFAULT false,
+  escrow_amount                    BIGINT,
   escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
-  escrow_released                  BOOLEAN DEFAULT false,
+  escrow_release                   VARCHAR(64) DEFAULT '<fresh>',
   transfer_info                    TEXT NOT NULL,
   transfer_sent                    BOOLEAN DEFAULT false,
   transfer_received                BOOLEAN DEFAULT false,

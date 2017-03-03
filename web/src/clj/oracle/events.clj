@@ -85,7 +85,15 @@
       (future
         (chsk-send! uid [:contract/broken args])
         (notification uid "Contract broken." ""))
-      :contract-escrow-released
+      :contract-escrow-release-success
       (future
-        (chsk-send! uid [:contract/escrow-released args])
-        (notification uid "Escrow Released." "")))))
+        (chsk-send! uid [:contract/escrow-release-success args])
+        (notification uid "Escrow Released." ""))
+      :contract-escrow-release-failure
+      (future
+        (chsk-send! uid [:contract/escrow-release-failure args])
+        (notification uid "Failure Releasing Escrow." ""))
+      :contract-escrow-insufficient
+      (future
+        (chsk-send! uid [:contract/escrow-insufficient args])
+        (notification uid "Error: Received insufficient funds")))))

@@ -248,12 +248,12 @@
        (do (push-error "There was an error retrieving your pending notifications. Please try again.")
            (log* "Error in get-user-pending-notifications:" resp))))))
 
-(defn open-sell-offer [{:as vals :keys [currency min max]}]
+(defn open-sell-offer [{:as vals :keys [currency min max premium]}]
   (chsk-send!
-   [:offer/open {:user-id @(:user-id app-state) :min min :max max :currency currency}] 5000
+   [:offer/open {:user-id @(:user-id app-state) :min min :max max :currency currency :premium (long (* premium 100))}] 5000
    (fn [resp]
      (if (sente/cb-success? resp)
-       (reset! (:sell-offer app-state) resp)
+       (reset! (:sell-offer app-state) (update resp :premium #(float (/ % 100))))
        (push-error "There was an error opening the sell offer. Please try again.")))))
 
 (defn get-active-sell-offer []
@@ -496,14 +496,32 @@
       (do (push-error "There was an error setting the contract as broken. Please inform us of this event.")
           (log* "Error in contract/broken" msg)))))
 
-(defmethod app-msg-handler :contract/escrow-released
+(defmethod app-msg-handler :contract/escrow-release-success
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :contract/escrow-released" msg)
+    (log* "Error in :contract/escrow-release-success" msg)
     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :escrow-released] true)
+      (swap! (:contracts app-state) assoc-in [found-idx :escrow-release] "<success>")
       (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
-          (log* "Error in contract/escrow-released" msg)))))
+          (log* "Error in contract/escrow-release-success" msg)))))
+
+(defmethod app-msg-handler :contract/escrow-release-failure
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/escrow-release-failed" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :escrow-release] "<failure>")
+      (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+          (log* "Error in contract/escrow-release-failed" msg)))))
+
+(defmethod app-msg-handler :contract/escrow-insufficient
+  [[_ msg]]
+  (if (:error msg)
+    (log* "Error in :contract/escrow-insufficient" msg)
+    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
+      (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-broken/escrow-insufficient")
+      (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+          (log* "Error in contract/escrow-insufficient" msg)))))
 
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
@@ -678,7 +696,7 @@
                                                       (<= (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) 3000)
                                                       (> parsed-max-val parsed-min-val)))
                                   :on-touch-tap (fn []
-                                                  (open-sell-offer {:currency currency :min min-val :max max-val})
+                                                  (open-sell-offer {:currency currency :min min-val :max max-val :premium 0.01})
                                                   (reset! (:ui-mode app-state) :none))})]]
     (if (rum/react small-display?)
       (mobile-overlay open? [:div [:div {:style {:height "1rem"}}] content [:div {:style {:height "2rem"}}] buttons])
@@ -751,7 +769,7 @@
 
 (rum/defcs contract-dialog
   < rum/reactive
-  (rum/local {:output-address "" :buyer-key ""} ::input)
+  (rum/local {:output-address "" :key ""} ::input)
   (rum/local nil ::user-key)
   (rum/local {} ::errors)
   [_state]
@@ -761,62 +779,64 @@
         contract-id (rum/react (:display-contract app-state))]
     (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts app-state)))]
       (let [escrow-release-dialog
-            (let [buttons
-                  [(ui/flat-button {:label "Ok"
-                                    :primary true
-                                    :on-touch-tap
-                                    (fn []
-                                      (if (or (= (:output-address @input) "") (= (:buyer-key @input) ""))
-                                        (do (when (= (:output-address @input) "") (swap! errors assoc :output-address "Missing parameter"))
-                                            (when (= (:buyer-key @input) "") (swap! errors assoc :buyer-key "Missing parameter")))
-                                        (chsk-send!
-                                         [:escrow/release-to-user {:id (:id contract)
-                                                                   :user-role "buyer"
-                                                                   :output-address (:output-address @input)
-                                                                   :escrow-user-key (:buyer-key @input)}]
-                                         5000
-                                         #(if (sente/cb-success? %)
-                                            (case (:status %)
-                                              :ok
-                                              (if-let [found-idx (find-in @(:contracts app-state) (:id contract))]
-                                                (do (swap! (:contracts app-state) assoc-in [found-idx :output-address] (:output-address @input))
-                                                    (reset! (:display-contract app-state) nil))
-                                                (do (reset! app-error "There was an error in requesting the Escrow funds. Please inform us of this event.")
-                                                    (log* "Error calling contract/release-escrow-buyer" %)))
-                                              :error-wrong-key
-                                              (swap! errors assoc :buyer-key "Invalid Key")
-                                              :error-wrong-address
-                                              (swap! errors assoc :output-address "Invalid address")
-                                              :error-missing-parameters
-                                              (log* "Error calling contract/release-escrow-buyer" %))
-                                            (do (reset! app-error "There was an error in requesting the Escrow funds. Please inform us of this event.")
-                                                (log* "Error calling contract/release-escrow-buyer" %))))))})
-                   (ui/flat-button {:label "Cancel"
-                                    :primary false
-                                    :on-touch-tap #(reset! (:display-contract app-state) nil)})]
-                  content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                           [:h3 "Claim funds"]
-                           [:h5 "Please provide the Destination Address and the Escrow Release Key in order to receive your Bitcoins"]
-                           (ui/text-field {:id "output-address"
-                                           :floating-label-text "Destination Address"
-                                           :error-text (:output-address (rum/react errors))
-                                           :value (:output-address (rum/react input))
-                                           :on-change #(do (reset! errors {})
-                                                           (swap! input assoc :output-address (.. % -target -value)))})
-                           [:br]
-                           (ui/text-field {:id "buyer-key"
-                                           :floating-label-text "Escrow Release Key"
-                                           :error-text (:buyer-key (rum/react errors))
-                                           :value (:buyer-key (rum/react input))
-                                           :on-change #(do (reset! errors {})
-                                                           (swap! input assoc :buyer-key (.. % -target -value)))})]]
-              (if (rum/react small-display?)
-                (mobile-overlay true content buttons)
-                (ui/dialog {:title (str "Action Required for CONTRACT ID: " (:human-id contract))
-                            :open true
-                            :modal true
-                            :actions buttons}
-                           content)))]
+            (fn [role]
+             (let [buttons
+                   [(ui/flat-button {:label "Ok"
+                                     :primary true
+                                     :on-touch-tap
+                                     (fn []
+                                       (if (or (= (:output-address @input) "") (= (:key @input) ""))
+                                         (do (when (= (:output-address @input) "") (swap! errors assoc :output-address "Missing parameter"))
+                                             (when (= (:key @input) "") (swap! errors assoc :key "Missing parameter")))
+                                         (chsk-send!
+                                          [:escrow/release-to-user {:id (:id contract)
+                                                                    :user-role (name role)
+                                                                    :output-address (:output-address @input)
+                                                                    :escrow-user-key (:key @input)}]
+                                          5000
+                                          #(if (sente/cb-success? %)
+                                             (case (:status %)
+                                               :ok
+                                               (if-let [found-idx (find-in @(:contracts app-state) (:id contract))]
+                                                 (do (swap! (:contracts app-state) assoc-in [found-idx :output-address] (:output-address @input))
+                                                     (swap! (:contracts app-state) assoc-in [found-idx :escrow-release] "<processing>")
+                                                     (reset! (:display-contract app-state) nil))
+                                                 (do (reset! app-error "There was an error in requesting the Escrow funds. Please inform us of this event.")
+                                                     (log* "Error calling contract/release-escrow-buyer" %)))
+                                               :error-wrong-key
+                                               (swap! errors assoc :key "Invalid Key")
+                                               :error-wrong-address
+                                               (swap! errors assoc :output-address "Invalid address")
+                                               :error-missing-parameters
+                                               (log* "Error calling contract/release-escrow-buyer" %))
+                                             (do (reset! app-error "There was an error in requesting the Escrow funds. Please inform us of this event.")
+                                                 (log* "Error calling contract/release-escrow-buyer" %))))))})
+                    (ui/flat-button {:label "Cancel"
+                                     :primary false
+                                     :on-touch-tap #(reset! (:display-contract app-state) nil)})]
+                   content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
+                            [:h3 "Claim funds"]
+                            [:h5 "Please provide the Destination Address and the Escrow Release Key in order to receive your Bitcoins"]
+                            (ui/text-field {:id "output-address"
+                                            :floating-label-text "Destination Address"
+                                            :error-text (:output-address (rum/react errors))
+                                            :value (:output-address (rum/react input))
+                                            :on-change #(do (reset! errors {})
+                                                            (swap! input assoc :output-address (.. % -target -value)))})
+                            [:br]
+                            (ui/text-field {:id "key"
+                                            :floating-label-text "Escrow Release Key"
+                                            :error-text (:key (rum/react errors))
+                                            :value (:key (rum/react input))
+                                            :on-change #(do (reset! errors {})
+                                                            (swap! input assoc :key (.. % -target -value)))})]]
+               (if (rum/react small-display?)
+                 (mobile-overlay true content buttons)
+                 (ui/dialog {:title (str "Action Required for CONTRACT ID: " (:human-id contract))
+                             :open true
+                             :modal true
+                             :actions buttons}
+                            content))))]
 
         (case (:stage contract)
 
@@ -932,10 +952,13 @@
                          content)))
 
           "contract-success"
-          (when (am-i-buyer? contract) escrow-release-dialog)
+          (when (am-i-buyer? contract) (escrow-release-dialog :buyer))
 
           "contract-broken"
-          (when (am-i-seller? contract) escrow-release-dialog)
+          (when (am-i-seller? contract) (escrow-release-dialog :seller))
+
+          "contract-broken/escrow-insufficient"
+          (when (am-i-seller? contract) (escrow-release-dialog :seller))
 
           [:div "Unknown contract state. Please contact us."])))))
 
@@ -969,19 +992,36 @@
                 "waiting-transfer" (if (am-i-buyer? contract)
                                      (if (or (not (:transfer-sent contract))
                                              (not (:escrow-buyer-has-key contract)))
-                                       (action-required "ACTIVE (XX:XX left)") waiting)
+                                       (action-required "ACTIVE (XX:XX left)")
+                                       waiting)
                                      (if (or (and (:transfer-sent contract) (not (:transfer-received contract)))
                                              (not (:escrow-seller-has-key contract)))
-                                       (action-required "ACTIVE (XX:XX left)") waiting))
-                "contract-success" (cond
-                                     (and (am-i-buyer? contract) (empty? (:output-address contract))) (action-required "RELEASE FUNDS")
-                                     (:escrow-released contract) [status-class [:div.center (if (am-i-buyer? contract) (str "RELEASED TO: " (:output-address contract)) "RELEASED TO BUYER")]]
-                                     :else [status-class [:div.center (if (am-i-buyer? contract) (str "RELEASING TO: " (:output-address contract)) "RELEASING TO BUYER")]])
-                "contract-broken" (cond
-                                    (am-i-buyer? contract) [status-class [:div.center "PERFORM CHARGEBACK"]]
-                                    (empty? (:output-address contract)) (action-required "RELEASE FUNDS")
-                                    (:escrow-released contract) [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
-                                    :else [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]])
+                                       (action-required "ACTIVE (XX:XX left)")
+                                       waiting))
+                "contract-success" (if (am-i-seller? contract)
+                                     [status-class [:div.center "RELEASING TO BUYER"]]
+                                     (case (:escrow-release contract)
+                                       "<fresh>" (action-required "RELEASE FUNDS")
+                                       "<failure>" (action-required "FAILED RELEASE")
+                                       "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                       "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                       [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
+                "contract-broken" (if (am-i-buyer? contract)
+                                    [status-class [:div.center "PERFORM CHARGEBACK"]]
+                                    (case (:escrow-release contract)
+                                      "<fresh>" (action-required "RELEASE FUNDS")
+                                      "<failure>" (action-required "FAILED RELEASE")
+                                      "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                      "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                      [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
+                "contract-broken/escrow-insufficient" (if (am-i-buyer? contract)
+                                                        [status-class [:div.center "SELLER FAILED TO FUND"]]
+                                                        (case (:escrow-release contract)
+                                                          "<fresh>" (action-required "INSUFFICIENT FUNDS")
+                                                          "<failure>" (action-required "FAILED RELEASE")
+                                                          "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                                          "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                                          [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
                 [status-class [:div.center "UNDEFINED"]]))
             [:div {:style {:clear "both"}}]]
            [:div
@@ -989,7 +1029,7 @@
                          {:active-step (case (:stage contract)
                                          "waiting-escrow" 1
                                          "waiting-transfer" 2
-                                         ("contract-success" "contract-broken") 3)
+                                         ("contract-success" "contract-broken" "contract-broken/escrow-insufficient") 3)
                           :orientation (if _small-display? "vertical" "horizontal")})
                         (ui/step (ui/step-label "Contract creation"))
                         (ui/step (ui/step-label "Escrow funding"))
