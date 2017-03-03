@@ -90,7 +90,10 @@
 (defonce server (atom nil))
 
 (defn start! [& [port ip]]
-  (log/set-level! :info)
+  (case (env :env)
+    "dev" (log/set-level! :debug)
+    "staging" (log/set-level! :debug)
+    "production" (log/set-level! :debug))
   (actions/sente-router-start! ch-chsk)
   (events/init! chsk-send!)
   (currency/start-exchange-rates-updates!)

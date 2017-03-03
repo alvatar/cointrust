@@ -269,7 +269,7 @@ SELECT * FROM buy_request;
 ;;
 
 (defn contract-create!
-  [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate premium transfer-info input-address] :as params} & [txcb]]
+  [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate fee premium transfer-info input-address] :as params} & [txcb]]
   (try
     (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
       (sql/with-db-transaction
@@ -278,10 +278,10 @@ SELECT * FROM buy_request;
           (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
             (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
             (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" human-id (random-string 27) buyer-id seller-id amount premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
+" human-id (random-string 27) buyer-id seller-id amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
               (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -476,6 +476,7 @@ CREATE TABLE buy_request (
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   amount                           BIGINT NOT NULL,
+  premium                          INT,
   currency_buyer                   TEXT NOT NULL,
   currency_seller                  TEXT NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL

@@ -80,7 +80,7 @@
         blacklisted (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
         available (remove (fn [x] (some #(= % x) blacklisted)) (db/get-user-friends-of-friends buyer-id))
         exchange-rates (oracle.currency/get-current-exchange-rates)
-        offering (filter identity (map db/sell-offer-get-by-user available))
+        offering (filter identity (map db/get-sell-offer-by-user available))
         offering-in-range (filter #(let [buyer-wants-amount (get-in buyer-specs [:wants :amount])
                                          buyer-wants-currency (get-in buyer-specs [:wants :currency])
                                          ;; In theory, we should check what the seller wants against what the buyer offers
@@ -98,8 +98,9 @@
                                                 (currency/convert (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
                                   offering)]
     (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
-      ;; Freeze exchange rate if matched
-      (db/buy-request-set-field! (:id buy-request) (get-in exchange-rates [:rates :btc-usd]))
+      ;; Freeze exchange rate if matched, and set the premium of the offer
+      (db/buy-request-set-field! (:id buy-request) "exchange_rate" (get-in exchange-rates [:rates :btc-usd]))
+      (db/buy-request-set-field! (:id buy-request) "premium" (:premium offer))
       (:user offer))))
 
 (defn blacklist-counterparty [buyer-id seller-id]
@@ -186,7 +187,7 @@
           buy-request-id (:id buy-request)]
       ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
       ;; (log/debugf "STATE: %s" state)
-      ;; (log/debug "Processing buy request ID" buy-request-id)
+      (log/debug "Processing buy request: " buy-request)
       (idempotent-ops mid :event-buy-request-created state
                       (events/add-event! buyer-id :buy-request-created buy-request))
       (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
@@ -228,7 +229,7 @@
             {:status :retry :backoff-ms 5000})))
     (catch Exception e
       (let [prex (with-out-str (pprint e))]
-        (log/debugf "Exception in task: %s" prex)
+        (log/errorf "Exception in task: %s" prex)
         (add-task-metadata mid {:queue "buy-requests" :exception prex :attempt attempt}))
       {:status :retry :backoff-ms 360000})))
 
@@ -263,13 +264,13 @@
       ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
       ;; Task initialization
       ;; TODO: THIS WON'T ENSURE EXECUTION OF THESE COMMANDS
-      (when (= attempt 1)
-        ;; Keep in mind that we are deleting the request here, so we rely on the master task
-        ;; to retrieve the buy request info from the idempotency cache in Redis
-        (db/buy-request-delete! (:id buy-request)) ; Idempotent, must be done at the end
-        (events/add-event! (:buyer-id contract) :contract-create contract)
-        (events/add-event! (:seller-id contract) :contract-create contract)
-        (escrow/setup-keys-for-contract! contract-id))
+      (idempotent-ops mid :initialization state
+                      ;; Keep in mind that we are deleting the request here, so we rely on the master task
+                      ;; to retrieve the buy request info from the idempotency cache in Redis
+                      (db/buy-request-delete! (:id buy-request)) ; Idempotent, must be done at the end
+                      (events/add-event! (:buyer-id contract) :contract-create contract)
+                      (events/add-event! (:seller-id contract) :contract-create contract)
+                      (escrow/setup-keys-for-contract! contract-id))
       (case (:stage contract)
 
         ;; Currently only used for testing
@@ -499,18 +500,16 @@
 ;; Buyer tests
 ;;
 
-;; 1. Seller accepts buy request
-;; IMPORTANT: if done outside the task, the seller will be reset to nil if that was the value of the imdepotency storage
-#_(do
-  (oracle.database/buy-request-set-seller! 1 2)
-  (oracle.tasks/initiate-preemptive-task :buy-request/accept
-                                         {:id 1
-                                          :transfer-info "transfer info"}))
+;; 1. Set offer to be matched
+;; (oracle.database/sell-offer-set! 2 "usd" 100 300000 100)
 
-;; 2. Escrow initialization
+;; 2. Accept buy request
+;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1 :transfer-info "transfer info"})
+
+;; 3. Escrow initialization
 ;; (oracle.database/contract-set-escrow-funded! 1)
 
-;; 3. Seller marks transfer received
+;; 4. Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})
 
 
