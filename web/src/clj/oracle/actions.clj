@@ -144,15 +144,19 @@
   (case (:role ?data)
     "buyer"
     (try (db/contract-set-field! (:id ?data) "escrow_buyer_has_key" true)
-         (if (escrow/forget-buyer-key (:id ?data))
+         #_(if (escrow/forget-buyer-key (:id ?data))
            (?reply-fn {:status :ok})
            (?reply-fn {:error :unavailable-key}))
+         (?reply-fn {:status :ok})
+         ;; REMOVE ^
          (catch Exception e (pprint e) (?reply-fn {:status :error})))
     "seller"
     (try (db/contract-set-field! (:id ?data) "escrow_seller_has_key" true)
-         (if (escrow/forget-seller-key (:id ?data))
+         #_(if (escrow/forget-seller-key (:id ?data))
            (?reply-fn {:status :ok})
            (?reply-fn {:error :unavailable-key}))
+         (?reply-fn {:status :ok})
+         ;; REMOVE ^
          (catch Exception e (pprint e) (?reply-fn {:status :error})))
     (?reply-fn {:error :unknown-role})))
 
@@ -160,7 +164,6 @@
   [{:keys [?data ?reply-fn]}]
   (let [output-address (clojure.string/trim (:output-address ?data))
         escrow-user-key (clojure.string/trim (:escrow-user-key ?data))]
-    (println (escrow/get-seller-key (:id ?data)))
     (cond
       (or (empty? output-address) (empty? escrow-user-key))
       (?reply-fn {:status :error-missing-parameters})

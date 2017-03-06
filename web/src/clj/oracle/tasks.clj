@@ -97,6 +97,7 @@
                                                 (:max %)
                                                 (currency/convert-as-long (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
                                   offering)]
+    (log/debug offering)
     (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
       ;; Freeze exchange rate if matched, and set the premium of the offer
       (db/buy-request-set-field! (:id buy-request) "exchange_rate" (get-in exchange-rates [:rates :btc-usd]))
@@ -414,6 +415,7 @@
     ;; TEMPORARY APPROACH
     (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
           @bitcoin/current-app
+          contract-id
           (:output-address contract)
           ;; Substract the fee (applying also the premium)
           (long (* (:amount contract)

@@ -58,7 +58,7 @@
 
 (defn make-app []
   (let [network-params (case (env :env)
-                         "production" (. TestNet3Params get) ;; (. MainNetParams get)
+                         "production" (. MainNetParams get)
                          "staging" (. TestNet3Params get)
                          (. RegTestParams get))
         uri (url (str "http" (subs (or (env :database-url) "postgres://alvatar:@localhost:5432/oracledev") 8)))
@@ -120,7 +120,7 @@
 (defn wallet-deserialize [sr]
   (. Wallet loadFromFileStream (ByteArrayInputStream. sr) nil))
 
-(defn log! [m] (db/log! "info" "bitcoin" m))
+(defn btc-log! [& m] (db/log! "info" "bitcoin" (apply format m)))
 
 (defn log-action-required! [m] (db/log! "action-required" "bitcoin" m))
 
@@ -137,11 +137,14 @@
 (defn wallet-get-balance [wallet]
   (.getValue (.getBalance wallet)))
 
-(defn wallet-send-coins [wallet app target-address amount]
-  (try (.sendCoins wallet
-                   (:peergroup app)
-                   (. Address fromBase58 (.getNetworkParameters wallet) target-address)
-                   (. Coin valueOf amount))
+(defn wallet-send-coins [wallet app contract-id target-address amount]
+  (try (let [tx (.sendCoins wallet
+                            (:peergroup app)
+                            (. Address fromBase58 (.getNetworkParameters wallet) target-address)
+                            (. Coin valueOf amount))
+             tx-hash (.. tx getHash toString)]
+         (db/contract-set-field! contract-id "output_tx" tx-hash)
+         (btc-log! "Send payment for contract %s of %s BTC in address %s\n" contract-id (common/satoshi->btc amount) target-address))
        (catch Exception e
          (log/debugf "Error sending coins: %s" e) nil)))
 
@@ -154,22 +157,22 @@
    wallet
    (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
      (onCoinsReceived [this wallet transaction prev-balance new-balance]
-       (try (log! "Wallet balance PRE-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+       (try (btc-log! "Wallet balance PRE-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
             (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))
                   address-payed (.toString
                                  (.getAddressFromP2PKHScript
-                                  (first (.getOutputs transaction)) (:network-params @current-app)))]
-              (log! "Transaction Memo: %s" (.getMemo transaction))
+                                  (first (.getOutputs transaction)) (:network-params @current-app)))
+                  tx-hash (.. transaction getHash toString)]
               (if (pos? amount-payed)
-                (do (log! "Received payment of %s BTC in address %s\n" (common/satoshi->btc amount-payed) address-payed)
+                (do (btc-log! "Received payment of %s BTC in address %s with tx hash %s\n" (common/satoshi->btc amount-payed) address-payed tx-hash)
                     (if-let [contract (not-empty (db/get-contract-by-input-address address-payed))]
                       (do (log/infof "BITCOIN *** Payment to %s funds contract ID %s" address-payed (:id contract))
-                          (db/contract-set-escrow-funded! (:id contract) amount-payed)
+                          (db/contract-set-escrow-funded! (:id contract) amount-payed tx-hash)
                           (db/save-current-wallet (wallet-serialize wallet)))
                       (log/errorf "BITCOIN *** CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
                                   (common/satoshi->btc amount-payed) address-payed)))
-                (log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed)))
-            (log! "Wallet balance POST-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+                (btc-log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed)))
+            (btc-log! "Wallet balance POST-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
             (catch Exception e (log/error e))))))
   wallet)
 

@@ -15,10 +15,11 @@
 ;;
 
 (defn encode-key [to-encode]
-  (let [encoded (.encodeToString (Base64/getEncoder) to-encode)]
-    (if-let [eqpos (clojure.string/index-of encoded \=)]
-      (subs encoded 0 eqpos)
-      encoded)))
+  (try (let [encoded (.encodeToString (Base64/getEncoder) to-encode)]
+         (if-let [eqpos (clojure.string/index-of encoded \=)]
+           (subs encoded 0 eqpos)
+           encoded))
+       (catch Exception e)))
 
 (defn decode-key [to-decode]
   (.decode (Base64/getDecoder) to-decode))

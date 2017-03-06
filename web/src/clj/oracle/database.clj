@@ -326,6 +326,7 @@ WHERE contract_event.time = ( SELECT MAX(contract_event.time) FROM contract_even
         (sql/query db ["
 SELECT * FROM contract
 WHERE buyer_id = ? OR seller_id = ?
+ORDER BY contract.created DESC
 " user-id user-id])))
 
 (defn get-contracts-by-user-with-last-event [user-id]
@@ -397,18 +398,17 @@ INNER JOIN (
     FROM contract_event
     GROUP BY contract_id
 ) b ON a.contract_id = b.contract_id AND a.time = b.max_time
-
 " ])))
 
 ;; TODO: IS THIS SECURE?
 
 ;; TODO: instead of setting the timestamp here, use the timestamp from latest event
 
-(defn contract-set-escrow-funded! [id amount-received]
+(defn contract-set-escrow-funded! [id amount-received tx-hash]
   (sql/execute! db ["
-UPDATE contract SET escrow_funded = true, escrow_amount = ?, escrow_funded_timestamp = CURRENT_TIMESTAMP
+UPDATE contract SET escrow_funded = true, escrow_amount = ?, input_tx = ?, escrow_funded_timestamp = CURRENT_TIMESTAMP
 WHERE id = ?
-" amount-received id]))
+" amount-received tx-hash id]))
 
 (defn contract-set-field! [id field value]
   (sql/execute! db [(format "
@@ -452,7 +452,8 @@ ON CONFLICT (lock) DO UPDATE SET data = ?;
 CREATE TABLE user_account (
   id                               SERIAL PRIMARY KEY,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  hash                             TEXT NOT NULL UNIQUE
+  hash                             VARCHAR(128) NOT NULL UNIQUE,
+  name                             VARCHAR(256)
 );"
                        "
 CREATE TABLE friends (
@@ -464,7 +465,7 @@ CREATE TABLE friends (
 CREATE TABLE sell_offer (
   user_id                          INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   CONSTRAINT one_offer_per_user    UNIQUE (user_id),
-  currency                         CHAR(3) NOT NULL,
+  currency                         VARCHAR(8) NOT NULL,
   min                              BIGINT NOT NULL,
   max                              BIGINT NOT NULL,
   premium                          INT NOT NULL
@@ -477,8 +478,8 @@ CREATE TABLE buy_request (
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   amount                           BIGINT NOT NULL,
   premium                          INT,
-  currency_buyer                   CHAR(3) NOT NULL,
-  currency_seller                  CHAR(3) NOT NULL,
+  currency_buyer                   VARCHAR(8) NOT NULL,
+  currency_seller                  VARCHAR(8) NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL
 );"
                        "
@@ -490,14 +491,16 @@ CREATE TABLE contract (
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   amount                           BIGINT NOT NULL,
-  currency_buyer                   CHAR(3) NOT NULL,
-  currency_seller                  CHAR(3) NOT NULL,
+  currency_buyer                   VARCHAR(8) NOT NULL,
+  currency_seller                  VARCHAR(8) NOT NULL,
   exchange_rate                    DECIMAL(26,6) NOT NULL,
   fee                              INT NOT NULL,
   premium                          INT NOT NULL,
   input_address                    VARCHAR(128),
+  input_tx                         VARCHAR(128),
   escrow_address                   VARCHAR(128),
   output_address                   VARCHAR(128),
+  output_tx                        VARCHAR(128),
   escrow_our_key                   VARCHAR(128),
   escrow_buyer_has_key             BOOLEAN DEFAULT false,
   escrow_seller_has_key            BOOLEAN DEFAULT false,
