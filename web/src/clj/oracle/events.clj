@@ -40,8 +40,9 @@
 ;;
 
 (defn add-event! [user-id type & [args]]
-  (let [uid (db/get-user-by-id user-id)]
-    (log/debug (format "SENDING MESSAGE to user %s hash %s type %s: %s" user-id uid type args))
+  (let [user (db/get-user-by-id user-id)
+        uid (:hash user)]
+    ;; (log/debug (format "SENDING MESSAGE to user %s hash %s type %s: %s" user-id uid type args))
     (case type
       :buy-request-created
       (future

@@ -41,8 +41,11 @@
 
 (defmethod -event-msg-handler :user/enter
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (try (let [{:keys [user friends] :as result}
-             (db/user-insert! (:hashed-user ?data) (:hashed-friends ?data))]
+  (try (let [{:keys [user name friends] :as result}
+             (db/user-insert! (:user-fbid ?data)
+                              (:user-name ?data)
+                              (:hashed-user ?data)
+                              (:hashed-friends ?data))]
          (?reply-fn {:status :ok
                      :found-user user
                      :found-friends friends}))

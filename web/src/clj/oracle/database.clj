@@ -40,6 +40,8 @@
   (apply str (for [b (crypto/bytes n)]
                (nth allowed-chars (mod b num-allowed-chars)))))
 
+(defn ->kebab-case [r] (reduce-kv #(assoc %1 (case-shift/->kebab-case %2) %3) {} r))
+
 ;;
 ;; Events
 ;;
@@ -60,7 +62,7 @@ INSERT INTO logs (level, type, data) VALUES ('debug', ?, ?) RETURNING *;
 ;; Users and friends
 ;;
 
-(defn user-insert! [user-hash friend-hashes]
+(defn user-insert! [user-fbid user-name user-hash friend-hashes]
   ;; TODO: We are currently storing ID too. Just keep hash
   (sql/with-db-transaction
     [tx db]
@@ -73,10 +75,10 @@ SELECT id FROM user_account WHERE hash = ?;
 " f]))))
           user-id
           (-> (sql/query tx ["
-INSERT INTO user_account (hash) VALUES (?)
+INSERT INTO user_account (fb_id, name, hash) VALUES (?, ?, ?)
 ON CONFLICT (hash) DO UPDATE SET hash = ?
 RETURNING id;
-" user-hash user-hash])
+" user-fbid user-name user-hash user-hash])
               first
               :id)
           friends-insert
@@ -90,9 +92,12 @@ VALUES (?, ?)
 ON CONFLICT DO NOTHING
 " user-id1 user-id2]))))
                 friend-ids)]
-      (log-op! tx "user-insert" {:user-hash user-hash
-                              :friend-hashes friend-hashes})
+      (log-op! tx "user-insert" {:id user-id
+                                 :name user-name
+                                 :hash user-hash
+                                 :friend-hashes friend-hashes})
       {:user user-id
+       :name user-name
        :friends friend-ids})))
 
 (defn get-users []
@@ -102,14 +107,10 @@ ON CONFLICT DO NOTHING
   (sql/query db ["SELECT * FROM friends;"]))
 
 (defn get-user-by-id [id]
-  (-> (sql/query db ["SELECT hash FROM user_account WHERE id = ?;" id])
-      first
-      :hash))
+  (first (sql/query db ["SELECT * FROM user_account WHERE id = ?;" id])))
 
 (defn get-user-by-hash [hash]
-  (-> (sql/query db ["SELECT id FROM user_account WHERE hash = ?;" hash])
-      first
-      :id))
+  (first (sql/query db ["SELECT * FROM user_account WHERE hash = ?;" hash])))
 
 (defn get-user-friends [id]
   (sql/query db ["
@@ -127,10 +128,12 @@ WHERE (user_id1 = ? OR user_id2 = ?) AND id = ?
 " id id id]))
 
 (defn get-user-friends-of-friends [id]
-  (mapv
-   :user
+  (map
+   ->kebab-case
    (sql/query db ["
-WITH user_friends AS (
+SELECT id,fb_id FROM user_account
+WHERE id IN
+(WITH user_friends AS (
           SELECT user_id2 AS u FROM friends
           WHERE user_id1 = ?
           UNION
@@ -143,7 +146,7 @@ WHERE (user_id1 IN (SELECT u FROM user_friends) OR user_id2 IN (SELECT u FROM us
 UNION
 SELECT user_id2 AS user FROM friends
 WHERE (user_id1 IN (SELECT u FROM user_friends) OR user_id2 IN (SELECT u FROM user_friends))
-      AND NOT user_id2 = ?
+      AND NOT user_id2 = ?)
 " id id id id])))
 
 ;;
@@ -183,8 +186,6 @@ SELECT * FROM sell_offer;
 ;;
 ;; Buy Requests
 ;;
-
-(defn ->kebab-case [r] (reduce-kv #(assoc %1 (case-shift/->kebab-case %2) %3) {} r))
 
 (defn buy-request-create! [user-id amount currency-buyer currency-seller exchange-rate & [txcb]]
   (sql/with-db-transaction
@@ -271,24 +272,26 @@ SELECT * FROM buy_request;
 (defn contract-create!
   [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate fee premium transfer-info input-address] :as params} & [txcb]]
   (try
-    (when-not (= buyer-id seller-id) ;; TODO: check if they are friends^2
-      (sql/with-db-transaction
-        [tx db]
-        (loop [human-id (utils/human-id-generator)]
-          (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
-            (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
-            (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (when-not (= buyer-id seller-id)
+      (let [buyer-fbid (:fb_id (get-user-by-id buyer-id))
+            seller-fbid (:fb_id (get-user-by-id seller-id))]
+        (sql/with-db-transaction
+          [tx db]
+          (loop [human-id (utils/human-id-generator)]
+            (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
+              (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
+              (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
+INSERT INTO contract (human_id, hash, buyer_id, buyer_fbid, seller_id, seller_fbid, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" human-id (random-string 27) buyer-id seller-id amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
-              (sql/execute! tx ["
+" human-id (random-string 27) buyer-id buyer-fbid seller-id seller-fbid amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
+                (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
-              (let [contract (merge contract {:stage init-stage})]
-                (log-op! tx "contract-create" params)
-                (when txcb (txcb contract))
-                contract))))))
+                (let [contract (merge contract {:stage init-stage})]
+                  (log-op! tx "contract-create" params)
+                  (when txcb (txcb contract))
+                  contract)))))))
     (catch Exception e
       (log/debugf "Error in contract creation with params: %s" (with-out-str (pprint params)))
       (throw e))))
@@ -322,16 +325,16 @@ WHERE contract_event.time = ( SELECT MAX(contract_event.time) FROM contract_even
 " contract-id])))
 
 (defn get-contracts-by-user [user-id]
-  (mapv ->kebab-case
-        (sql/query db ["
+  (map ->kebab-case
+       (sql/query db ["
 SELECT * FROM contract
 WHERE buyer_id = ? OR seller_id = ?
 ORDER BY contract.created DESC
 " user-id user-id])))
 
 (defn get-contracts-by-user-with-last-event [user-id]
-  (mapv ->kebab-case
-        (sql/query db ["
+  (map ->kebab-case
+       (sql/query db ["
 SELECT * FROM contract
 INNER JOIN (
   SELECT a.*
@@ -376,8 +379,8 @@ WHERE input_address = ?
       ->kebab-case))
 
 (defn get-all-contracts []
-  (mapv ->kebab-case
-        (sql/query db ["
+  (map ->kebab-case
+       (sql/query db ["
 SELECT * FROM contract
 "])))
 
@@ -453,6 +456,7 @@ CREATE TABLE user_account (
   id                               SERIAL PRIMARY KEY,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   hash                             VARCHAR(128) NOT NULL UNIQUE,
+  fb_id                            BIGINT NOT NULL,
   name                             VARCHAR(256)
 );"
                        "
@@ -489,7 +493,9 @@ CREATE TABLE contract (
   human_id                         VARCHAR(256) NOT NULL UNIQUE,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  buyer_fbid                       BIGINT,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
+  seller_fbid                      BIGINT,
   amount                           BIGINT NOT NULL,
   currency_buyer                   VARCHAR(8) NOT NULL,
   currency_seller                  VARCHAR(8) NOT NULL,

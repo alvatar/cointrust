@@ -17,6 +17,7 @@
             [taoensso.sente :as sente]
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
+            [rum.core :as rum]
             ;; -----
             [oracle.actions :as actions]
             [oracle.events :as events]
@@ -24,7 +25,8 @@
             [oracle.bitcoin :as bitcoin]
             [oracle.worker :as worker]
             [oracle.database :as db]
-            [oracle.currency :as currency])
+            [oracle.currency :as currency]
+            [oracle.html :as html])
   (:import (java.lang.Integer)
            (java.net InetSocketAddress)
            (java.io RandomAccessFile))
@@ -50,7 +52,8 @@
 
 (defroutes app
   (GET "/" _ (response/content-type
-              (response/resource-response "index.html" {:root "public"})
+              ;; (response/resource-response "index.html" {:root "public"})
+              (response/response (rum/render-html html/index))
               "text/html"))
   (resources "/" {:root "/public"})
   ;; Sente

@@ -18,6 +18,11 @@
     :btc (float (satoshi->btc amount))
     :usd (float (/ amount 100.0))))
 
+(defn currency->symbol [currency]
+  (case (keyword currency)
+    :btc "Ƀ"
+    :usd "$"))
+
 (defn long->incr [val]
   (+ 1 (/ val 10000)))
 

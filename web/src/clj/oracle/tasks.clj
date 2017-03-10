@@ -49,12 +49,10 @@
                       :currency-buyer currency-buyer :currency-seller currency-seller})))
 
 (defn initiate-contract [buy-request]
-  (if (:id buy-request)
-    (log/debug "Initiated contract from buy request ID" (:id buy-request))
-    (do
-      (log/debugf "Buy request: %s" (with-out-str (pprint buy-request)))
-      (throw (Exception. "The buy request doesn't have a seller ID"))))
-  (when-not (:seller-id buy-request) (throw (Exception. "The buy request doesn't have an seller ID")))
+  (log/debugf "Initiated contract from buy request ID %s" (:id buy-request))
+  (when-not (and (:id buy-request) (:seller-id buy-request))
+    (log/debugf "Buy request: %s" (with-out-str (pprint buy-request)))
+    (throw (Exception. "The buy request doesn't have all required data")))
   (wcar* (mq/enqueue (get-in workers [:contracts-master :qname])
                      buy-request
                      ;; Avoid the same buy request generating more than one contract
@@ -97,7 +95,6 @@
                                                 (:max %)
                                                 (currency/convert-as-long (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
                                   offering)]
-    (log/debug offering)
     (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
       ;; Freeze exchange rate if matched, and set the premium of the offer
       (db/buy-request-set-field! (:id buy-request) "exchange_rate" (get-in exchange-rates [:rates :btc-usd]))
@@ -327,7 +324,9 @@
 
         ;; The seller finalizes the contract when acknowledges reception of funds
         "waiting-transfer"
-        (cond (:transfer-received contract)
+        (cond (and (:transfer-received contract)
+                   (:escrow-seller-has-key contract)
+                   (:escrow-buyer-has-key contract))
               (do (db/contract-set-field! contract-id "escrow_open_for" (:buyer-id contract)) ; Idempotent
                   (events/add-event! (:buyer-id contract) :contract-success contract)
                   (events/add-event! (:seller-id contract) :contract-success contract)
@@ -337,7 +336,9 @@
                   {:status :retry :backoff-ms 1})
               ;; The countdown
               (> now (utils/unix-after (time-coerce/to-date-time (:escrow-funded-timestamp contract)) (time/minutes 30)))
-              (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
+              (do (events/add-event! (:buyer-id contract) :contract-success contract)
+                  (events/add-event! (:seller-id contract) :contract-success contract)
+                  (with-idempotent-transaction mid :contract-add-event-contract-boken state
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "running contract timed out"} %))
                   {:status :success})
               :else
@@ -474,15 +475,15 @@
 ;;
 
 (defn populate-test-database! []
-  (db/user-insert! "asdf" [])
-  (db/user-insert! "ffff" ["asdf"])
-  (db/user-insert! "aaaa" ["ffff"])
-  (db/user-insert! "bbbb" ["asdf"])
+  (db/user-insert! 1 "John" "asdf" [])
+  (db/user-insert! 2 "Ada" "ffff" ["asdf"])
+  (db/user-insert! 3 "Scipio" "aaaa" ["ffff"])
+  (db/user-insert! 4 "Thor" "bbbb" ["asdf"])
 
-  (db/user-insert! "cccc" [])
+  (db/user-insert! 5 "Julius" "cccc" [])
 
-  (db/user-insert! "dddd" ["eeee"])
-  (db/user-insert! "eeee" ["dddd"])
+  (db/user-insert! 6 "Zeus" "dddd" ["eeee"])
+  (db/user-insert! 7 "Barbara" "eeee" ["dddd"])
   'ok)
 
 (defn total-wipeout!!! []
@@ -505,7 +506,7 @@
 ;; 2. Accept buy request
 
 ;; 3. Seller sends money to Escrow
-;; (oracle.database/contract-set-escrow-funded! 1 (common/btc->satoshi 2))
+;; (oracle.database/contract-set-escrow-funded! 1 (common/btc->satoshi 2) "fake-transaction-hash")
 
 
 ;; -- EXTRA
@@ -526,7 +527,7 @@
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/accept {:id 1 :transfer-info "transfer info"})
 
 ;; 3. Escrow initialization
-;; (oracle.database/contract-set-escrow-funded! 1 (common/btc->satoshi 2))
+;; (oracle.database/contract-set-escrow-funded! 1 (oracle.common/btc->satoshi 2) "fake-transaction-hash")
 
 ;; 4. Seller marks transfer received
 ;; (oracle.tasks/initiate-preemptive-task :contract/mark-transfer-received {:id 1})

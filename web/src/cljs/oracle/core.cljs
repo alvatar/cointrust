@@ -6,7 +6,7 @@
             [taoensso.timbre :as timbre :refer-macros (tracef debugf infof warnf errorf)]
             [taoensso.sente :as sente :refer (cb-success?)]
             [taoensso.sente.packers.transit :as sente-transit]
-            [cljs-react-material-ui.core :refer [get-mui-theme color]]
+            [cljs-react-material-ui.core :refer [get-mui-theme color] :as muic]
             [cljs-react-material-ui.icons :as ic]
             [cljs-react-material-ui.rum :as ui]
             [rum.core :as rum]
@@ -38,6 +38,7 @@
                     :friend-fbids (atom [])
                     :friend-hashes (atom [])
                     :friends2 (atom [])
+                    :friends2-photos (atom [])
                     :exchange-rates (atom {})
                     :seconds-since-last-exchange-rates-refresh (atom {})
                     :sell-offer (atom nil)
@@ -81,6 +82,12 @@
     (aset js/window "location" url)))
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
+
+(defn some-update [predicate f coll] (map (fn [x] (if (predicate x) (f x) x)) coll))
+
+(defn update-contract [id f]
+  (reset! (:contracts app-state)
+          (doall (some-update #(= (:id %) id) f @(:contracts app-state)))))
 
 (defn contract-time-left [contract server-time]
   (let [milliseconds->mins-formatted
@@ -173,21 +180,6 @@
       (reset! router_ (sente/start-client-chsk-router! ch-chsk event-msg-handler)))
     (start-router!)))
 
-;; For testing
-(when-not hook-fake-id?_
-  (try
-    (fb/load-sdk (fn []
-                   (js/console.log "Facebook lib loaded")
-                   (fb/init {:appId (case *env*
-                                      "production" "1131377006981108"
-                                      "staging" "1382322701791260"
-                                      ("test" "dev") "1214574721994669")
-                             :status true
-                             :cookies false
-                             :xfbml true
-                             :version "v2.8"})))
-    (catch :default e (js/console.log e))))
-
 ;;
 ;; Actions
 ;;
@@ -207,40 +199,54 @@
            (log* "Error in handle-enter:" resp)))
      (log* "Friends^2" (str @(:friends2 app-state))))))
 
-(defn try-enter [hashed-id hashed-friends]
+(defn try-enter [user-fbid user-name hashed-id hashed-friends]
   (chsk-send!
-   [:user/enter {:hashed-user hashed-id :hashed-friends hashed-friends}] 5000
+   [:user/enter {:user-fbid user-fbid
+                 :user-name user-name
+                 :hashed-user hashed-id
+                 :hashed-friends hashed-friends}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:user-id app-state) (:found-user resp))
+       (do (log* "Try Enter: " resp)
+           (reset! (:user-id app-state) (:found-user resp)))
        (do (push-error "There was an error with your login. Please try again.")
            (log* "Error in try-enter:" resp))))))
 
 (defn- set-fake-facebooks-ids [hashed-id]
   (reset! (:user-hash app-state) hashed-id)
-  (sente-register-init-callback! #(try-enter hashed-id ["TODO"]))
+  (let [ffbids [10100642548250434 10106263879382352 10213129106885586 10210216755509404 145228535996960 145228535996960 145228535996960 145228535996960]]
+    (reset! (:friend-fbids app-state) ffbids)
+    (doseq [f (take 8 ffbids)]
+      (fb/api (str "/" f "/picture")
+              (fn [resp] (swap! (:friends2-photos app-state) conj (get-in resp [:data :url]))))))
+  (sente-register-init-callback! #(try-enter 1 "Alvatar" hashed-id ["TODO"]))
   (init-sente! hashed-id))
 
 (defn- set-facebook-ids [response]
   (if (= (:status response) "connected")
-    (let [user-fbid (get-in response [:authResponse :userID])
-          hashed-id (cljs-hash.goog/hash :sha1 (str user-fbid))]
-      (fb/api "/me/" (fn [resp] (reset! (:user-name app-state) (:name resp))))
-      (reset! (:user-fbid app-state) user-fbid)
-      (reset! (:user-hash app-state) hashed-id)
-      (log* "Connected with Facebook userID: " user-fbid)
-      (log* "Hashed user: " hashed-id)
-      (fb/api "/me/friends" {}
-              (fn [{friends :data}]
-                (let [friend-fbids (map :id friends)
-                      hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
-                  (reset! (:friend-fbids app-state) friend-fbids)
-                  (reset! (:friend-hashes app-state) hashed-friends)
-                  (log* "Friend IDs: " (str friend-fbids))
-                  (log* "Hashed friends: " (str hashed-friends))
-                  (sente-register-init-callback! #(try-enter hashed-id hashed-friends))
-                  (init-sente! hashed-id)))))
+    (let [user-fbid-str (get-in response [:authResponse :userID])
+          user-fbid (js/Number (get-in response [:authResponse :userID]))
+          hashed-id (cljs-hash.goog/hash :sha1 user-fbid-str)]
+      (fb/api "/me/"
+              (fn [resp]
+                (reset! (:user-name app-state) (:name resp))
+                (reset! (:user-fbid app-state) user-fbid)
+                (reset! (:user-hash app-state) hashed-id)
+                (log* "Connected with Facebook userID: " user-fbid)
+                (log* "Hashed user: " hashed-id)
+                (fb/api "/me/friends" {}
+                        (fn [{friends :data}]
+                          (let [friend-fbids (map :id friends)
+                                hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
+                            (reset! (:friend-fbids app-state) friend-fbids)
+                            (reset! (:friend-hashes app-state) hashed-friends)
+                            (log* "Friend IDs: " (str friend-fbids))
+                            (log* "Hashed friends: " (str hashed-friends))
+                            (sente-register-init-callback! #(try-enter user-fbid (:name resp) hashed-id hashed-friends))
+                            (init-sente! hashed-id)))))))
     (log* "Not logged in: " (clj->js response))))
+
+
 
 ;; TODO: make desync differences smooth
 (defn get-server-time []
@@ -301,7 +307,7 @@
   (chsk-send!
    [:offer/open {:user-id @(:user-id app-state) :min min :max max :currency currency :premium (long (* premium 100))}] 5000
    (fn [resp]
-     (if (sente/cb-success? resp)
+     (if (and (sente/cb-success? resp) (not (:error resp)))
        (reset! (:sell-offer app-state) (update resp :premium #(float (/ % 100))))
        (push-error "There was an error opening the sell offer. Please try again.")))))
 
@@ -372,35 +378,22 @@
        (do (log* (gstring/format "Error declining buy request ID %d" buy-request-id))
            (push-error "There was an error declining the buy request. Please try again."))))))
 
-(defn mark-contract-sent [contract-id]
-  (chsk-send!
-   [:contract/mark-transfer-sent {:id contract-id}] 5000
-   (fn [resp]
-     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (log* (gstring/format "Contract ID %d marked as transfer SENT" contract-id))
-       (do (log* (gstring/format "Error marking contract ID %d as transfer SENT" contract-id))
-           (push-error "There was an error marking the contract. Please try again."))))))
-
 (defn mark-contract-received [contract-id]
   (chsk-send!
    [:contract/mark-transfer-received {:id contract-id}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (log* (gstring/format "Contract ID %d marked as transfer RECEIVED" contract-id))
-       (do (log* (gstring/format "Error marking contract ID %d as transfer RECEIVED" contract-id))
-           (push-error "There was an error marking the contract. Please try again."))))))
-
+       (update-contract contract-id #(assoc % :transfer-received true))
+       (log* (gstring/format "Contract ID %d marked as transfer RECEIVED" contract-id))))))
 
 (defn break-contract [contract-id]
   (chsk-send!
    [:contract/break {:id contract-id}] 5000
    (fn [resp]
      (if (sente/cb-success? resp)
-       (if-let [found-idx (find-in @(:contracts app-state) contract-id)]
-         (do (log* (gstring/format "Contract ID %d broken" contract-id))
-             (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-broken"))
-         (do (log* (gstring/format "Error breaking the contract ID %d" contract-id))
-             (push-error "There was an error breaking the contract. Please try again.")))))))
+       (update-contract contract-id #(assoc % :stage "contract-broken"))
+       (do (log* (gstring/format "Error breaking the contract ID %d" contract-id))
+           (push-error "There was an error breaking the contract. Please try again."))))))
 
 ;;
 ;; Event Handlers
@@ -484,94 +477,59 @@
 (defmethod app-msg-handler :contract/escrow-funded
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :contract/escrow-funded" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (do (close-display-contract)
-          (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer"))
-      (do (push-error "There was an error in funding the Escrow. Please inform us of this event.")
-          (log* "Error in contract/escrow-funded" msg)))))
-
-;; (defmethod app-msg-handler :contract/waiting-transfer
-;;   [[_ msg]]
-;;   (if (:error msg)
-;;     (log* "Error in :contract/waiting-transfer" msg)
-;;     (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-;;       (swap! (:contracts app-state) assoc-in [found-idx :stage] "waiting-transfer")
-;;       (do (reset! app-error "There was an error in the contract waiting-transfer stage. Please inform us of this event.")
-;;           (log* "Error in contract/waiting-transfer" msg)))))
-
-(defmethod app-msg-handler :contract/mark-transfer-sent-ack
-  [[_ msg]]
-  (if (:error msg)
-    (log* "Error in :contract/mark-transfer-sent-ack" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :transfer-sent] true)
-      (do (push-error "There was an error when marking the transfer as sent. Please inform us of this event.")
-          (log* "Error in contract/mark-transfer-sent-ack" msg)))))
+    (do (push-error "There was an error in funding the Escrow. Please inform us of this event.")
+        (log* "Error in contract/escrow-funded" msg))
+    (update-contract (:id msg) #(assoc % :stage "waiting-transfer"))))
 
 (defmethod app-msg-handler :contract/mark-transfer-received-ack
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :contract/mark-transfer-received-ack" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :transfer-received] true)
-      (do (push-error "There was an error when marking the transfer as received. Please inform us of this event.")
-          (log* "Error in contract/mark-transfer-received-ack" msg)))))
+    (do (push-error "There was an error when marking the transfer as received. Please inform us of this event.")
+        (log* "Error in contract/mark-transfer-received-ack" msg))
+    (update-contract (:id msg) #(assoc % :transfer-received true))))
 
 (defmethod app-msg-handler :contract/holding-period
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :contract/holding-period" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :stage] "holding-period")
-      (do (push-error "There was an error when starting the contract holding period. Please inform us of this event.")
-          (log* "Error in contract/holding-period" msg)))))
+    (do (push-error "There was an error when starting the contract holding period. Please inform us of this event.")
+          (log* "Error in contract/holding-period" msg))
+    (update-contract (:id msg) #(assoc % :transfer-received true))))
 
 (defmethod app-msg-handler :contract/success
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :contract/success" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-success")
-      (do (push-error "There was an error setting the contract as successful. Please inform us of this event.")
-          (log* "Error in contract/holding-period" msg)))))
+    (do (push-error "There was an error setting the contract as successful. Please inform us of this event.")
+        (log* "Error in contract/holding-period" msg))
+    (update-contract (:id msg) #(assoc % :stage "contract-success"))))
 
 (defmethod app-msg-handler :contract/broken
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :contract/broken" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (do (log* (gstring/format "Contract ID %d broken" (:id msg)))
-          (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-broken"))
-      (do (push-error "There was an error setting the contract as broken. Please inform us of this event.")
-          (log* "Error in contract/broken" msg)))))
-
-(defmethod app-msg-handler :contract/escrow-release-success
-  [[_ msg]]
-  (if (:error msg)
-    (log* "Error in :contract/escrow-release-success" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :escrow-release] "<success>")
-      (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
-          (log* "Error in contract/escrow-release-success" msg)))))
-
-(defmethod app-msg-handler :contract/escrow-release-failure
-  [[_ msg]]
-  (if (:error msg)
-    (log* "Error in :contract/escrow-release-failed" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :escrow-release] "<failure>")
-      (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
-          (log* "Error in contract/escrow-release-failed" msg)))))
+    (do (push-error "There was an error setting the contract as broken. Please inform us of this event.")
+        (log* "Error in contract/broken" msg))
+    (update-contract (:id msg) #(assoc % :stage "contract-broken"))))
 
 (defmethod app-msg-handler :contract/escrow-insufficient
   [[_ msg]]
   (if (:error msg)
-    (log* "Error in :contract/escrow-insufficient" msg)
-    (if-let [found-idx (find-in @(:contracts app-state) (:id msg))]
-      (swap! (:contracts app-state) assoc-in [found-idx :stage] "contract-broken/escrow-insufficient")
-      (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
-          (log* "Error in contract/escrow-insufficient" msg)))))
+    (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+        (log* "Error in contract/escrow-insufficient" msg))
+    (update-contract (:id msg) #(assoc % :stage "contract-broken/escrow-insufficient"))))
+
+(defmethod app-msg-handler :contract/escrow-release-success
+  [[_ msg]]
+  (if (:error msg)
+    (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+        (log* "Error in contract/escrow-release-success" msg))
+    (update-contract (:id msg) #(assoc % :escrow-release "<success>"))))
+
+(defmethod app-msg-handler :contract/escrow-release-failure
+  [[_ msg]]
+  (if (:error msg)
+    (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+        (log* "Error in contract/escrow-release-failed" msg))
+    (update-contract (:id msg) #(assoc % :escrow-release "<failure>"))))
+
 
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
@@ -627,6 +585,9 @@
         parsed-val (js/parseFloat (:amount (rum/react input)))
         open? (= (rum/react (:ui-mode app-state)) :buy-dialog)
         currency (:currency (rum/react input))
+        current-btc (case (:currency @input)
+                      "btc" parsed-val
+                      "usd" (* (:usd-btc exchange-rates) parsed-val))
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                  [:div [:h4 "Bitcoin price: " (:btc-usd exchange-rates) " BTC/USD (Coinbase reference rate)"]
                   [:h6 {:style {:margin-top "-1rem"}}
@@ -648,7 +609,7 @@
                     (case currency
                       "btc" (gstring/format "for %s USD" (round-currency (* (:btc-usd exchange-rates) parsed-val)))
                       "usd" (gstring/format "gets you %s BTC" (round-currency (* (:usd-btc exchange-rates) parsed-val)))))
-                  [:h6 "IMPORTANT: fees and seller premium will be deducted from the purchased BTC"]]
+                  [:h6 (gstring/format "Note: 1%% fee (%s BTC) and 1%% seller premium (%s BTC) will be paid from the total purchased." (* current-btc 0.01) (* current-btc 0.01))]]
                  (when (:processing (rum/react input))
                    [:div
                     (ui/linear-progress {:size 60 :mode "indeterminate"
@@ -660,9 +621,7 @@
                                   :on-touch-tap
                                   (fn [e] (when (and parsed-val (pos? parsed-val))
                                             (swap! input assoc :processing true)
-                                            (create-buy-request (case (:currency @input)
-                                                                  "btc" parsed-val
-                                                                  "usd" (* (:usd-btc exchange-rates) parsed-val))
+                                            (create-buy-request current-btc
                                                                 #(do (reset! (:ui-mode app-state) :none)
                                                                      (swap! input assoc :processing false)))))})
                  (ui/flat-button {:label "Cancel"
@@ -782,7 +741,10 @@
   < rum/reactive
   []
   [:div.main-menu
-   [:h5.center (str "You can trade with " (count (rum/react (:friends2 app-state))) " partners")]
+   [:h5.center (str "You can trade with " (count (rum/react (:friends2 app-state))) " people in your friend network")]
+   [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
+    (for [[photo idx] (zipmap (rum/react (:friends2-photos app-state)) (range))]
+      [:img {:key (str "friend-photo-" idx) :src photo}])]
    (when-let [error (rum/react app-error)] [:h5.center.error error])
    [:div.center
     ;; TODO: hints http://kushagragour.in/lab/hint/
@@ -870,12 +832,12 @@
                                           #(if (sente/cb-success? %)
                                              (case (:status %)
                                                :ok
-                                               (if-let [found-idx (find-in @(:contracts app-state) (:id contract))]
-                                                 (do (swap! (:contracts app-state) assoc-in [found-idx :output-address] (:output-address @input))
-                                                     (swap! (:contracts app-state) assoc-in [found-idx :escrow-release] "<processing>")
-                                                     (close-display-contract))
-                                                 (do (reset! app-error "There was an error in requesting the Escrow funds. Please inform us of this event.")
-                                                     (log* "Error calling contract/release-escrow-buyer" %)))
+                                               (do (update-contract
+                                                    (:id contract)
+                                                    (fn [c] (-> c
+                                                                (assoc :output-address "<failure>")
+                                                                (assoc :escrow-release "<processing>"))))
+                                                   (close-display-contract))
                                                :error-wrong-key
                                                (swap! errors assoc :key "Invalid Key")
                                                :error-wrong-address
@@ -907,7 +869,7 @@
                                                             (swap! input assoc :key (.. % -target -value)))})]]
                (if (rum/react small-display?)
                  (mobile-overlay true content buttons)
-                 (ui/dialog {:title (str "Action Required for CONTRACT ID: " (:human-id contract))
+                 (ui/dialog {:title (str "Contract ID: " (:human-id contract))
                              :open true
                              :modal true
                              :actions buttons}
@@ -940,11 +902,9 @@
                                                    :on-touch-tap (fn [] (when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
                                                                           (chsk-send!
                                                                            [:escrow/forget-user-key {:id (:id contract) :role "seller"}] 5000
-                                                                           #(if (and (sente/cb-success? %) (= :ok (:status %)))
-                                                                              (if-let [found-idx (find-in @(:contracts app-state) (:id contract))]
-                                                                                (swap! (:contracts app-state) assoc-in [found-idx :escrow-seller-has-key] true)
-                                                                                (log* "Error in escrow/forget-user-key (contract not found)" %))
-                                                                              (log* "Error in escrow/forget-user-key" %)))))}))]
+                                                                           (fn [resp] (if (and (sente/cb-success? resp) (= :ok (:status resp)))
+                                                                                        (update-contract (:id contract) #(assoc % :escrow-seller-has-key true))
+                                                                                        (log* "Error in escrow/forget-user-key" resp))))))}))]
                              [:div.center.margin-2rem
                               [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                          [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
@@ -956,14 +916,26 @@
             (when (am-i-seller? contract) ; make sure we are the seller
               (if (rum/react small-display?)
                 (mobile-overlay true content buttons)
-                (ui/dialog {:title (str "Action Required for CONTRACT ID: " (:human-id contract))
+                (ui/dialog {:title (str "Contract ID: " (:human-id contract))
                             :open (boolean contract)
                             :modal true
+                            :content-style {:width "500px"}
                             :actions buttons}
                            content))))
 
           "waiting-transfer"
-          (let [content
+          (let [legal-text (fn [role]
+                             [:p.special-text
+                              "My name is "
+                              (case role :buyer "<say your legal name>." :seller "<his/her legal name>")
+                              [:br]
+                              "My name on Facebook is "
+                              (case role :buyer "<say your Facebook name>" :seller "<his/her name on Facebook>")
+                              [:br]
+                              (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s USD of bitcoin." "TODO")
+                              [:br]
+                              (gstring/format "As long as the contract ID '%s' listed at cointrust.io shows that the contract is completed when I log into CoinTrust with my Facebook ID." (:human-id contract))])
+                content
                 (if (am-i-buyer? contract)
                   ;; Buyer dialog
                   [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
@@ -993,33 +965,34 @@
                                                                         (log* "Error in escrow/forget-user-key" %)))))}))]
                        [:div.center.margin-2rem
                         [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
-                   [:h3 "Step 2: send a video following these instructions:"]
-                   [:p "<TODO: INSTRUCTIONS>"]
-                   [:h3 "Step 3: send " [:span {:style {:color "rgb(0, 188, 212)"}}
-                                         [:strong (round-currency
-                                                   (* (common/currency-as-float (:amount contract)
-                                                                                (:currency-seller contract))
-                                                      (.-rep (:exchange-rate contract)))
-                                                   2)
-                                          " "
-                                          (clojure.string/upper-case (:currency-buyer contract))]] " to the seller account"]
-                   [:pre {:style {:font-size "small"}} (:transfer-info contract)]]
+                   [:h3 "Step 2: Start a facebook chat " [:a {:href (str "https://facebook.com/" (:seller-fbid contract)) :target "_blank"} "clicking here"]]
+                   [:h3 "Step 3: Send a video message of you reading the script below (be quick, you’ll only have 20 seconds):"]
+                   (legal-text :buyer)
+                   [:h3 "Step 4: send "
+                    [:span {:style {:color "rgb(0, 188, 212)"}}
+                     (common/currency->symbol (:currency-buyer contract))
+                     [:strong (round-currency
+                               (* (common/currency-as-float (:amount contract)
+                                                            (:currency-seller contract))
+                                  (.-rep (:exchange-rate contract)))
+                               2)]] " to @" (:transfer-info contract) " in Venmo"]]
                   ;; Seller dialog
-                  [:div.center.padding-1rem
-                   [:p "<TODO: INSTRUCTIONS>"]
-                   [:p "<TODO: TIMER>"]
-                   [:p "Please confirm here when you've received the funds in your bank account"]
-                   (ui/raised-button {:label "I've received the funds"
-                                      :primary true
-                                      :on-touch-tap #(do (mark-contract-received (:id contract))
-                                                         (close-display-contract))})])
+                  [:div.padding-1rem
+                   [:h3 "Step 1: Expect a video from the buyer reading the following text"]
+                   (legal-text :seller)
+                   [:h3 "Step 2: As soon as you receive a valid video in Facebook and the funds in Venmo, press the button below:"]
+                   [:div.center
+                    (ui/raised-button {:label "I've received the funds"
+                                       :primary true
+                                       :on-touch-tap #(do (mark-contract-received (:id contract))
+                                                          (close-display-contract))})]])
                 buttons
                 [(ui/flat-button {:label "Close"
                                   :primary true
                                   :on-touch-tap close-display-contract})]]
             (if (rum/react small-display?)
               (mobile-overlay true content [:div {:style {:height "2rem"}}] buttons)
-              (ui/dialog {:title (str "Action Required for CONTRACT ID: " (:human-id contract))
+              (ui/dialog {:title (str "Contract ID: " (:human-id contract))
                           :open true
                           :modal true
                           :content-style {:width "500px"}
@@ -1107,22 +1080,15 @@
                                          [(if _small-display? :div.center.margin-1rem-top :div.column-half)
                                           [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} text]])
                        status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
-                       waiting [status-class [:div.center "WAITING FOR SELLER ACTION"]]
+                       waiting [status-class [:div.center "WAITING"]]
                        time-left (contract-time-left contract server-time)]
                    (case (:stage contract)
                      "waiting-escrow" (if (am-i-seller? contract)
-                                        (action-required (gstring/format
-                                                          "ACTIVE (%s left)" time-left))
+                                        (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
                                         [status-class [:div.center (gstring/format "WAITING ESCROW (%s left)" time-left)]])
-                     "waiting-transfer" (if (am-i-buyer? contract)
-                                          (if (or (not (:transfer-sent contract))
-                                                  (not (:escrow-buyer-has-key contract)))
-                                            (action-required (gstring/format "ACTIVE (%s left)" time-left))
-                                            waiting)
-                                          (if (or (and (:transfer-sent contract) (not (:transfer-received contract)))
-                                                  (not (:escrow-seller-has-key contract)))
-                                            (action-required (gstring/format "ACTIVE (%s left)" time-left))
-                                            waiting))
+                     "waiting-transfer" (if (and (:transfer-received contract) (am-i-seller? contract))
+                                          [status-class [:div.center "RELEASING TO BUYER"]]
+                                          (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
                      "contract-success" (if (am-i-seller? contract)
                                           [status-class [:div.center "RELEASING TO BUYER"]]
                                           (case (:escrow-release contract)
@@ -1228,32 +1194,77 @@
     [:span {:style {:cursor "pointer"} :on-click logout} "Logout"]]
    [:p.year (gstring/format "Cointrust © %d" (.getFullYear (js/Date.)))]])
 
+(rum/defc facebook-button-comp
+  []
+  [:div {:style {:width "10rem"}}
+   [:img {:style {:float "left" :width "24px" :height "24px" :margin "5px -25px 0 6px" :z-index "-1"}
+          :src "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjwhLS0gR2VuZXJhdG9yOiBBZG9iZSBJbGx1c3RyYXRvciAxNi4wLjAsIFNWRyBFeHBvcnQgUGx1Zy1JbiAuIFNWRyBWZXJzaW9uOiA2LjAwIEJ1aWxkIDApICAtLT4KCjxzdmcKICAgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIgogICB4bWxuczpjYz0iaHR0cDovL2NyZWF0aXZlY29tbW9ucy5vcmcvbnMjIgogICB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiCiAgIHhtbG5zOnN2Zz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciCiAgIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICAgeG1sbnM6c29kaXBvZGk9Imh0dHA6Ly9zb2RpcG9kaS5zb3VyY2Vmb3JnZS5uZXQvRFREL3NvZGlwb2RpLTAuZHRkIgogICB4bWxuczppbmtzY2FwZT0iaHR0cDovL3d3dy5pbmtzY2FwZS5vcmcvbmFtZXNwYWNlcy9pbmtzY2FwZSIKICAgdmVyc2lvbj0iMS4xIgogICBpZD0iTGF5ZXJfMSIKICAgeD0iMHB4IgogICB5PSIwcHgiCiAgIHdpZHRoPSIyNjYuODkzcHgiCiAgIGhlaWdodD0iMjY2Ljg5NXB4IgogICB2aWV3Qm94PSIwIDAgMjY2Ljg5MyAyNjYuODk1IgogICBlbmFibGUtYmFja2dyb3VuZD0ibmV3IDAgMCAyNjYuODkzIDI2Ni44OTUiCiAgIHhtbDpzcGFjZT0icHJlc2VydmUiCiAgIGlua3NjYXBlOnZlcnNpb249IjAuOTEgcjEzNzI1IgogICBzb2RpcG9kaTpkb2NuYW1lPSJmYmxvZ28uc3ZnIj48bWV0YWRhdGEKICAgICBpZD0ibWV0YWRhdGE0MjA5Ij48cmRmOlJERj48Y2M6V29yawogICAgICAgICByZGY6YWJvdXQ9IiI+PGRjOmZvcm1hdD5pbWFnZS9zdmcreG1sPC9kYzpmb3JtYXQ+PGRjOnR5cGUKICAgICAgICAgICByZGY6cmVzb3VyY2U9Imh0dHA6Ly9wdXJsLm9yZy9kYy9kY21pdHlwZS9TdGlsbEltYWdlIiAvPjwvY2M6V29yaz48L3JkZjpSREY+PC9tZXRhZGF0YT48ZGVmcwogICAgIGlkPSJkZWZzNDIwNyIgLz48c29kaXBvZGk6bmFtZWR2aWV3CiAgICAgcGFnZWNvbG9yPSIjZmZmZmZmIgogICAgIGJvcmRlcmNvbG9yPSIjNjY2NjY2IgogICAgIGJvcmRlcm9wYWNpdHk9IjEiCiAgICAgb2JqZWN0dG9sZXJhbmNlPSIxMCIKICAgICBncmlkdG9sZXJhbmNlPSIxMCIKICAgICBndWlkZXRvbGVyYW5jZT0iMTAiCiAgICAgaW5rc2NhcGU6cGFnZW9wYWNpdHk9IjAiCiAgICAgaW5rc2NhcGU6cGFnZXNoYWRvdz0iMiIKICAgICBpbmtzY2FwZTp3aW5kb3ctd2lkdGg9IjE5ODYiCiAgICAgaW5rc2NhcGU6d2luZG93LWhlaWdodD0iMTIyNyIKICAgICBpZD0ibmFtZWR2aWV3NDIwNSIKICAgICBzaG93Z3JpZD0iZmFsc2UiCiAgICAgaW5rc2NhcGU6em9vbT0iMS45OTMzMDgxIgogICAgIGlua3NjYXBlOmN4PSIxMzMuNDQ2NSIKICAgICBpbmtzY2FwZTpjeT0iMTMzLjQ0NzQ5IgogICAgIGlua3NjYXBlOndpbmRvdy14PSI2NjAiCiAgICAgaW5rc2NhcGU6d2luZG93LXk9IjQ0NSIKICAgICBpbmtzY2FwZTp3aW5kb3ctbWF4aW1pemVkPSIwIgogICAgIGlua3NjYXBlOmN1cnJlbnQtbGF5ZXI9IkxheWVyXzEiIC8+PHBhdGgKICAgICBpZD0iZiIKICAgICBmaWxsPSIjRkZGRkZGIgogICAgIGQ9Ik0xODIuNDA5LDI2Mi4zMDd2LTk5LjgwM2gzMy40OTlsNS4wMTYtMzguODk1aC0zOC41MTVWOTguNzc3YzAtMTEuMjYxLDMuMTI3LTE4LjkzNSwxOS4yNzUtMTguOTM1ICBsMjAuNTk2LTAuMDA5VjQ1LjA0NWMtMy41NjItMC40NzQtMTUuNzg4LTEuNTMzLTMwLjAxMi0xLjUzM2MtMjkuNjk1LDAtNTAuMDI1LDE4LjEyNi01MC4wMjUsNTEuNDEzdjI4LjY4NGgtMzMuNTg1djM4Ljg5NWgzMy41ODUgIHY5OS44MDNIMTgyLjQwOXoiIC8+PC9zdmc+"}]
+   [:h1 {:style {:margin "0 0 0 0" :font-size "small" :color "white" :font-weight "lighter"}} "FACEBOOK LOGIN"]])
+
 (rum/defcs login-comp
   < rum/reactive
   (rum/local false ::fb-error)
   [state_]
   (let [fb-error (::fb-error state_)]
-    [:div {:style {:text-align "center"}}
-     (ui/dialog {:title "Please refresh this web page"
-                 :open (boolean (rum/react fb-error))
-                 :on-touch-tap #(reset! fb-error nil)}
-                (str "We had trouble connecting to facebook.  Please refresh your web page.  This will probably work.  If it doesn't please check that you don't have a browser extension that disables the use of Social Logins.  Cointrust uses the social graph to find optimal matches for trading. /// Error /// " (str (rum/react fb-error))))
-     (ui/raised-button {:label "Ephemeral Login"
-                        :style {:margin "1rem"}
-                        :on-touch-tap
-                        (fn [e]
-                          (if hook-fake-id?_
-                            (let [hashed-id "asdf" user-id 1]
-                              (log* "Connected with fake user hash: " hashed-id)
-                              (set-fake-facebooks-ids hashed-id))
-                            (try
-                              (fb/get-login-status
-                               (fn [response]
-                                 (case (:status response)
-                                   "connected"
-                                   (set-facebook-ids response)
-                                   (fb/login #(fb/get-login-status set-facebook-ids) {:scope "user_friends,public_profile,email"}))))
-                              (catch :default e (reset! fb-error (str e))))))})]))
+    [:div
+     [:div.center
+      (ui/mui-theme-provider
+       {:mui-theme (get-mui-theme {:raised-button {:primary-color "#3b5998"}})}
+       (ui/raised-button {:label "Facebook Login"
+                          :primary true
+                          :style {:margin "1rem"}
+                          :icon (facebook-button-comp)
+                          :on-touch-tap
+                          (fn [e]
+                            (if hook-fake-id?_
+                              (let [hashed-id "asdf" user-id 1]
+                                (log* "Connected with fake user hash: " hashed-id)
+                                (set-fake-facebooks-ids hashed-id))
+                              (try
+                                (fb/get-login-status
+                                 (fn [response]
+                                   (case (:status response)
+                                     "connected"
+                                     (set-facebook-ids response)
+                                     (fb/login #(fb/get-login-status set-facebook-ids) {:scope "user_friends,public_profile"}))))
+                                (catch :default e (reset! fb-error (str e))))))}))]
+     [:div.center
+      (ui/dialog {:title "Please refresh this web page"
+                  :open (boolean (rum/react fb-error))
+                  :on-touch-tap #(reset! fb-error nil)}
+                 (str "We had trouble connecting to facebook.  Please refresh your web page.  This will probably work.  If it doesn't please check that you don't have a browser extension that disables the use of Social Logins.  Cointrust uses the social graph to find optimal matches for trading. /// Error /// " (str (rum/react fb-error))))
+      [:div.fb-login-button {:data-max-rows "2" :data-size "large" :data-show-faces "true"
+                             :data-auto-logout-link "false"}]]
+     [:h4 "What is Cointrust?"
+      [:ul
+       [:li "Cointrust makes it easy to buy & sell Bitcoin instantly and risk- free by using Facebook, Venmo, and Smart Contracts."]]
+      ]
+     [:h4 "How does this work?"
+      [:ul
+       [:li "Match - Cointrust will match you with the best sell offer in your friend network."]
+       [:li "Talk - Coordinate the sale with the buyer/seller using Facebook Messenger."]
+       [:li "Pay - Pay via Venmo."]
+       [:li "Settle - You’re protected via Smart Contracts. Once both parties have completed the steps all funds are released to both parties and  As long as you follow our instructions you and your money / bitcoin are protected."]]]
+     [:h4 "Risk Free"
+      [:ul
+       [:li "Cointrust makes Bitcoin purchases risk-free for both buyers and sellers through the use of Smart Contracts."]
+       [:li "Cointrust acts as a notary, confirming both buyer and seller have lived up to their part of the agreement.  And protecting the counter parties if they don’t."]]]
+     [:h4 "What about chargebacks?"
+      [:ul
+       [:li "By using Cointrust, you can sell Bitcoin without the risk of chargebacks."]
+       [:li "Dollar Payment are reversible (Venmo, Paypal, Credit Card, Bank Transfer). "]
+       [:li "But Bitcoin payments aren’t. This is why buying bitcoin can be PAINFULLY slow."]
+       [:li "By using Smart Contracts, Cointrust acts like a digital notary confirming all the information you need as a buyer or seller to be protected and either perform or reverse a chargeback."]]]
+     [:h4 "Am I protected if I’m buying Bitcoin?"
+      [:ul
+       [:li "Bitcoin buyers are guaranteed to get what they pay for."]
+       [:li "We hold bitcoins in a smart contract (think of it like an escrow account) and confirm the amount the buyer will receive."]
+       [:li "We make it easy for you to make a conditional video contract that protects you."]]]
+     [:h4 "Am I protected if I’m selling Bitcoin?"
+      [:ul
+       [:li "Bitcoin sellers are guaranteed to get paid for what they sold."]
+       [:li "Bitcoin funds are held in escrow."]
+       [:li "Buyers provide a video contract which protects sellers from chargebacks. And allows them to reverse chargebacks if they act honestly."]]]]))
 
 (rum/defc main-comp
   []
@@ -1274,22 +1285,36 @@
 (rum/defc app
   < rum/reactive
   []
-  [:div {:style {:position "absolute"
-                 :max-width "700px"
-                 :margin "auto" :top "2rem" :bottom "0" :left "0" :right "0"
-                 :padding "1rem"}}
-   (ui/mui-theme-provider
-    {:mui-theme (get-mui-theme {:palette {:text-color (color :grey900)}})}
-    [:div
-     [:h1.title.center "COINTRUST"]
-     [:h2.center "Friend of Friend Bitcoin Trading"]
-     (if (rum/react (:user-hash app-state))
-       (main-comp)
-       (login-comp))])])
+  (let [user (rum/react (:user-hash app-state))]
+    [:div {:style {:position "absolute"
+                   :max-width "700px"
+                   :margin "auto" :top "2rem" :bottom "0" :left "0" :right "0"
+                   :padding "1rem"}}
+     (ui/mui-theme-provider
+      {:mui-theme (get-mui-theme {:palette {:text-color (color :grey900)}})}
+      [:div
+       [:h1.title.center "COINTRUST"]
+       (when-not user [:h3.center "Bitcoin buy/sell with your friend network"])
+       (if user
+         (main-comp)
+         (login-comp))])]))
 
 ;;
 ;; Init
 ;;
+
+(try
+  (fb/load-sdk (fn []
+                 (js/console.log "Facebook lib loaded")
+                 (fb/init {:appId (case *env*
+                                    "production" "1131377006981108"
+                                    "staging" "1382322701791260"
+                                    ("test" "dev") "1214574721994669")
+                           :status true
+                           :cookies false
+                           :xfbml true
+                           :version "v2.8"})))
+  (catch :default e (js/console.log e)))
 
 (rum/mount (app) (js/document.getElementById "app"))
 
@@ -1310,3 +1335,9 @@
                (get-user-requests)
                (get-user-contracts)
                (get-user-pending-notifications))))
+
+(add-watch (:friends2 app-state) :got-friends2
+           (fn [_1 _2 _3 _4]
+             (doseq [{fb-id :fb-id} (take 8 @(:friends2 app-state))]
+               (fb/api (str "/" fb-id "/picture")
+                       (fn [resp] (swap! (:friends2-photos app-state) conj (get-in resp [:data :url])))))))

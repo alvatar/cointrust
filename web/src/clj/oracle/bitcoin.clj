@@ -120,7 +120,10 @@
 (defn wallet-deserialize [sr]
   (. Wallet loadFromFileStream (ByteArrayInputStream. sr) nil))
 
-(defn btc-log! [& m] (db/log! "info" "bitcoin" (apply format m)))
+(defn btc-log! [& m]
+  (let [formatted (apply format m)]
+    (log/debug formatted)
+    (db/log! "info" "bitcoin" formatted)))
 
 (defn log-action-required! [m] (db/log! "action-required" "bitcoin" m))
 
@@ -138,13 +141,15 @@
   (.getValue (.getBalance wallet)))
 
 (defn wallet-send-coins [wallet app contract-id target-address amount]
-  (try (let [tx (.sendCoins wallet
-                            (:peergroup app)
-                            (. Address fromBase58 (.getNetworkParameters wallet) target-address)
-                            (. Coin valueOf amount))
+  (try (let [send-result (.sendCoins wallet
+                                     (:peergroup app)
+                                     (. Address fromBase58 (.getNetworkParameters wallet) target-address)
+                                     (. Coin valueOf amount))
+             tx (.-tx send-result)
              tx-hash (.. tx getHash toString)]
          (db/contract-set-field! contract-id "output_tx" tx-hash)
-         (btc-log! "Send payment for contract %s of %s BTC in address %s\n" contract-id (common/satoshi->btc amount) target-address))
+         (btc-log! "Send payment for contract %s of %s BTC to address %s transaction %s\n"
+                   contract-id (common/satoshi->btc amount) target-address tx-hash))
        (catch Exception e
          (log/debugf "Error sending coins: %s" e) nil)))
 
