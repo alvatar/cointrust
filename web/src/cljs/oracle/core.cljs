@@ -586,11 +586,15 @@
         parsed-val (js/parseFloat (:amount (rum/react input)))
         open? (= (rum/react (:ui-mode app-state)) :buy-dialog)
         currency (:currency (rum/react input))
-        current-btc (case (:currency @input)
-                      "btc" parsed-val
-                      "usd" (* (:usd-btc exchange-rates) parsed-val))
+        current-by-currency #(case (:currency @input)
+                               "btc" (case %
+                                       :btc parsed-val
+                                       :usd (round-currency (* (:btc-usd exchange-rates) parsed-val) 2))
+                               "usd" (case %
+                                       :usd (round-currency parsed-val 2)
+                                       :btc (* (:usd-btc exchange-rates) parsed-val)))
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                 [:div [:h4 "Bitcoin price: " (:btc-usd exchange-rates) " BTC/USD (Coinbase reference rate)"]
+                 [:div [:h4 "Price: 1 Bitcoin = $" (:btc-usd exchange-rates)]
                   [:h6 {:style {:margin-top "-1rem"}}
                    (gstring/format "Exchange rate will update in %s seconds" (- exchange-rates-refresh-interval
                                                                                 (rum/react (:seconds-since-last-exchange-rates-refresh app-state))))]
@@ -608,9 +612,13 @@
                                   :error-text (when-not (and parsed-val (pos? parsed-val)) "Invalid value")})
                   (when (and parsed-val (pos? parsed-val))
                     (case currency
-                      "btc" (gstring/format "for %s USD" (round-currency (* (:btc-usd exchange-rates) parsed-val)))
+                      "btc" (gstring/format "for %s USD" (round-currency (* (:btc-usd exchange-rates) parsed-val) 2))
                       "usd" (gstring/format "gets you %s BTC" (round-currency (* (:usd-btc exchange-rates) parsed-val)))))
-                  [:h6 (gstring/format "Note: 1%% fee (%s BTC) and 1%% seller premium (%s BTC) will be paid from the total purchased." (* current-btc 0.01) (* current-btc 0.01))]]
+                  [:h6 {:style {:margin-top "0.5rem"}} "Note: 1% fee and 1% seller premium will be paid from the total purchased."]
+                  [:h4 {:style {:margin-top "-1rem"}}
+                   (gstring/format "You will be paying $%s and receiving %s Bitcoin"
+                                   (current-by-currency :usd)
+                                   (* 0.99 0.99 (current-by-currency :btc)))]]
                  (when (:processing (rum/react input))
                    [:div
                     (ui/linear-progress {:size 60 :mode "indeterminate"
@@ -622,7 +630,7 @@
                                   :on-touch-tap
                                   (fn [e] (when (and parsed-val (pos? parsed-val))
                                             (swap! input assoc :processing true)
-                                            (create-buy-request current-btc
+                                            (create-buy-request (current-by-currency :btc)
                                                                 #(do (reset! (:ui-mode app-state) :none)
                                                                      (swap! input assoc :processing false)))))})
                  (ui/flat-button {:label "Cancel"
