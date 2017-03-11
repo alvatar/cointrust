@@ -1277,8 +1277,7 @@
                           :disabled true}
                          [:ul
                           [:li "Cointrust makes Bitcoin purchases risk-free for both buyers and sellers through the use of Smart Contracts."]
-                          [:li "Cointrust acts as a notary, confirming both buyer and seller have lived up to their part of the agreement.  And protecting the counter parties if they don’t."]]
-                         )]}
+                          [:li "Cointrust acts as a notary, confirming both buyer and seller have lived up to their part of the agreement. And protecting the other person if they don’t."]])]}
         [:h3 "Risk Free"])
        (ui/list-item
         {:key "qa-text-4"
