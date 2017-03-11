@@ -806,7 +806,7 @@
                           :secondary-text (gstring/format "ID: %d - %s"
                                                           (:id req)
                                                           (if (:seller-id req)
-                                                            "SELLER FOUND - WAITING SELLER ACTION"
+                                                            "SELLER FOUND - WAITING ON SELLER"
                                                             "LOOKING FOR A SELLER..."))})))))]])
 
 (rum/defcs contract-dialog
