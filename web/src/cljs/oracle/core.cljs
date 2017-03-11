@@ -801,6 +801,7 @@
         (ui/list
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
+                          :disabled true
                           :primary-text (str "Buy request for " (common/humanize-currency (common/currency-as-float (:amount req) (:currency-seller req))
                                                                                           (:currency-seller req)))
                           :secondary-text (gstring/format "ID: %d - %s"
@@ -1386,4 +1387,5 @@
                (fb/api (str "/" (:fb-id f) "/picture")
                        #(if-let [photo-url (get-in % [:data :url])]
                           (swap! (:friends2 app-state) assoc-in [idx :photo-url] photo-url)
-                          (log* %))))))
+                          (log* %))))
+             (remove-watch (:friends2 app-state) :got-friends2)))
