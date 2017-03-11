@@ -76,7 +76,8 @@
 (defn pick-counterparty [buy-request buyer-specs]
   (let [buyer-id (:buyer-id buy-request)
         blacklisted (mapv #(Long/parseLong %) (wcar* (r/smembers (str "buyer->blacklist:" buyer-id))))
-        available (remove (fn [x] (some #(= % x) blacklisted)) (db/get-user-friends-of-friends buyer-id))
+        friends2 (map :id (db/get-user-friends-of-friends buyer-id))
+        available (remove (fn [x] (some #(= % x) blacklisted)) friends2)
         exchange-rates (currency/get-current-exchange-rates)
         offering (filter identity (map db/get-sell-offer-by-user available))
         offering-in-range (filter #(let [buyer-wants-amount (get-in buyer-specs [:wants :amount])
