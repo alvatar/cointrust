@@ -475,15 +475,15 @@
 ;;
 
 (defn populate-test-database! []
-  (db/user-insert! 1 "John" "asdf" [])
-  (db/user-insert! 2 "Ada" "ffff" ["asdf"])
-  (db/user-insert! 3 "Scipio" "aaaa" ["ffff"])
-  (db/user-insert! 4 "Thor" "bbbb" ["asdf"])
+  (db/user-insert! 10100642548250434 "John" "asdf" [])
+  (db/user-insert! 10106263879382352 "Ada" "ffff" ["asdf"])
+  (db/user-insert! 10213129106885586 "Scipio" "aaaa" ["ffff"])
+  (db/user-insert! 10210216755509404 "Thor" "bbbb" ["asdf"])
 
-  (db/user-insert! 5 "Julius" "cccc" [])
+  (db/user-insert! 145228535996960 "Julius" "cccc" [])
 
-  (db/user-insert! 6 "Zeus" "dddd" ["eeee"])
-  (db/user-insert! 7 "Barbara" "eeee" ["dddd"])
+  (db/user-insert! 145228535996960 "Zeus" "dddd" ["eeee"])
+  (db/user-insert! 145228535996960 "Barbara" "eeee" ["dddd"])
   'ok)
 
 (defn total-wipeout!!! []

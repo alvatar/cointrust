@@ -128,10 +128,10 @@ WHERE (user_id1 = ? OR user_id2 = ?) AND id = ?
 " id id id]))
 
 (defn get-user-friends-of-friends [id]
-  (map
+  (mapv
    ->kebab-case
    (sql/query db ["
-SELECT id,fb_id FROM user_account
+SELECT id,name,fb_id FROM user_account
 WHERE id IN
 (WITH user_friends AS (
           SELECT user_id2 AS u FROM friends

@@ -38,7 +38,6 @@
                     :friend-fbids (atom [])
                     :friend-hashes (atom [])
                     :friends2 (atom [])
-                    :friends2-photos (atom [])
                     :exchange-rates (atom {})
                     :seconds-since-last-exchange-rates-refresh (atom {})
                     :sell-offer (atom nil)
@@ -214,11 +213,13 @@
 
 (defn- set-fake-facebooks-ids [hashed-id]
   (reset! (:user-hash app-state) hashed-id)
-  (let [ffbids [10100642548250434 10106263879382352 10213129106885586 10210216755509404 145228535996960 145228535996960 145228535996960 145228535996960]]
+  #_(let [ffbids [10100642548250434 10106263879382352 10213129106885586 10210216755509404 145228535996960 145228535996960 145228535996960 145228535996960]]
     (reset! (:friend-fbids app-state) ffbids)
-    (doseq [f (take 8 ffbids)]
+    #_(doseq [[f idx] (zipmap (take 8 f2bids) (range))]
       (fb/api (str "/" f "/picture")
-              (fn [resp] (swap! (:friends2-photos app-state) conj (get-in resp [:data :url]))))))
+              (fn [resp] (swap! (:friends2 app-state) conj {:id f
+                                                            :name (str "Name " f)
+                                                            :photo-url (get-in resp [:data :url])})))))
   (sente-register-init-callback! #(try-enter 1 "Alvatar" hashed-id ["TODO"]))
   (init-sente! hashed-id))
 
@@ -743,8 +744,9 @@
   [:div.main-menu
    [:h5.center (str "You can trade with " (count (rum/react (:friends2 app-state))) " people in your friend network")]
    [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
-    (for [[photo idx] (zipmap (rum/react (:friends2-photos app-state)) (range))]
-      [:img {:key (str "friend-photo-" idx) :src photo}])]
+    (for [{:keys [id name photo-url]} (rum/react (:friends2 app-state))]
+      [:span.hint--bottom {:key (str "friend-photo-" id) :aria-label name}
+       [:img {:src photo-url}]])]
    (when-let [error (rum/react app-error)] [:h5.center.error error])
    [:div.center
     ;; TODO: hints http://kushagragour.in/lab/hint/
@@ -1015,7 +1017,7 @@
   < rum/reactive
   []
   [:div
-   [:h4.center "Contracts"]
+   [:h4.center "Smart Contracts"]
    [:div
     (let [_small-display? (rum/react small-display?)
           contracts (rum/react (:contracts app-state))
@@ -1258,8 +1260,7 @@
      [:h4 "Am I protected if I’m buying Bitcoin?"
       [:ul
        [:li "Bitcoin buyers are guaranteed to get what they pay for."]
-       [:li "We hold bitcoins in a smart contract (think of it like an escrow account) and confirm the amount the buyer will receive."]
-       [:li "We make it easy for you to make a conditional video contract that protects you."]]]
+       [:li "We hold bitcoins in a smart contract (think of it like an escrow account) and confirm the amount the buyer will receive."]]]
      [:h4 "Am I protected if I’m selling Bitcoin?"
       [:ul
        [:li "Bitcoin sellers are guaranteed to get paid for what they sold."]
@@ -1338,6 +1339,8 @@
 
 (add-watch (:friends2 app-state) :got-friends2
            (fn [_1 _2 _3 _4]
-             (doseq [{fb-id :fb-id} (take 8 @(:friends2 app-state))]
-               (fb/api (str "/" fb-id "/picture")
-                       (fn [resp] (swap! (:friends2-photos app-state) conj (get-in resp [:data :url])))))))
+             (doseq [[f idx] (zipmap (take 8 @(:friends2 app-state)) (range))]
+               (fb/api (str "/" (:fb-id f) "/picture")
+                       #(if-let [photo-url (get-in % [:data :url])]
+                          (swap! (:friends2 app-state) assoc-in [idx :photo-url] photo-url)
+                          (log* %))))))
