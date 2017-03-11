@@ -23,6 +23,11 @@
     :btc "Ƀ"
     :usd "$"))
 
+(defn humanize-currency [amount currency]
+  (case (keyword currency)
+    :btc (str amount " Bitcoin")
+    :usd (str "$" amount)))
+
 (defn long->incr [val]
   (+ 1 (/ val 10000)))
 

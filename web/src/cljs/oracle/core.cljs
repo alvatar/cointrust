@@ -801,9 +801,8 @@
         (ui/list
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
-                          :primary-text (gstring/format "Buy request for %s %s"
-                                                        (common/currency-as-float (:amount req) (:currency-seller req))
-                                                        (clojure.string/upper-case (:currency-seller req)))
+                          :primary-text (str "Buy request for " (common/humanize-currency (common/currency-as-float (:amount req) (:currency-seller req))
+                                                                                          (:currency-seller req)))
                           :secondary-text (gstring/format "ID: %d - %s"
                                                           (:id req)
                                                           (if (:seller-id req)
