@@ -286,10 +286,10 @@ SELECT * FROM buy_request;
             (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
               (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
               (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (human_id, hash, buyer_id, buyer_fbid, seller_id, seller_fbid, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (human_id, hash, buyer_id, buyer_fbid, buyer_name, seller_id, seller_fbid, seller_name, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" human-id (random-string 27) buyer-id buyer-fbid seller-id seller-fbid amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
+" human-id (random-string 27) buyer-id buyer-fbid buyer-name seller-id seller-fbid seller-name amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
                 (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -499,8 +499,10 @@ CREATE TABLE contract (
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   buyer_fbid                       BIGINT,
+  buyer_name                       VARCHAR(256),
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_fbid                      BIGINT,
+  seller_name                       VARCHAR(256),
   amount                           BIGINT NOT NULL,
   currency_buyer                   VARCHAR(8) NOT NULL,
   currency_seller                  VARCHAR(8) NOT NULL,

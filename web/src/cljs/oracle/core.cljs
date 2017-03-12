@@ -1045,6 +1045,7 @@
             (for [contract contracts]
               (ui/list-item
                {:key (:hash contract)
+                :primary-toggles-nested-list true
                 :nested-items [(ui/list-item
                                 {:key (str (:hash contract) "-children")}
                                 [:div
@@ -1078,57 +1079,58 @@
                                     (ui/flat-button {:label "Break contract"
                                                      :style {:margin "0 1rem 0 1rem"}
                                                      :on-touch-tap #(when (js/confirm "Are you sure?") (break-contract (:id contract)))})])])]}
-               [:div
-                [:div
-                 [(if _small-display? :div.center :div.column-half)
-                  [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
-                  (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
-                  (when-not _small-display?
-                    [:span {:style {:font-size "x-small" :display "table-cell" :vertical-align "middle"}} (str "Contract ID: " (:human-id contract))])]
-                 (let [action-required (fn [text]
-                                         (swap! (:action-required app-state) #(or % (:id contract)))
-                                         [(if _small-display? :div.center.margin-1rem-top :div.column-half)
-                                          [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} text]])
-                       status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
-                       waiting [status-class [:div.center "WAITING"]]
-                       time-left (contract-time-left contract server-time)]
-                   (case (:stage contract)
-                     "waiting-escrow" (if (am-i-seller? contract)
-                                        (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
-                                        [status-class [:div.center (gstring/format "WAITING ESCROW (%s left)" time-left)]])
-                     "waiting-transfer" (if (and (:transfer-received contract) (am-i-seller? contract))
-                                          [status-class [:div.center "RELEASING TO BUYER"]]
-                                          (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
-                     "contract-success" (if (am-i-seller? contract)
-                                          [status-class [:div.center "RELEASING TO BUYER"]]
+               [:div.hint--bottom {:aria-label (gstring/format "Waiting for %s to deposit Bitcoins into this Smart Contract" (:seller-name contract))
+                                   :style {:width "100%"}}
+                [(if _small-display? :div.center :div.column-half)
+                 [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
+                 (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
+                 (when-not _small-display?
+                   [:span {:style {:font-size "x-small" :display "table-cell" :vertical-align "middle"}} (str "Contract ID: " (:human-id contract))])]
+                (let [action-required (fn [text]
+                                        (swap! (:action-required app-state) #(or % (:id contract)))
+                                        [(if _small-display? :div.center.margin-1rem-top :div.column-half)
+                                         [:div.center.action-required {:on-click #(reset! (:display-contract app-state) (:id contract))} text]])
+                      status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
+                      waiting [status-class [:div.center "WAITING"]]
+                      time-left (contract-time-left contract server-time)]
+                  (case (:stage contract)
+                    "waiting-escrow" (if (am-i-seller? contract)
+                                       (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
+                                       [status-class [:div.center [:span.hint--bottom {:aria-label "HELLO" #_(:seller-name contract)}]
+                                                      (gstring/format "WAITING (%s left)" time-left)]])
+                    "waiting-transfer" (if (and (:transfer-received contract) (am-i-seller? contract))
+                                         [status-class [:div.center "RELEASING TO BUYER"]]
+                                         (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
+                    "contract-success" (if (am-i-seller? contract)
+                                         [status-class [:div.center "RELEASING TO BUYER"]]
+                                         (case (:escrow-release contract)
+                                           "<fresh>" (action-required "RELEASE FUNDS")
+                                           "<failure>" (action-required "FAILED RELEASE")
+                                           "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                           "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                           [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
+                    "contract-broken" (if (am-i-buyer? contract)
+                                        (if (:escrow-funded contract)
+                                          [status-class [:div.center "PERFORM CHARGEBACK"]]
+                                          [status-class [:div.center "CONTRACT BROKEN"]])
+                                        (if (:escrow-funded contract)
                                           (case (:escrow-release contract)
                                             "<fresh>" (action-required "RELEASE FUNDS")
                                             "<failure>" (action-required "FAILED RELEASE")
                                             "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
                                             "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
-                                            [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
-                     "contract-broken" (if (am-i-buyer? contract)
-                                         (if (:escrow-funded contract)
-                                           [status-class [:div.center "PERFORM CHARGEBACK"]]
-                                           [status-class [:div.center "CONTRACT BROKEN"]])
-                                         (if (:escrow-funded contract)
-                                           (case (:escrow-release contract)
-                                             "<fresh>" (action-required "RELEASE FUNDS")
-                                             "<failure>" (action-required "FAILED RELEASE")
-                                             "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
-                                             "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
-                                             [status-class [:div.center "UNKNOWN ESCROW STATE"]])
-                                           [status-class [:div.center "CONTRACT BROKEN"]]))
-                     "contract-broken/escrow-insufficient" (if (am-i-buyer? contract)
-                                                             [status-class [:div.center "SELLER FAILED TO FUND"]]
-                                                             (case (:escrow-release contract)
-                                                               "<fresh>" (action-required "INSUFFICIENT FUNDS")
-                                                               "<failure>" (action-required "FAILED RELEASE")
-                                                               "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
-                                                               "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
-                                                               [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
-                     [status-class [:div.center "UNDEFINED"]]))
-                 [:div {:style {:clear "both"}}]]])))])))]])
+                                            [status-class [:div.center "UNKNOWN ESCROW STATE"]])
+                                          [status-class [:div.center "CONTRACT BROKEN"]]))
+                    "contract-broken/escrow-insufficient" (if (am-i-buyer? contract)
+                                                            [status-class [:div.center "SELLER FAILED TO FUND"]]
+                                                            (case (:escrow-release contract)
+                                                              "<fresh>" (action-required "INSUFFICIENT FUNDS")
+                                                              "<failure>" (action-required "FAILED RELEASE")
+                                                              "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                                              "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                                              [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
+                    [status-class [:div.center "UNDEFINED"]]))
+                [:div {:style {:clear "both"}}]])))])))]])
 
 (rum/defc generic-notifications
   < rum/reactive
