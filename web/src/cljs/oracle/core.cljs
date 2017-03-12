@@ -976,7 +976,7 @@
                        [:div.center.margin-2rem
                         [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                    [:h3 "Step 2: Start a facebook chat " [:a {:href (str "https://facebook.com/" (:seller-fbid contract)) :target "_blank"} "clicking here"]]
-                   [:h3 "Step 3: Send a video message of you reading the script below (be quick, you’ll only have 20 seconds):"]
+                   [:h3 "Step 3: " [:a {:href "https://www.youtube.com/watch?v=ZeAJDFgcCYA" :target "_blank"} "Send a video message"] " of you reading the script below (be quick, you’ll only have 20 seconds):"]
                    (legal-text :buyer)
                    [:h3 "Step 4: send "
                     [:span {:style {:color "rgb(0, 188, 212)"}}
