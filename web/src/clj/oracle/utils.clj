@@ -5,7 +5,8 @@
             [environ.core :refer [env]]
             [taoensso.timbre :as log]
             [clj-time.core :as time]
-            [clj-time.coerce :as time-coerce]))
+            [clj-time.coerce :as time-coerce]
+            [clj-time.format :as timef]))
 
 
 ;;
@@ -15,6 +16,10 @@
 (defn unix-now [] (time-coerce/to-long (time/now)))
 
 (defn unix-after [reference duration] (time-coerce/to-long (time/plus reference duration)))
+
+(def human-formatter (timef/formatter "dd-MMMMMMMMMM-yyyy - HH:mm"))
+
+(defn human-now [] (timef/unparse human-formatter (time/now)))
 
 ;;
 ;; Human ID generator

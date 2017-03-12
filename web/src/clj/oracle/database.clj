@@ -8,7 +8,8 @@
             [camel-snake-kebab.core :as case-shift]
             [taoensso.nippy :as nippy]
             ;; -----
-            [oracle.utils :as utils]))
+            [oracle.utils :as utils]
+            [oracle.common :as common]))
 
 ;; CURRENCY-BUYER: the currency on the side of the buyer before the transaction (what the buyer *has*)
 ;; CURRENCY-SELLER: the currency on the side of the seller before the transaction (what the seller *has*)
@@ -273,11 +274,15 @@ SELECT * FROM buy_request;
   [{:keys [buyer-id seller-id amount currency-buyer currency-seller exchange-rate fee premium transfer-info input-address] :as params} & [txcb]]
   (try
     (when-not (= buyer-id seller-id)
-      (let [buyer-fbid (:fb_id (get-user-by-id buyer-id))
-            seller-fbid (:fb_id (get-user-by-id seller-id))]
+      (let [buyer (get-user-by-id buyer-id)
+            buyer-fbid (:fb_id buyer)
+            buyer-name (:name buyer)
+            seller (get-user-by-id seller-id)
+            seller-fbid (:fb_id seller)
+            seller-name (:name seller)]
         (sql/with-db-transaction
           [tx db]
-          (loop [human-id (utils/human-id-generator)]
+          (loop [human-id (format "%s - %s - %s Bitcoins - %s UTC" buyer-name seller-name (common/satoshi->btc amount) (utils/human-now))]
             (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
               (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
               (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
