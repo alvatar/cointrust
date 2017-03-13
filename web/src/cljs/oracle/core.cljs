@@ -774,7 +774,6 @@
         [:img {:src photo-url}]]])]
    (when-let [error (rum/react app-error)] [:h5.center.error error])
    [:div.center
-    ;; TODO: hints http://kushagragour.in/lab/hint/
     (ui/raised-button {:label "BUY Bitcoins"
                        :disabled false #_(not (let [contracts (rum/react (:contracts app-state))]
                                                 (or (= contracts :unknown) (empty? contracts))))
@@ -959,7 +958,8 @@
                               "My name on Facebook is "
                               (case role :buyer "<say your Facebook name>" :seller "<his/her name on Facebook>")
                               [:br]
-                              (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s USD of bitcoin." "TODO")
+                              (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s USD of bitcoin."
+                                              (common/currency-as-float (:amount contract) (:currency-seller contract)))
                               [:br]
                               (gstring/format "As long as the contract ID '%s' listed at cointrust.io shows that the contract is completed when I log into CoinTrust with my Facebook ID." (:human-id contract))])
                 content
