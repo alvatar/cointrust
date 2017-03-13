@@ -103,7 +103,7 @@
       (milliseconds->mins-formatted (- (* 30 60 1000) time-diff))
       0)))
 
-(defn close-display-contract []
+(defn close-display-contract! []
   (reset! (:display-contract app-state) nil))
 
 ;;
@@ -864,7 +864,7 @@
                                                     (fn [c] (-> c
                                                                 (assoc :output-address "<failure>")
                                                                 (assoc :escrow-release "<processing>"))))
-                                                   (close-display-contract))
+                                                   (close-display-contract!))
                                                :error-wrong-key
                                                (swap! errors assoc :key "Invalid Key")
                                                :error-wrong-address
@@ -875,7 +875,7 @@
                                                  (log* "Error calling contract/release-escrow-buyer" %))))))})
                     (ui/flat-button {:label "Cancel"
                                      :primary false
-                                     :on-touch-tap close-display-contract})]
+                                     :on-touch-tap close-display-contract!})]
                    content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                             [:h3 "Claim funds"]
                             [:h5 "Please provide the Destination Address and the Escrow Release Key in order to receive your Bitcoins"]
@@ -907,7 +907,7 @@
           "waiting-escrow"
           (let [buttons [(ui/flat-button {:label "Close"
                                           :primary true
-                                          :on-touch-tap close-display-contract})]
+                                          :on-touch-tap close-display-contract!})]
                 content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                          [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
                           [:h3 (gstring/format "WAITING ESCROW (%s left)" time-left)]
@@ -967,7 +967,7 @@
                   ;; Buyer dialog
                   [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                    [:div (if (:escrow-buyer-has-key contract) {:style {:color "#bbb"}} {})
-                    [:h3 "Step 1"]
+                    [:h3 "Step 1: get the Escrow key"]
                     (if (:escrow-buyer-has-key contract)
                       [:p "The key has been extracted and is no longer available in our servers."]
                       [:div
@@ -992,7 +992,10 @@
                                                                         (log* "Error in escrow/forget-user-key" %)))))}))]
                        [:div.center.margin-2rem
                         [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
-                   [:h3 "Step 2: Start a facebook chat " [:a {:href (str "https://facebook.com/" (:seller-fbid contract)) :target "_blank"} "clicking here"]]
+                   [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/messages/t/" (:seller-fbid contract)) :target "_blank"} (:seller-name contract)]]
+                   [:div.center
+                    [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/messages/t/" (:seller-fbid contract)) :target "_blank"}
+                     [:img {:src (:seller-photo contract)}]]]
                    [:h3 "Step 3: On Facebook, " [:a {:href "https://www.youtube.com/watch?v=ZeAJDFgcCYA" :target "_blank"} "send a video message to Cedric."] " Record yourself reading this script."]
                    (legal-text :buyer)
                    [:h3 "Step 4: send "
@@ -1012,11 +1015,11 @@
                     (ui/raised-button {:label "I've received the funds"
                                        :primary true
                                        :on-touch-tap #(do (mark-contract-received (:id contract))
-                                                          (close-display-contract))})]])
+                                                          (close-display-contract!))})]])
                 buttons
                 [(ui/flat-button {:label "Close"
                                   :primary true
-                                  :on-touch-tap close-display-contract})]]
+                                  :on-touch-tap close-display-contract!})]]
             (if (rum/react small-display?)
               (mobile-overlay true content [:div {:style {:height "2rem"}}] buttons)
               (ui/dialog {:title (str "Contract ID: " (:human-id contract))
@@ -1384,6 +1387,10 @@
 
 (rum/mount (app) (js/document.getElementById "app"))
 
+;;
+;; Watchers
+;;
+
 ;; Run when we change the User ID
 (add-watch (:user-id app-state) :got-user-id
            (fn [_1 _2 _3 _4]
@@ -1410,3 +1417,14 @@
                           (swap! (:friends2 app-state) assoc-in [idx :photo-url] photo-url)
                           (log* %))))
              (remove-watch (:friends2 app-state) :got-friends2)))
+
+(defn get-photo-for-contract! [contract]
+  (fb/api (str "/" (:seller-fbid contract) "/picture")
+          (fn [resp]
+            (if-let [photo-url (get-in resp [:data :url])]
+              (update-contract (:id contract) #(assoc % :seller-photo photo-url))
+              (log* resp)))))
+
+(add-watch (:contracts app-state) :fetch-contract-photos
+           (fn [_1 _2 _3 _4]
+             (doseq [c @_2] (when-not (:seller-photo c) (get-photo-for-contract! c)))))
