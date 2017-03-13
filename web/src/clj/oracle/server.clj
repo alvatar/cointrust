@@ -100,7 +100,6 @@
   (actions/sente-router-start! ch-chsk)
   (events/init! chsk-send!)
   (currency/start-exchange-rates-updates!)
-  (bitcoin/system-start!)
   (tasks/workers-start!)
   (reset! server
           (aleph.http/start-server
@@ -113,15 +112,17 @@
                wrap-exceptions
                wrap-gzip)
            {:port (Integer. (or port (env :port) 5000))
-            :socket-address (if ip (new InetSocketAddress ip port))})))
+            :socket-address (if ip (new InetSocketAddress ip port))}))
+  (bitcoin/system-start!)
+  'startted)
 
 (defn stop! []
   (when @server
     (tasks/workers-stop!)
     (currency/stop-exchange-rates-updates!)
-    (bitcoin/system-stop!)
     (.close @server)
     (reset! server nil)
+    (bitcoin/system-stop!)
     'stopped))
 
 (defn -main [& [port ip]]
