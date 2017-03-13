@@ -156,6 +156,19 @@ ul, li {
     animation-fill-mode: both;
 }
 
+.profile-image figure img {
+    filter: grayscale(100%) blur(2px);
+    transition: .3s ease-in-out;
+}
+
+.profile-image figure:hover img {
+    filter: grayscale(0) blur(0);
+}
+
+figure {
+    margin: 0 0 0 0;
+}
+
 .tx-link {
     text-decoration: none;
     font-size: x-small;

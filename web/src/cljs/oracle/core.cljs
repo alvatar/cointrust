@@ -67,6 +67,9 @@
          (swap! window assoc :height height)
          (reset! small-display? (< width 780))))))
 
+(def smart-contract-fields
+  {:aria-label "Smart contracts are computer protocols that facilitate, verify, or enforce the negotiation or performance of a contract, or that make a contractual clause unnecessary. Smart contracts often emulate the logic of contractual clauses."} )
+
 ;;
 ;; Utils
 ;;
@@ -753,8 +756,9 @@
    [:h5.center (str "You can trade with " (count (rum/react (:friends2 app-state))) " people in your friend network")]
    [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
     (for [{:keys [id name photo-url]} (rum/react (:friends2 app-state))]
-      [:span.hint--bottom {:key (str "friend-photo-" id) :aria-label name}
-       [:img {:src photo-url}]])]
+      [:span.profile-image.hint--bottom {:key (str "friend-photo-" id) :aria-label name}
+       [:figure
+        [:img {:src photo-url}]]])]
    (when-let [error (rum/react app-error)] [:h5.center.error error])
    [:div.center
     ;; TODO: hints http://kushagragour.in/lab/hint/
@@ -1025,7 +1029,7 @@
   < rum/reactive
   []
   [:div
-   [:h4.center "Smart Contracts"]
+   [:h4.center.hint--bottom.hint--large {:aria-label "Smart contracts are computer protocols that facilitate, verify, or enforce the negotiation or performance of a contract, or that make a contractual clause unnecessary. Smart contracts often emulate the logic of contractual clauses." :style {:width "100%"}} "Smart Contracts"]
    [:div
     (let [_small-display? (rum/react small-display?)
           contracts (rum/react (:contracts app-state))
@@ -1096,8 +1100,7 @@
                   (case (:stage contract)
                     "waiting-escrow" (if (am-i-seller? contract)
                                        (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
-                                       [status-class [:div.center [:span.hint--bottom {:aria-label "HELLO" #_(:seller-name contract)}]
-                                                      (gstring/format "WAITING (%s left)" time-left)]])
+                                       [status-class [:div.center (gstring/format "WAITING (%s left)" time-left)]])
                     "waiting-transfer" (if (and (:transfer-received contract) (am-i-seller? contract))
                                          [status-class [:div.center "RELEASING TO BUYER"]]
                                          (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
@@ -1258,7 +1261,8 @@
                          {:key "qa-text-1-nested"
                           :disabled true}
                          [:ul
-                          [:li "Cointrust makes it easy to buy & sell Bitcoin instantly and risk- free by using Facebook, Venmo, and Smart Contracts."]])]}
+                          [:li "Cointrust makes it easy to buy & sell Bitcoin instantly and risk- free by using Facebook, Venmo, and "
+                           [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts"]]])]}
         [:h3 "What is Cointrust?"])
        (ui/list-item
         {:key "qa-text-2"
@@ -1270,7 +1274,8 @@
                           [:li "Match - Cointrust will match you with the best sell offer in your friend network."]
                           [:li "Talk - Coordinate the sale with the buyer/seller using Facebook Messenger."]
                           [:li "Pay - Pay via Venmo."]
-                          [:li "Settle - You’re protected via Smart Contracts. Once both parties have completed the steps all funds are released to both parties and  As long as you follow our instructions you and your money / bitcoin are protected."]])]}
+                          [:li "Settle - You’re protected via " [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts."]
+                           " Once both parties have completed the steps all funds are released to both parties and  As long as you follow our instructions you and your money / bitcoin are protected."]])]}
         [:h3 "How does this work?"])
        (ui/list-item
         {:key "qa-text-3"
@@ -1279,34 +1284,38 @@
                          {:key "qa-text-3-nested"
                           :disabled true}
                          [:ul
-                          [:li "Cointrust makes Bitcoin purchases risk-free for both buyers and sellers through the use of Smart Contracts."]
+                          [:li "Cointrust makes Bitcoin purchases risk-free for both buyers and sellers through the use of " [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts."]]
                           [:li "Cointrust acts as a notary, confirming both buyer and seller have lived up to their part of the agreement. And protecting the other person if they don’t."]])]}
         [:h3 "Risk Free"])
        (ui/list-item
         {:key "qa-text-4"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-4-nested"}
+                         {:key "qa-text-4-nested"
+                          :disabled true}
                          [:ul
                           [:li "By using Cointrust, you can sell Bitcoin without the risk of chargebacks."]
                           [:li "Dollar Payment are reversible (Venmo, Paypal, Credit Card, Bank Transfer). "]
                           [:li "But Bitcoin payments aren’t. This is why buying bitcoin can be PAINFULLY slow."]
-                          [:li "By using Smart Contracts, Cointrust acts like a digital notary confirming all the information you need as a buyer or seller to be protected and either perform or reverse a chargeback."]])]}
+                          [:li "By using " [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts"] ", Cointrust acts like a digital notary confirming all the information you need as a buyer or seller to be protected and either perform or reverse a chargeback."]])]}
         [:h3 "What about chargebacks?"])
        (ui/list-item
         {:key "qa-text-5"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-5-nested"}
+                         {:key "qa-text-5-nested"
+                          :disabled true}
                          [:ul
                           [:li "Bitcoin buyers are guaranteed to get what they pay for."]
-                          [:li "We hold bitcoins in a smart contract (think of it like an escrow account) and confirm the amount the buyer will receive."]])]}
+                          [:li "We hold bitcoins in a " [:span.hint--bottom.hint--large smart-contract-fields "smart contracts"]
+                           " (think of it like an escrow account) and confirm the amount the buyer will receive."]])]}
         [:h3 "Am I protected if I’m buying Bitcoin?"])
        (ui/list-item
         {:key "qa-text-6"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-6-nested"}
+                         {:key "qa-text-6-nested"
+                          :disabled true}
                          [:ul
                           [:li "Bitcoin sellers are guaranteed to get paid for what they sold."]
                           [:li "Bitcoin funds are held in escrow."]
