@@ -992,9 +992,9 @@
                                                                         (log* "Error in escrow/forget-user-key" %)))))}))]
                        [:div.center.margin-2rem
                         [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
-                   [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/messages/t/" (:seller-fbid contract)) :target "_blank"} (:seller-name contract)]]
+                   [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
                    [:div.center
-                    [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/messages/t/" (:seller-fbid contract)) :target "_blank"}
+                    [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"}
                      [:img {:src (:seller-photo contract)}]]]
                    [:h3 "Step 3: On Facebook, " [:a {:href "https://www.youtube.com/watch?v=ZeAJDFgcCYA" :target "_blank"} "send a video message to Cedric."] " Record yourself reading this script."]
                    (legal-text :buyer)
@@ -1114,9 +1114,12 @@
                   "waiting-escrow" (if (am-i-seller? contract)
                                      (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
                                      [status-class [:div.center (gstring/format "WAITING (%s left)" time-left)]])
-                  "waiting-transfer" (if (and (:transfer-received contract) (am-i-seller? contract))
-                                       [status-class [:div.center "RELEASING TO BUYER"]]
-                                       (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
+                  "waiting-transfer" (cond (and (:transfer-received contract) (am-i-seller? contract))
+                                           [status-class [:div.center "RELEASING TO BUYER"]]
+                                           (zero? time-left)
+                                           [status-class [:div.center "CONTRACT BROKEN"]]
+                                           :else
+                                           (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
                   "contract-success" (if (am-i-seller? contract)
                                        [status-class [:div.center "RELEASING TO BUYER"]]
                                        (case (:escrow-release contract)
@@ -1419,7 +1422,7 @@
              (remove-watch (:friends2 app-state) :got-friends2)))
 
 (defn get-photo-for-contract! [contract]
-  (fb/api (str "/" (:seller-fbid contract) "/picture")
+  (fb/api (str "/" (:seller-fb-id contract) "/picture")
           (fn [resp]
             (if-let [photo-url (get-in resp [:data :url])]
               (update-contract (:id contract) #(assoc % :seller-photo photo-url))

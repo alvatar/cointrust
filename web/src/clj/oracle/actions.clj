@@ -66,7 +66,7 @@
 (defmethod -event-msg-handler :user/contracts
   [{:keys [?data ?reply-fn]}]
   (try (?reply-fn {:status :ok
-                   :contracts (db/get-contracts-by-user-with-last-event (:user-id ?data))})
+                   :contracts (db/get-contracts-by-user (:user-id ?data))})
        (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :offer/open
@@ -177,7 +177,7 @@
                               (escrow/encode-key (escrow/get-buyer-key (:id ?data)))
                               (escrow/encode-key (escrow/get-seller-key (:id ?data)))))
       (?reply-fn {:status :error-wrong-key})
-      (not (:escrow-funded (db/get-contract-by-id (:id ?data))))
+      (not (:escrow-funded (db/get-contract-by-id-fast (:id ?data))))
       (?reply-fn {:status :error-escrow-not-funded})
       ;;
       :else

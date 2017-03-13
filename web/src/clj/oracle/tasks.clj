@@ -70,7 +70,6 @@
 ;; the matching engine will select a counterparty (seller), wait for
 ;; confirmation, and then create a contract and notify both parties.
 ;;
-;; TODO: currently currency is ignored
 ;; TODO: transductors, optimize
 ;; TODO iterate ofer all friends^2 for their sell offer is extremely innefficient
 (defn pick-counterparty [buy-request buyer-specs]
@@ -98,7 +97,7 @@
                                   offering)]
     (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
       ;; Freeze exchange rate if matched, and set the premium of the offer
-      (db/buy-request-set-field! (:id buy-request) "exchange_rate" (get-in exchange-rates [:rates :btc-usd]))
+      (db/buy-request-set-field! (:id buy-request) "exchange_rate" )
       (db/buy-request-set-field! (:id buy-request) "premium" (:premium offer))
       (:user offer))))
 
@@ -259,7 +258,7 @@
                                 (throw (Exception. "Couldn't create contract"))))
           contract-id (:id initial-contract)
           ;; Make sure we have the latest version of the contrast (forget idempotent op)
-          contract (db/get-contract-by-id-with-last-event contract-id)]
+          contract (db/get-contract-by-id-fast contract-id)]
       ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
       ;; Task initialization
       ;; TODO: THIS WON'T ENSURE EXECUTION OF THESE COMMANDS
@@ -392,27 +391,23 @@
 
 (defmethod common-preemptive-handler :contract/break
   [{:keys [mid message attempt]}]
-  (let [{:keys [tag data]} message
-        contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)]
+  (let [{:keys [tag data]} message]
     (log/debug message)
-    (db/contract-add-event! contract-id "contract-broken" nil)
+    (db/contract-add-event! (:id data) "contract-broken" nil)
     {:status :success}))
 
 (defmethod common-preemptive-handler :contract/mark-transfer-received
   [{:keys [mid message attempt]}]
-  (let [{:keys [tag data]} message
-        contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)]
+  (let [{:keys [tag data]} message]
     (log/debug message)
-    (db/contract-set-field! contract-id "transfer_received" true)
+    (db/contract-set-field! (:id data) "transfer_received" true)
     {:status :success}))
 
 (defmethod common-preemptive-handler :escrow/release-to-user
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
         contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)]
+        contract (db/get-contract-by-id-fast contract-id)]
     (log/debug message)
     ;; TEMPORARY APPROACH
     (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
@@ -540,14 +535,10 @@
 ;; (oracle.tasks/initiate-preemptive-task :buy-request/decline {:id 1})
 
 ;; Directly create contract
-#_(oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "btc", :exchange-rate 1000.000000M, :transfer-info "Hakuna Matata Bank.
-Publius Cornelius Scipio
-Ibiza, Spain.
-IBAN 12341234123431234
-SWIFT YUPYUP12"})
+;; (oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "btc", :exchange-rate 1000.000000M, :transfer-info "cosmicbro" :premium 100 :fee 100})
 
 (defn contract-force-success [id]
-  (let [contract (db/get-contract-by-id id)]
+  (let [contract (db/get-contract-by-id-fast id)]
     (db/contract-add-event! id "contract-success" nil)
     (events/add-event! (:seller-id contract) :contract-success contract)
     (events/add-event! (:buyer-id contract) :contract-success contract)))

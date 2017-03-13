@@ -275,10 +275,8 @@ SELECT * FROM buy_request;
   (try
     (when-not (= buyer-id seller-id)
       (let [buyer (get-user-by-id buyer-id)
-            buyer-fbid (:fb_id buyer)
             buyer-name (:name buyer)
             seller (get-user-by-id seller-id)
-            seller-fbid (:fb_id seller)
             seller-name (:name seller)]
         (sql/with-db-transaction
           [tx db]
@@ -286,10 +284,10 @@ SELECT * FROM buy_request;
             (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
               (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
               (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
-INSERT INTO contract (human_id, hash, buyer_id, buyer_fbid, buyer_name, seller_id, seller_fbid, seller_name, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" human-id (random-string 27) buyer-id buyer-fbid buyer-name seller-id seller-fbid seller-name amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
+" human-id (random-string 27) buyer-id seller-id amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
                 (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -329,7 +327,7 @@ WHERE contract_event.time = ( SELECT MAX(contract_event.time) FROM contract_even
                               WHERE contract_event.contract_id = ? );
 " contract-id])))
 
-(defn get-contracts-by-user [user-id]
+(defn get-contracts-by-user-fast [user-id]
   (map ->kebab-case
        (sql/query db ["
 SELECT * FROM contract
@@ -337,25 +335,15 @@ WHERE buyer_id = ? OR seller_id = ?
 ORDER BY contract.created DESC
 " user-id user-id])))
 
-(defn get-contracts-by-user-with-last-event [user-id]
+(defn get-contracts-by-user [user-id]
   (map ->kebab-case
        (sql/query db ["
-SELECT * FROM contract
-INNER JOIN (
-  SELECT a.*
-  FROM contract_event a
-  INNER JOIN (
-      SELECT contract_id, MAX(time) AS max_time
-      FROM contract_event
-      GROUP BY contract_id
-  ) b ON a.contract_id = b.contract_id AND a.time = b.max_time
-) latest_events
-ON contract.id = latest_events.contract_id
+SELECT * FROM full_contract
 WHERE (buyer_id = ? OR seller_id = ?)
-ORDER BY contract.created DESC
+ORDER BY created DESC
 " user-id user-id])))
 
-(defn get-contract-by-id [id]
+(defn get-contract-by-id-fast [id]
   (-> (sql/query db ["
 SELECT * FROM contract
 WHERE id = ?
@@ -363,11 +351,9 @@ WHERE id = ?
       first
       ->kebab-case))
 
-(defn get-contract-by-id-with-last-event [id]
+(defn get-contract-by-id [id]
   (-> (sql/query db ["
-SELECT contract.*, contract_event.stage FROM contract_event
-JOIN contract
-ON contract_event.contract_id = contract.id
+SELECT * FROM full_contract
 WHERE contract.id = ?
 ORDER BY contract_event.time DESC
 LIMIT 1
@@ -450,6 +436,7 @@ ON CONFLICT (lock) DO UPDATE SET data = ?;
   (sql/db-do-commands db
                       ["DROP TABLE IF EXISTS logs;"
                        "DROP TABLE IF EXISTS wallet;"
+                       "DROP VIEW IF EXISTS full_contract;"
                        "DROP TABLE IF EXISTS contract_event;"
                        "DROP TABLE IF EXISTS contract CASCADE;"
                        "DROP TABLE IF EXISTS sell_offer;"
@@ -462,7 +449,8 @@ CREATE TABLE user_account (
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   hash                             VARCHAR(128) NOT NULL UNIQUE,
   fb_id                            BIGINT NOT NULL,
-  name                             VARCHAR(256)
+  name                             VARCHAR(256),
+  photo_url                        VARCHAR(2083)
 );"
                        "
 CREATE TABLE friends (
@@ -498,11 +486,7 @@ CREATE TABLE contract (
   human_id                         VARCHAR(256) NOT NULL UNIQUE,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
-  buyer_fbid                       BIGINT,
-  buyer_name                       VARCHAR(256),
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
-  seller_fbid                      BIGINT,
-  seller_name                       VARCHAR(256),
   amount                           BIGINT NOT NULL,
   currency_buyer                   VARCHAR(8) NOT NULL,
   currency_seller                  VARCHAR(8) NOT NULL,
@@ -550,6 +534,26 @@ CREATE TABLE logs (
   type                             VARCHAR(64) NOT NULL,
   data                             TEXT NOT NULL
 );"
+                       "
+CREATE OR REPLACE VIEW full_contract AS
+SELECT contract.*,
+       buyer.name AS buyer_name, buyer.fb_id AS buyer_fb_id,
+       seller.name AS seller_name, seller.fb_id AS seller_fb_id,
+       latest_events.stage AS stage
+FROM contract
+INNER JOIN (
+  SELECT a.*
+  FROM contract_event a
+  INNER JOIN (
+      SELECT contract_id, MAX(time) AS max_time
+      FROM contract_event
+      GROUP BY contract_id
+  ) b ON a.contract_id = b.contract_id AND a.time = b.max_time
+) AS latest_events
+ON (contract.id = latest_events.contract_id)
+INNER JOIN user_account AS buyer ON (buyer.id = contract.buyer_id)
+INNER JOIN user_account AS seller ON (seller.id = contract.seller_id)
+"
                        ]))
 ;; Only one entry lock:
 ;; lock                      CHAR(1) NOT NULL DEFAULT('X'),
