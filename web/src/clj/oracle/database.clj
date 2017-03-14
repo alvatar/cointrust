@@ -88,8 +88,7 @@ RETURNING id;
                   (let [[user-id1 user-id2] (sort [fid user-id])]
                     (first
                      (sql/execute! tx ["
-INSERT INTO friends (user_id1, user_id2)
-VALUES (?, ?)
+INSERT INTO friends (user_id1, user_id2) VALUES (?, ?)
 ON CONFLICT DO NOTHING
 " user-id1 user-id2]))))
                 friend-ids)]

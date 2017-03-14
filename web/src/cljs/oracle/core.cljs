@@ -266,9 +266,6 @@
                             (init-sente! hashed-id)))))))
     (log* "Not logged in: " (clj->js response))))
 
-
-
-;; TODO: make desync differences smooth
 (defn get-server-time []
   (chsk-send!
    [:server/time {}] 5000
