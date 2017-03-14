@@ -298,17 +298,15 @@
 (rum/defc request-listing-comp
   < rum/reactive
   []
-  [:div
-   [:h4 {:style {:text-align "center"}} "Open requests"]
-   [:div
-    (let [requests (rum/react (:buy-requests state/app))]
-      (cond
-        (not requests)
-        [:div "Retrieving requests..."
-         (ui/linear-progress {:size 60 :mode "indeterminate"})]
-        (empty? requests)
-        [:p.center "No open requests"]
-        :else
+  (let [requests (rum/react (:buy-requests state/app))]
+    (cond
+      (nil? requests)
+      [:div "Retrieving requests..."
+       (ui/linear-progress {:size 60 :mode "indeterminate"})]
+      (not-empty requests)
+      [:div
+       [:h4 {:style {:text-align "center"}} "Open requests"]
+       [:div
         (ui/list
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
@@ -319,7 +317,7 @@
                                                           (:id req)
                                                           (if (:seller-id req)
                                                             "SELLER FOUND - WAITING ON SELLER"
-                                                            "LOOKING FOR A SELLER..."))})))))]])
+                                                            "LOOKING FOR A SELLER..."))})))]])))
 
 (rum/defcs contract-dialog
   < rum/reactive
@@ -542,112 +540,109 @@
 (rum/defc contract-listing-comp
   < rum/reactive
   []
-  [:div
-   [:h4.center.hint--bottom.hint--large {:aria-label "Smart contracts are computer protocols that facilitate, verify, or enforce the negotiation or performance of a contract, or that make a contractual clause unnecessary. Smart contracts often emulate the logic of contractual clauses." :style {:width "100%"}} "Smart Contracts"]
-   [:div
-    (let [_small-display? (rum/react small-display?)
-          contracts (rum/react (:contracts state/app))
-          server-time (rum/react (:server-time state/app))]
-      (cond
-        (not contracts)
-        [:div "Retrieving contracts..."
-         (ui/linear-progress {:size 60 :mode "indeterminate"})]
-        (empty? contracts)
-        [:p.center "No active contracts"]
-        :else
-        [:div
-         (contract-dialog)
-         (ui/list
-          (for [contract contracts]
-            (ui/list-item
-             {:key (:hash contract)
-              :primary-toggles-nested-list true
-              :nested-items [(ui/list-item
-                              {:key (str (:hash contract) "-children")}
-                              [:div
-                               (ui/stepper ((if _small-display? #(assoc % :connector nil) identity)
-                                            {:active-step (case (:stage contract)
-                                                            "waiting-escrow" 1
-                                                            "waiting-transfer" 2
-                                                            ("contract-success" "contract-broken" "contract-broken/escrow-insufficient") 3)
-                                             :orientation (if _small-display? "vertical" "horizontal")
-                                             :style (if _small-display? {:width "12rem" :margin "0 auto"} {})})
-                                           (ui/step (ui/step-label "Contract creation"))
-                                           (ui/step (ui/step-label "Escrow funding"))
-                                           (ui/step (ui/step-label "Contract execution")))
-                               [:p.center [:strong "Contract ID: "] (:human-id contract)]
-                               (let [explorer-url (case globals/*env*
-                                                    "production" "https://blockchain.info/tx/"
-                                                    "staging" "https://tbtc.blockr.io/tx/info/"
-                                                    "")]
-                                 [:div.center
-                                  [(if (:input-tx contract) :a.tx-link :a.tx-link-shadow) (when (:input-tx contract) {:href (str explorer-url (:input-tx contract)) :target "_blank"})
-                                   [:strong "escrow input transaction"]]
-                                  [:span.tx-link " / "]
-                                  [(if (:output-tx contract) :a.tx-link :a.tx-link-shadow) (when (:output-tx contract) {:href (str explorer-url (:output-tx contract)) :target "_blank"})
-                                   [:strong "escrow output transaction"]]])
-                               #_(when (:output-tx contract) [:a.tx-link {:href (str "https://tbtc.blockr.io/tx/info/" (:output-tx contract))  :target "_blank"}
-                                                              [:strong "Escrow Output Transaction"]])
-                               (when (or (= (:stage contract) "waiting-transfer")
-                                         (and (= (:stage contract) "waiting-escrow")
-                                              (am-i-seller? contract)))
-                                 [:div.center {:style {:margin-bottom "5rem"}}
-                                  (ui/flat-button {:label "Break contract"
-                                                   :style {:margin "0 1rem 0 1rem"}
-                                                   :on-touch-tap #(when (js/confirm "Are you sure?") (actions/break-contract (:id contract)))})])])]}
-             [:div.hint--bottom {:aria-label (gstring/format "Waiting for %s to deposit Bitcoins into this Smart Contract" (:seller-name contract))
-                                 :style {:width "100%"}}
-              [(if _small-display? :div.center :div.column-half)
-               [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
-               (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
-               (when-not _small-display?
-                 [:span {:style {:font-size "x-small" :display "table-cell" :vertical-align "middle"}} (str "Contract ID: " (:human-id contract))])]
-              (let [action-required (fn [text]
-                                      [(if _small-display? :div.center.margin-1rem-top :div.column-half)
-                                       [:div.center.action-required {:on-click #(reset! (:display-contract state/app) (:id contract))} text]])
-                    status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
-                    waiting [status-class [:div.center "WAITING"]]
-                    time-left (contract-time-left contract server-time)]
-                (case (:stage contract)
-                  "waiting-escrow" (if (am-i-seller? contract)
-                                     (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
-                                     [status-class [:div.center (gstring/format "WAITING (%s left)" time-left)]])
-                  "waiting-transfer" (cond (and (:transfer-received contract) (am-i-seller? contract))
-                                           [status-class [:div.center "RELEASING TO BUYER"]]
-                                           (zero? time-left)
-                                           [status-class [:div.center "CONTRACT BROKEN"]]
-                                           :else
-                                           (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
-                  "contract-success" (if (am-i-seller? contract)
-                                       [status-class [:div.center "RELEASING TO BUYER"]]
+  (let [_small-display? (rum/react small-display?)
+        contracts (rum/react (:contracts state/app))
+        server-time (rum/react (:server-time state/app))]
+    (cond
+      (nil? contracts)
+      [:div "Retrieving contracts..."
+       (ui/linear-progress {:size 60 :mode "indeterminate"})]
+      (not-empty contracts)
+      [:div
+       [:h4.center.hint--bottom.hint--large {:aria-label "Smart contracts are computer protocols that facilitate, verify, or enforce the negotiation or performance of a contract, or that make a contractual clause unnecessary. Smart contracts often emulate the logic of contractual clauses." :style {:width "100%"}} "Smart Contracts"]
+       [:div
+        (contract-dialog)
+        (ui/list
+         (for [contract contracts]
+           (ui/list-item
+            {:key (:hash contract)
+             :primary-toggles-nested-list true
+             :nested-items [(ui/list-item
+                             {:key (str (:hash contract) "-children")}
+                             [:div
+                              (ui/stepper ((if _small-display? #(assoc % :connector nil) identity)
+                                           {:active-step (case (:stage contract)
+                                                           "waiting-escrow" 1
+                                                           "waiting-transfer" 2
+                                                           ("contract-success" "contract-broken" "contract-broken/escrow-insufficient") 3)
+                                            :orientation (if _small-display? "vertical" "horizontal")
+                                            :style (if _small-display? {:width "12rem" :margin "0 auto"} {})})
+                                          (ui/step (ui/step-label "Contract creation"))
+                                          (ui/step (ui/step-label "Escrow funding"))
+                                          (ui/step (ui/step-label "Contract execution")))
+                              [:p.center [:strong "Contract ID: "] (:human-id contract)]
+                              (let [explorer-url (case globals/*env*
+                                                   "production" "https://blockchain.info/tx/"
+                                                   "staging" "https://tbtc.blockr.io/tx/info/"
+                                                   "")]
+                                [:div.center
+                                 [(if (:input-tx contract) :a.tx-link :a.tx-link-shadow) (when (:input-tx contract) {:href (str explorer-url (:input-tx contract)) :target "_blank"})
+                                  [:strong "escrow input transaction"]]
+                                 [:span.tx-link " / "]
+                                 [(if (:output-tx contract) :a.tx-link :a.tx-link-shadow) (when (:output-tx contract) {:href (str explorer-url (:output-tx contract)) :target "_blank"})
+                                  [:strong "escrow output transaction"]]])
+                              #_(when (:output-tx contract) [:a.tx-link {:href (str "https://tbtc.blockr.io/tx/info/" (:output-tx contract))  :target "_blank"}
+                                                             [:strong "Escrow Output Transaction"]])
+                              (when (or (= (:stage contract) "waiting-transfer")
+                                        (and (= (:stage contract) "waiting-escrow")
+                                             (am-i-seller? contract)))
+                                [:div.center {:style {:margin-bottom "5rem"}}
+                                 (ui/flat-button {:label "Break contract"
+                                                  :style {:margin "0 1rem 0 1rem"}
+                                                  :on-touch-tap #(when (js/confirm "Are you sure?") (actions/break-contract (:id contract)))})])])]}
+            [:div.hint--bottom {:aria-label (gstring/format "Waiting for %s to deposit Bitcoins into this Smart Contract" (:seller-name contract))
+                                :style {:width "100%"}}
+             [(if _small-display? :div.center :div.column-half)
+              [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
+              (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
+              (when-not _small-display?
+                [:span {:style {:font-size "x-small" :display "table-cell" :vertical-align "middle"}} (str "Contract ID: " (:human-id contract))])]
+             (let [action-required (fn [text]
+                                     [(if _small-display? :div.center.margin-1rem-top :div.column-half)
+                                      [:div.center.action-required {:on-click #(reset! (:display-contract state/app) (:id contract))} text]])
+                   status-class (if _small-display? :div.center.margin-1rem-top :div.column-half)
+                   waiting [status-class [:div.center "WAITING"]]
+                   time-left (contract-time-left contract server-time)]
+               (case (:stage contract)
+                 "waiting-escrow" (if (am-i-seller? contract)
+                                    (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
+                                    [status-class [:div.center (gstring/format "WAITING (%s left)" time-left)]])
+                 "waiting-transfer" (cond (and (:transfer-received contract) (am-i-seller? contract))
+                                          [status-class [:div.center "RELEASING TO BUYER"]]
+                                          (zero? time-left)
+                                          [status-class [:div.center "CONTRACT BROKEN"]]
+                                          :else
+                                          (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left)))
+                 "contract-success" (if (am-i-seller? contract)
+                                      [status-class [:div.center "RELEASING TO BUYER"]]
+                                      (case (:escrow-release contract)
+                                        "<fresh>" (action-required "RELEASE FUNDS")
+                                        "<failure>" (action-required "FAILED RELEASE")
+                                        "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                        "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                        [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
+                 "contract-broken" (if (am-i-buyer? contract)
+                                     (if (:escrow-funded contract)
+                                       [status-class [:div.center "PERFORM CHARGEBACK"]]
+                                       [status-class [:div.center "CONTRACT BROKEN"]])
+                                     (if (:escrow-funded contract)
                                        (case (:escrow-release contract)
                                          "<fresh>" (action-required "RELEASE FUNDS")
                                          "<failure>" (action-required "FAILED RELEASE")
                                          "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
                                          "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
-                                         [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
-                  "contract-broken" (if (am-i-buyer? contract)
-                                      (if (:escrow-funded contract)
-                                        [status-class [:div.center "PERFORM CHARGEBACK"]]
-                                        [status-class [:div.center "CONTRACT BROKEN"]])
-                                      (if (:escrow-funded contract)
-                                        (case (:escrow-release contract)
-                                          "<fresh>" (action-required "RELEASE FUNDS")
-                                          "<failure>" (action-required "FAILED RELEASE")
-                                          "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
-                                          "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
-                                          [status-class [:div.center "UNKNOWN ESCROW STATE"]])
-                                        [status-class [:div.center "CONTRACT BROKEN"]]))
-                  "contract-broken/escrow-insufficient" (if (am-i-buyer? contract)
-                                                          [status-class [:div.center "SELLER FAILED TO FUND"]]
-                                                          (case (:escrow-release contract)
-                                                            "<fresh>" (action-required "INSUFFICIENT FUNDS")
-                                                            "<failure>" (action-required "FAILED RELEASE")
-                                                            "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
-                                                            "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
-                                                            [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
-                  [status-class [:div.center "UNDEFINED"]]))
-              [:div {:style {:clear "both"}}]])))]))]])
+                                         [status-class [:div.center "UNKNOWN ESCROW STATE"]])
+                                       [status-class [:div.center "CONTRACT BROKEN"]]))
+                 "contract-broken/escrow-insufficient" (if (am-i-buyer? contract)
+                                                         [status-class [:div.center "SELLER FAILED TO FUND"]]
+                                                         (case (:escrow-release contract)
+                                                           "<fresh>" (action-required "INSUFFICIENT FUNDS")
+                                                           "<failure>" (action-required "FAILED RELEASE")
+                                                           "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
+                                                           "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
+                                                           [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
+                 [status-class [:div.center "UNDEFINED"]]))
+             [:div {:style {:clear "both"}}]])))]])))
 
 (rum/defc generic-notifications
   < rum/reactive
