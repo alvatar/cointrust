@@ -33,3 +33,11 @@
 
 (defn long->decr [val]
   (- 1 (/ val 10000)))
+
+#?(:cljs
+   (defn round-currency
+     ([val num-decimals]
+      (let [pow (js/Math.pow 10 num-decimals)]
+        (/ (long (* pow val)) pow)))
+     ([val]
+      (round-currency val 5))))
