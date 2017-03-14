@@ -356,9 +356,7 @@ WHERE id = ?
 (defn get-contract-by-id [id]
   (-> (sql/query db ["
 SELECT * FROM full_contract
-WHERE contract.id = ?
-ORDER BY contract_event.time DESC
-LIMIT 1
+WHERE full_contract.id = ?
 " id])
       first
       ->kebab-case))

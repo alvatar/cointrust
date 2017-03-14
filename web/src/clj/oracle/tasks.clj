@@ -259,7 +259,7 @@
                                 (throw (Exception. "Couldn't create contract"))))
           contract-id (:id initial-contract)
           ;; Make sure we have the latest version of the contrast (forget idempotent op)
-          contract (db/get-contract-by-id-fast contract-id)]
+          contract (db/get-contract-by-id contract-id)]
       ;; (log/debugf "Attempt %d for contract ID %s. Contract: %s" attempt contract-id contract)
       ;; Task initialization
       ;; TODO: THIS WON'T ENSURE EXECUTION OF THESE COMMANDS

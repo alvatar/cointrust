@@ -909,8 +909,8 @@
                                           :on-touch-tap close-display-contract!})]
                 content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                          [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
-                          [:h3 (gstring/format "WAITING ESCROW (%s left)" time-left)]
-                          [:h3 "Step 1"]
+                          [:h3 (str "Time left: " time-left)]
+                          [:h3 "Step 1: Get the Escrow key"]
                           (if (:escrow-seller-has-key contract)
                             [:p "The key has been extracted and is no longer available in our servers."]
                             [:div
