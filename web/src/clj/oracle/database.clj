@@ -225,11 +225,13 @@ SELECT * FROM buy_request WHERE id = ?;
       first
       ->kebab-case))
 
-(defn buy-request-set-field! [id field value]
-  (sql/execute! db [(format "
-UPDATE buy_request SET %s = ?
-WHERE id = ?
-" field) value id]))
+(defn buy-request-update! [id v & [txcb]]
+  (if txcb
+    (sql/with-db-transaction
+      [tx db]
+      (sql/update! db :buy_request v ["id = ?" id])
+      (txcb v))
+    (sql/update! db :buy_request v ["id = ?" id])))
 
 (defn buy-request-set-seller! [buy-request seller-id & [txcb]]
   (sql/with-db-transaction
@@ -404,11 +406,8 @@ UPDATE contract SET escrow_funded = true, escrow_amount = ?, input_tx = ?, escro
 WHERE id = ?
 " amount-received tx-hash id]))
 
-(defn contract-set-field! [id field value]
-  (sql/execute! db [(format "
-UPDATE contract SET %s = ?
-WHERE id = ?
-" field) value id]))
+(defn contract-update! [id v]
+  (sql/update! db :contract v ["id = ?" id]))
 
 ;;
 ;; Wallet

@@ -147,7 +147,7 @@
                                      (. Coin valueOf amount))
              tx (.-tx send-result)
              tx-hash (.. tx getHash toString)]
-         (db/contract-set-field! contract-id "output_tx" tx-hash)
+         (db/contract-update! contract-id {:output_tx tx-hash})
          (btc-log! "Send payment for contract %s of %s BTC to address %s transaction %s\n"
                    contract-id (common/satoshi->btc amount) target-address tx-hash))
        (catch Exception e

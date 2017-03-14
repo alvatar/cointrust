@@ -146,7 +146,7 @@
   [{:keys [?data ?reply-fn]}]
   (case (:role ?data)
     "buyer"
-    (try (db/contract-set-field! (:id ?data) "escrow_buyer_has_key" true)
+    (try (db/contract-update! (:id ?data) {:escrow_buyer_has_key true})
          #_(if (escrow/forget-buyer-key (:id ?data))
            (?reply-fn {:status :ok})
            (?reply-fn {:error :unavailable-key}))
@@ -154,7 +154,7 @@
          ;; REMOVE ^
          (catch Exception e (pprint e) (?reply-fn {:status :error})))
     "seller"
-    (try (db/contract-set-field! (:id ?data) "escrow_seller_has_key" true)
+    (try (db/contract-update! (:id ?data) {:escrow_seller_has_key true})
          #_(if (escrow/forget-seller-key (:id ?data))
            (?reply-fn {:status :ok})
            (?reply-fn {:error :unavailable-key}))
@@ -181,8 +181,8 @@
       (?reply-fn {:status :error-escrow-not-funded})
       ;;
       :else
-      (try (db/contract-set-field! (:id ?data) "output_address" output-address)
-           (db/contract-set-field! (:id ?data) "escrow_release" "<processing>")
+      (try (db/contract-update! (:id ?data) {:output_address output-address
+                                             :escrow_release "<processing>"})
            (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
            (?reply-fn {:status :ok})
            (catch Exception e (pprint e) (?reply-fn {:status :error}))))))

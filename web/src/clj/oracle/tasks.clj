@@ -95,11 +95,12 @@
                                                 (:max %)
                                                 (currency/convert-as-long (:max %) (:currency %) buyer-wants-currency exchange-rates)))))
                                   offering)]
-    (let [offer (or (empty? offering-in-range) (rand-nth offering-in-range))]
-      ;; Freeze exchange rate if matched, and set the premium of the offer
-      (db/buy-request-set-field! (:id buy-request) "exchange_rate" )
-      (db/buy-request-set-field! (:id buy-request) "premium" (:premium offer))
-      (:user offer))))
+    (when-not (empty? offering-in-range)
+      (let [offer (rand-nth offering-in-range)]
+        ;; Freeze exchange rate if matched, and set the premium of the offer
+        (db/buy-request-update! (:id buy-request) {:exchange_rate (get-in exchange-rates [:rates :btc-usd])
+                                                   :premium (:premium offer)})
+        (:user offer)))))
 
 (defn blacklist-counterparty [buyer-id seller-id]
   (wcar* (r/sadd (str "buyer->blacklist:" buyer-id) seller-id)))
@@ -279,14 +280,14 @@
         "contract-broken"
         (do (events/add-event! (:buyer-id contract) :contract-broken contract)
             (events/add-event! (:seller-id contract) :contract-broken contract)
-            (db/contract-set-field! contract-id "escrow_open_for" (:seller-id contract))
+            (db/contract-update! contract-id {:escrow_open_for (:seller-id contract)})
             {:status :success})
 
         ;; Contract can be cancelled anytime
         "contract-broken/escrow-insufficient"
         (do (events/add-event! (:buyer-id contract) :contract-escrow-insufficient contract)
             (events/add-event! (:seller-id contract) :contract-escrow-insufficient contract)
-            (db/contract-set-field! contract-id "escrow_open_for" (:seller-id contract))
+            (db/contract-update! contract-id {:escrow_open_for (:seller-id contract)})
             {:status :success})
 
         ;; We inform of the expected transaction and the freezing of price.
@@ -327,7 +328,7 @@
         (cond (and (:transfer-received contract)
                    (:escrow-seller-has-key contract)
                    (:escrow-buyer-has-key contract))
-              (do (db/contract-set-field! contract-id "escrow_open_for" (:buyer-id contract)) ; Idempotent
+              (do (db/contract-update! contract-id {:escrow_open_for (:buyer-id contract)}) ; Idempotent
                   (events/add-event! (:buyer-id contract) :contract-success contract)
                   (events/add-event! (:seller-id contract) :contract-success contract)
                   (with-idempotent-transaction mid :contract-success state
@@ -400,7 +401,7 @@
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message]
     (log/debug message)
-    (db/contract-set-field! (:id data) "transfer_received" true)
+    (db/contract-update! (:id data) {:transfer_received true})
     {:status :success}))
 
 (defmethod common-preemptive-handler :escrow/release-to-user
@@ -419,7 +420,7 @@
                    (common/long->decr (:fee contract))
                    (common/long->decr (:premium contract)))))
       (do
-        (db/contract-set-field! contract-id "escrow_release" "<success>")
+        (db/contract-update! contract-id {:escrow_release "<success>"})
         (events/add-event! (:buyer-id contract) :contract-escrow-release-success contract) ; Allow repetition
         (events/add-event! (:seller-id contract) :contract-escrow-release-success contract) ; Allow repetition
         (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))

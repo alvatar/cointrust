@@ -50,6 +50,6 @@
   (let [keys {:our-key (bitcoin/make-private-key)
               :buyer-key (bitcoin/make-private-key)
               :seller-key (bitcoin/make-private-key)}]
-    (db/contract-set-field! contract-id "escrow_our_key" (:our-key keys))
+    (db/contract-update! contract-id {:escrow_our_key (:our-key keys)})
     (set-buyer-key contract-id (:buyer-key keys))
     (set-seller-key contract-id (:seller-key keys))))
