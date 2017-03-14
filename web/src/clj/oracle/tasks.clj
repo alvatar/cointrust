@@ -472,10 +472,10 @@
 ;;
 
 (defn populate-test-database! []
-  (db/user-insert! 10100642548250434 "John" "asdf" [])
+  (db/user-insert! 10213129106885586 "John" "asdf" [])
   (db/user-insert! 10106263879382352 "Ada" "ffff" ["asdf"])
-  (db/user-insert! 10213129106885586 "Scipio" "aaaa" ["ffff"])
-  (db/user-insert! 10210216755509404 "Thor" "bbbb" ["asdf"])
+  (db/user-insert! 10100642548250434 "Scipio" "aaaa" ["ffff"])
+  (db/user-insert! 10213129106885586 "Thor" "bbbb" ["asdf"])
 
   (db/user-insert! 145228535996960 "Julius" "cccc" [])
 

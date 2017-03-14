@@ -1008,7 +1008,10 @@
                                2)]] " to @" (:transfer-info contract) " in Venmo"]]
                   ;; Seller dialog
                   [:div.padding-1rem
-                   [:h3 "Step 1: Expect a video from the buyer reading the following text"]
+                   [:h3 (gstring/format "Step 1: Expect a video from %s reading the following text" (:buyer-name contract))]
+                   [:div.center
+                    [:a.hint--bottom {:aria-label (:buyer-name contract)}
+                     [:img {:src (:buyer-photo contract)}]]]
                    (legal-text :seller)
                    [:h3 "Step 2: As soon as you receive a valid video in Facebook and the funds in Venmo, press the button below:"]
                    [:div.center
@@ -1421,13 +1424,15 @@
                           (log* %))))
              (remove-watch (:friends2 app-state) :got-friends2)))
 
-(defn get-photo-for-contract! [contract]
-  (fb/api (str "/" (:seller-fb-id contract) "/picture")
+(defn get-photo-for-contract! [contract role]
+  (fb/api (str "/" ((keyword (str (name role) "-fb-id")) contract) "/picture")
           (fn [resp]
             (if-let [photo-url (get-in resp [:data :url])]
-              (update-contract (:id contract) #(assoc % :seller-photo photo-url))
+              (update-contract (:id contract) #(assoc % (keyword (str (name role) "-photo")) photo-url))
               (log* resp)))))
 
 (add-watch (:contracts app-state) :fetch-contract-photos
            (fn [_1 _2 _3 _4]
-             (doseq [c @_2] (when-not (:seller-photo c) (get-photo-for-contract! c)))))
+             (doseq [c @_2]
+               (when-not (:seller-photo c) (get-photo-for-contract! c :seller))
+               (when-not (:buyer-photo c) (get-photo-for-contract! c :buyer)))))
