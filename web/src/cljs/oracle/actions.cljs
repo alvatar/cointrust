@@ -16,6 +16,10 @@
 ;; Helpers
 ;;
 
+(defn update-sell-offer [id f]
+  (reset! (:sell-offer-matches state/app)
+          (doall (utils/some-updatev #(= (:id %) id) f @(:sell-offer-matches state/app)))))
+
 (defn update-buy-request [id f]
   (reset! (:buy-requests state/app)
           (doall (utils/some-update #(= (:id %) id) f @(:buy-requests state/app)))))

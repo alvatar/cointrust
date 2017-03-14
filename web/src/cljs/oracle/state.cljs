@@ -14,7 +14,7 @@
               :seconds-since-last-exchange-rates-refresh (atom {})
               :seconds-until-next-reconnect (atom nil)
               :sell-offer (atom nil)
-              :sell-offer-matches (atom cljs.core/PersistentQueue.EMPTY)
+              :sell-offer-matches (atom [])
               :buy-requests (atom [])
               :contracts (atom nil)
               :notifications (atom cljs.core/PersistentQueue.EMPTY)

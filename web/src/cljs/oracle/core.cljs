@@ -73,18 +73,27 @@
   (fb/api (str "/" ((keyword (str (name role) "-fb-id")) obj) "/picture")
           (fn [resp]
             (if-let [photo-url (get-in resp [:data :url])]
-              ((case type :contract actions/update-contract :buy-request actions/update-buy-request)
+              ((case type
+                 :sell-offer actions/update-sell-offer
+                 :buy-request actions/update-buy-request
+                 :contract actions/update-contract)
                (:id obj) #(assoc % (keyword (str (name role) "-photo")) photo-url))
               (utils/log* resp)))))
 
-(add-watch (:contracts state/app) :fetch-contract-photos
+(add-watch (:sell-offer-matches state/app) :fetch-sell-offer-photos
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
-               (when-not (:seller-photo c) (get-photo-for! c :contract :seller))
-               (when-not (:buyer-photo c) (get-photo-for! c :contract :buyer)))))
+               (when (and (:buyer-id c) (not (:buyer-photo c)))
+                 (get-photo-for! c :sell-offer :buyer)))))
 
 (add-watch (:buy-requests state/app) :fetch-buy-requests-photos
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
                (when (and (:buyer-id c) (not (:buyer-photo c)))
                  (get-photo-for! c :buy-request :buyer)))))
+
+(add-watch (:contracts state/app) :fetch-contract-photos
+           (fn [_1 _2 _3 _4]
+             (doseq [c @_2]
+               (when-not (:seller-photo c) (get-photo-for! c :contract :seller))
+               (when-not (:buyer-photo c) (get-photo-for! c :contract :buyer)))))

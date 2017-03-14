@@ -101,8 +101,8 @@
 (defmethod -event-msg-handler :offer/get-matches
   [{:keys [?data ?reply-fn]}]
   (let [offer-matches (db/get-buy-requests-by-counterparty (:user-id ?data))]
-   (try (?reply-fn {:offer-matches offer-matches})
-        (catch Exception e (pprint e) (?reply-fn {:status :error})))))
+    (try (?reply-fn {:offer-matches offer-matches})
+         (catch Exception e (pprint e) (?reply-fn {:status :error})))))
 
 (defmethod -event-msg-handler :buy-request/create
   [{:keys [?data ?reply-fn]}]

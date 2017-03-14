@@ -56,7 +56,7 @@
 INSERT INTO logs (level, type, data) VALUES ('debug', ?, ?) RETURNING *;
 " type (json/generate-string datamap)]))
 
-(defn get-all-logs [limit]
+(defn get-logs [limit]
   (sql/query db ["SELECT * FROM logs LIMIT ?" limit]))
 
 ;;
@@ -177,7 +177,7 @@ DELETE FROM sell_offer WHERE user_id = ?;
 SELECT user_id AS user, currency, min, max, premium FROM sell_offer WHERE user_id = ?;
 " user-id])))
 
-(defn get-all-sell-offers []
+(defn get-sell-offers []
   (into []
         (sql/query db ["
 SELECT * FROM sell_offer;
@@ -208,18 +208,18 @@ RETURNING *;
 (defn get-buy-requests-by-user [user-id]
   (mapv ->kebab-case
         (sql/query db ["
-SELECT * FROM buy_request WHERE buyer_id = ?;
+SELECT * FROM full_buy_request WHERE buyer_id = ?;
 " user-id])))
 
 (defn get-buy-requests-by-counterparty [counterparty]
   (mapv ->kebab-case
         (sql/query db ["
-SELECT * FROM buy_request WHERE seller_id = ?;
+SELECT * FROM full_buy_request WHERE seller_id = ?;
 " counterparty])))
 
 (defn get-buy-request-by-id [buy-request]
   (-> (sql/query db ["
-SELECT * FROM buy_request WHERE id = ?;
+SELECT * FROM full_buy_request WHERE id = ?;
 " buy-request])
       first
       ->kebab-case))
@@ -261,10 +261,10 @@ DELETE FROM buy_request WHERE id = ?;
     (log-op! tx "buy-request-delete" {:id buy-request}))
   'ok)
 
-(defn get-all-buy-requests []
+(defn get-buy-requests []
   (mapv ->kebab-case
         (sql/query db ["
-SELECT * FROM buy_request;
+SELECT * FROM full_buy_request;
 "])))
 
 ;;
@@ -368,20 +368,20 @@ WHERE input_address = ?
       first
       ->kebab-case))
 
-(defn get-all-contracts []
+(defn get-contracts []
   (map ->kebab-case
        (sql/query db ["
 SELECT * FROM contract
 "])))
 
-(defn get-all-events []
+(defn get-events []
   (mapv
    ->kebab-case
    (sql/query db ["
 SELECT * FROM contract_event;
 "])))
 
-(defn get-all-last-events []
+(defn get-last-events []
   (mapv ->kebab-case
         (sql/query db ["
 SELECT a.*
@@ -436,6 +436,7 @@ ON CONFLICT (lock) DO UPDATE SET data = ?;
                        "DROP TABLE IF EXISTS contract_event;"
                        "DROP TABLE IF EXISTS contract CASCADE;"
                        "DROP TABLE IF EXISTS sell_offer;"
+                       "DROP VIEW IF EXISTS full_buy_request;"
                        "DROP TABLE IF EXISTS buy_request;"
                        "DROP TABLE IF EXISTS friends;"
                        "DROP TABLE IF EXISTS user_account CASCADE;"
@@ -530,6 +531,15 @@ CREATE TABLE logs (
   type                             VARCHAR(64) NOT NULL,
   data                             TEXT NOT NULL
 );"
+                       "
+CREATE OR REPLACE VIEW full_buy_request AS
+SELECT buy_request.*,
+       buyer.name AS buyer_name, buyer.fb_id AS buyer_fb_id,
+       seller.name AS seller_name, seller.fb_id AS seller_fb_id
+FROM buy_request
+INNER JOIN user_account AS buyer ON (buyer.id = buy_request.buyer_id)
+INNER JOIN user_account AS seller ON (seller.id = buy_request.seller_id)
+"
                        "
 CREATE OR REPLACE VIEW full_contract AS
 SELECT contract.*,

@@ -686,29 +686,37 @@
                                                       (actions/decline-buy-request (:id current))
                                                       (actions/close-sell-offer #(swap! (:sell-offer-matches state/app) pop)))})]
             ;; Here we calculate the amount the seller is going to put in the escrow
-            title (gstring/format "Offer Matched for %f %s" (* (common/currency-as-float
-                                                                (:amount current)
-                                                                (:currency-seller current))
-                                                               (- 1 (/ (:premium current) 100)))
-                                  (clojure.string/upper-case (:currency-seller current)))
-            div-account-name [:div.left [:span {:style {:margin-right "2px"}} "@"]
-                              (ui/text-field {:id "account-name"
-                                              :floating-label-text "Venmo ID"
-                                              :value (:name (rum/react account-info))
-                                              :on-change #(swap! account-info assoc :name (.. % -target -value))})]]
+            title "We found a buyer!"
+            content [:div
+                     [:h3 (gstring/format "%s wants to buy %f Bitcoins"
+                                              (:buyer-name current)
+                                              (* (common/currency-as-float
+                                                  (:amount current)
+                                                  (:currency-seller current))
+                                                 (- 1 (/ (:premium current) 100)))
+                                              (clojure.string/upper-case (:currency-seller current)))]
+                     [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
+                      [:a.hint--bottom {:aria-label (:buyer-name current)}
+                       [:img {:src (:buyer-photo current)}]]]
+                     [:div.left [:span {:style {:margin-right "2px"}} "@"]
+                      (ui/text-field {:id "account-name"
+                                      :hint-text "Enter your Venmo ID to get paid!"
+                                      ;; :floating-label-text "Venmo ID"
+                                      :value (:name (rum/react account-info))
+                                      :on-change #(swap! account-info assoc :name (.. % -target -value))})]]]
         (if (rum/react small-display?)
           (mobile-overlay
            open?
            [:div.padding-1rem
             [:h3 title]
-            [:div div-account-name]
+            [:div content]
             buttons])
           (ui/dialog {:title title
                       :open open?
                       :modal true
                       :actions buttons
                       :content-style {:width "340px"}}
-                     [:div.center div-account-name]))))))
+                     [:div.center content]))))))
 
 (rum/defc footer
   < rum/reactive
