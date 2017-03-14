@@ -45,56 +45,70 @@
     ;; (log/debug (format "SENDING MESSAGE to user %s hash %s type %s: %s" user-id uid type args))
     (case type
       :buy-request-created
-      (future
-        (chsk-send! uid [:buy-request/create args])
-        (notification uid "Buy request created. Looking for a trusted partner." ""))
+      (comment
+        (future
+          (chsk-send! uid [:buy-request/create args])
+          (notification uid "Buy request created. Looking for a trusted partner." "")))
       :buy-request-matched
-      (future
-        (chsk-send! uid [:buy-request/match args])
-        (notification uid "Partner found. Waiting response." ""))
+      (comment
+        (future
+          (chsk-send! uid [:buy-request/match args])
+          (notification uid "Partner found. Waiting response." "")))
       :sell-offer-matched
-      (future
-        (chsk-send! uid [:sell-offer/match args]))
+      (comment
+        (future
+          (chsk-send! uid [:sell-offer/match args])))
       :buy-request-accept
-      (future
-        (chsk-send! uid [:buy-request/accepted args])
-        (notification uid "Buy request accepted." ""))
+      (comment
+        (future
+          (chsk-send! uid [:buy-request/accepted args])
+          (notification uid "Buy request accepted." "")))
       :buy-request-decline
-      (future
-        (chsk-send! uid [:buy-request/declined args])
-        (notification uid "Buy request declined." ""))
+      (comment
+        (future
+          (chsk-send! uid [:buy-request/declined args])
+          (notification uid "Buy request declined." "")))
       :buy-request-timed-out
-      (future
-        (chsk-send! uid [:buy-request/timed-out args])
-        (notification uid "Buy request timed out." ""))
+      (comment
+        (future
+          (chsk-send! uid [:buy-request/timed-out args])
+          (notification uid "Buy request timed out." "")))
       :contract-create
-      (future
-        (chsk-send! uid [:contract/create args]))
+      (comment
+        (future
+          (chsk-send! uid [:contract/create args])))
       :contract-escrow-funded
-      (future
-        (chsk-send! uid [:contract/escrow-funded args])
-        (notification uid "Escrow funds received." ""))
+      (comment
+        (future
+          (chsk-send! uid [:contract/escrow-funded args])
+          (notification uid "Escrow funds received." "")))
       :contract-mark-transfer-received-ack
-      (future
-        (chsk-send! uid [:contract/mark-transfer-received-ack args])
-        (notification uid "Transfer received." ""))
+      (comment
+        (future
+          (chsk-send! uid [:contract/mark-transfer-received-ack args])
+          (notification uid "Transfer received." "")))
       :contract-success
-      (future
-        (chsk-send! uid [:contract/success args])
-        (notification uid "Contract executed successfully." ""))
+      (comment
+        (future
+          (chsk-send! uid [:contract/success args])
+          (notification uid "Contract executed successfully." "")))
       :contract-broken
-      (future
-        (chsk-send! uid [:contract/broken args])
-        (notification uid "Contract broken." ""))
+      (comment
+        (future
+          (chsk-send! uid [:contract/broken args])
+          (notification uid "Contract broken." "")))
       :contract-escrow-release-success
-      (future
-        (chsk-send! uid [:contract/escrow-release-success args])
-        (notification uid "Escrow Released." ""))
+      (comment
+        (future
+          (chsk-send! uid [:contract/escrow-release-success args])
+          (notification uid "Escrow Released." "")))
       :contract-escrow-release-failure
-      (future
-        (chsk-send! uid [:contract/escrow-release-failure args])
-        (notification uid "Failure Releasing Escrow." ""))
+      (comment
+        (future
+          (chsk-send! uid [:contract/escrow-release-failure args])
+          (notification uid "Failure Releasing Escrow." "")))
       :contract-escrow-insufficient
-      (future
-        (chsk-send! uid [:contract/escrow-insufficient args])
-        (notification uid "Error: Received insufficient funds")))))
+      (comment
+        (future
+          (chsk-send! uid [:contract/escrow-insufficient args])
+          (notification uid "Error: Received insufficient funds"))))))
