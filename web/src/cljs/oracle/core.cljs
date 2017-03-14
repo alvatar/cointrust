@@ -82,6 +82,10 @@
 
 (defn some-update [predicate f coll] (map (fn [x] (if (predicate x) (f x) x)) coll))
 
+(defn update-buy-request [id f]
+  (reset! (:buy-requests app-state)
+          (doall (some-update #(= (:id %) id) f @(:buy-requests app-state)))))
+
 (defn update-contract [id f]
   (reset! (:contracts app-state)
           (doall (some-update #(= (:id %) id) f @(:contracts app-state)))))
@@ -1313,9 +1317,6 @@
                          {:key "qa-text-4-nested"
                           :disabled true}
                          [:ul
-                          [:li "By using Cointrust, you can sell Bitcoin without the risk of chargebacks."]
-                          [:li "Dollar Payment are reversible (Venmo, Paypal, Credit Card, Bank Transfer). "]
-                          [:li "But Bitcoin payments aren’t. This is why buying bitcoin can be PAINFULLY slow."]
                           [:li "By using " [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts"] ", Cointrust acts like a digital notary confirming all the information you need as a buyer or seller to be protected and either perform or reverse a chargeback."]])]}
         [:h3 "What about chargebacks?"])
        (ui/list-item
@@ -1424,15 +1425,22 @@
                           (log* %))))
              (remove-watch (:friends2 app-state) :got-friends2)))
 
-(defn get-photo-for-contract! [contract role]
-  (fb/api (str "/" ((keyword (str (name role) "-fb-id")) contract) "/picture")
+(defn get-photo-for! [obj type role]
+  (fb/api (str "/" ((keyword (str (name role) "-fb-id")) obj) "/picture")
           (fn [resp]
             (if-let [photo-url (get-in resp [:data :url])]
-              (update-contract (:id contract) #(assoc % (keyword (str (name role) "-photo")) photo-url))
+              ((case type :contract update-contract :buy-request update-buy-request)
+               (:id obj) #(assoc % (keyword (str (name role) "-photo")) photo-url))
               (log* resp)))))
 
 (add-watch (:contracts app-state) :fetch-contract-photos
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
-               (when-not (:seller-photo c) (get-photo-for-contract! c :seller))
-               (when-not (:buyer-photo c) (get-photo-for-contract! c :buyer)))))
+               (when-not (:seller-photo c) (get-photo-for! c :contract :seller))
+               (when-not (:buyer-photo c) (get-photo-for! c :contract :buyer)))))
+
+(add-watch (:buy-requests app-state) :fetch-buy-requests-photos
+           (fn [_1 _2 _3 _4]
+             (doseq [c @_2]
+               (when (and (:buyer-id c) (not (:buyer-photo c)))
+                 (get-photo-for! c :buy-request :buyer)))))
