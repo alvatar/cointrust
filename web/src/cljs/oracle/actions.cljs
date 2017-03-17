@@ -20,6 +20,7 @@
 
 (defn update-sell-offer [id f]
   (reset! (:sell-offer-matches state/app)
+          ;; Using vector
           (doall (utils/some-updatev #(= (:id %) id) f @(:sell-offer-matches state/app)))))
 
 (defn update-buy-request [id f]
@@ -35,7 +36,7 @@
 ;;
 
 (defn push-error [message]
-  (swap! (:notifications state/app) conj {:title "Error" :message message}))
+  (swap! (:notifications state/app) conj {:title message :message ""}))
 
 (defn get-server-time []
   (network/send!
@@ -280,25 +281,22 @@
     (utils/log* "Error in :buy-request/create" msg)
     (swap! (:buy-requests state/app) conj msg)))
 
-(defn find-buy-request [id] (first (keep-indexed #(when (= (:id %2) id) %1) @(:buy-requests state/app))))
-
 (defmethod app-msg-handler :buy-request/match
   [[_ msg]]
   (if (:error msg)
-    (utils/log* "Error in :buy-request/match" msg)
-    (if-let [found-idx (find-buy-request (:id msg))]
-      (swap! (:buy-requests state/app) assoc-in [found-idx :seller-id] (:seller-id msg))
-      (do (push-error "Error matching the buy request.")
-          (utils/log* "Error in buy-request/match" msg)))))
+    (do (push-error "Error matching the buy request.")
+        (utils/log* "Error in buy-request/match" msg))
+    (update-buy-request (:id msg) #(-> %
+                                       (assoc :seller-id (:seller-id msg))
+                                       (assoc :seller-fb-id (:seller-fb-id msg))
+                                       (assoc :seller-name (:seller-name msg))))))
 
 (defmethod app-msg-handler :buy-request/timed-out
   [[_ msg]]
   (if (:error msg)
-    (utils/log* "Error in :buy-request/timed-out" msg)
-    (if-let [found-idx (find-buy-request (:id msg))]
-      (swap! (:buy-requests state/app) assoc-in [found-idx :seller-id] nil)
-      (do (push-error "Error restarting the buy request.")
-          (utils/log* "Error in buy-request/timed-out" msg)))))
+    (do (push-error "Error restarting the buy request.")
+        (utils/log* "Error in buy-request/timed-out" msg))
+    (update-buy-request (:id msg) #(dissoc % :seller-id))))
 
 (defmethod app-msg-handler :buy-request/accepted
   [[_ msg]]
@@ -312,11 +310,9 @@
 (defmethod app-msg-handler :buy-request/declined
   [[_ msg]]
   (if (:error msg)
-    (utils/log* "Error in :buy-request/declined" msg)
-    (if-let [found-idx (find-buy-request (:id msg))]
-      (swap! (:buy-requests state/app) assoc-in [found-idx :seller-id] nil)
-      (do (push-error "Error declining the buy request.")
-          (utils/log* "Error in buy-request/declined" msg)))))
+    (do (push-error "Error declining the buy request.")
+        (utils/log* "Error in buy-request/declined" msg))
+    (update-buy-request (:id msg) #(dissoc % :seller-id))))
 
 (defmethod app-msg-handler :contract/create
   [[_ msg]]

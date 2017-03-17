@@ -206,14 +206,14 @@ RETURNING *;
         kb-buy-request))))
 
 (defn get-buy-requests-by-user [user-id]
-  (mapv ->kebab-case
-        (sql/query db ["
+  (map ->kebab-case
+       (sql/query db ["
 SELECT * FROM full_buy_request WHERE buyer_id = ?;
 " user-id])))
 
 (defn get-buy-requests-by-counterparty [counterparty]
-  (mapv ->kebab-case
-        (sql/query db ["
+  (map ->kebab-case
+       (sql/query db ["
 SELECT * FROM full_buy_request WHERE seller_id = ?;
 " counterparty])))
 
@@ -262,7 +262,7 @@ DELETE FROM buy_request WHERE id = ?;
   'ok)
 
 (defn get-buy-requests []
-  (mapv ->kebab-case
+  (map ->kebab-case
         (sql/query db ["
 SELECT * FROM full_buy_request;
 "])))
