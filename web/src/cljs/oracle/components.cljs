@@ -556,10 +556,10 @@
         (ui/list
          (for [contract contracts]
            (ui/list-item
-            {:key (:hash contract)
+            {:key (str (:hash contract) "-contract-list-item")
              :primary-toggles-nested-list true
              :nested-items [(ui/list-item
-                             {:key (str (:hash contract) "-children")}
+                             {:key (str (:hash contract) "-contract-list-item-nested")}
                              [:div
                               (ui/stepper ((if _small-display? #(assoc % :connector nil) identity)
                                            {:active-step (case (:stage contract)
@@ -594,6 +594,11 @@
             [:div.hint--bottom {:aria-label (gstring/format "Waiting for %s to deposit Bitcoins into this Smart Contract" (:seller-name contract))
                                 :style {:width "100%"}}
              [(if _small-display? :div.center :div.column-half)
+              [:div {:style (when-not _small-display? {:display "block" :clear "both"})}
+               [:img {:style (if _small-display?
+                               {:margin-bottom "10px"}
+                               {:float "left" :width "28px" :height "28px" :margin-right "4px"})
+                      :src (if (am-i-seller? contract) (:seller-photo contract) (:buyer-photo contract))}]]
               [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
               (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
               (when-not _small-display?
@@ -708,10 +713,10 @@
         (if (rum/react small-display?)
           (mobile-overlay
            open?
-           [:div.padding-1rem
-            [:h3 title]
-            [:div content]
-            buttons])
+           (into [:div.padding-1rem
+                  [:h3 title]
+                  [:div content]]
+                 buttons))
           (ui/dialog {:title title
                       :open open?
                       :modal true

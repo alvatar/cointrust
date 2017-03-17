@@ -227,17 +227,18 @@
              (remove-watch (:friends2 state/app) :got-friends2)))
 
 (defn get-photo-for! [obj type role]
-  (fb/api (str "/" ((keyword (str (name role) "-fb-id")) obj) "/picture")
-          (fn [resp]
-            (if-let [photo-url (get-in resp [:data :url])]
-              ((case type
-                 :sell-offer update-sell-offer
-                 :buy-request update-buy-request
-                 :contract update-contract)
-               (:id obj) #(assoc % (keyword (str (name role) "-photo")) photo-url))
-              (utils/log* "Couldn't retrieve photo from Facebook")))))
+  (when-let [id ((keyword (str (name role) "-fb-id")) obj)]
+    (fb/api (str "/" id "/picture")
+            (fn [resp]
+              (if-let [photo-url (get-in resp [:data :url])]
+                ((case type
+                   :sell-offer update-sell-offer
+                   :buy-request update-buy-request
+                   :contract update-contract)
+                 (:id obj) #(assoc % (keyword (str (name role) "-photo")) photo-url))
+                (utils/log* "Couldn't retrieve photo from Facebook"))))))
 
-(add-watch (:sell-offer-matches state/app) :fetch-sell-offer-photos
+(add-watch (:sell-offer-matches state/app) :fetch-sell-offer-match-photos
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
                (when (and (:buyer-id c) (not (:buyer-photo c)))
@@ -246,8 +247,8 @@
 (add-watch (:buy-requests state/app) :fetch-buy-requests-photos
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
-               (when (and (:buyer-id c) (not (:buyer-photo c)))
-                 (get-photo-for! c :buy-request :buyer)))))
+               (when (and (:seller-id c) (not (:seller-photo c)))
+                 (get-photo-for! c :buy-request :seller)))))
 
 (add-watch (:contracts state/app) :fetch-contract-photos
            (fn [_1 _2 _3 _4]
@@ -287,7 +288,7 @@
     (utils/log* "Error in :buy-request/match" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests state/app) assoc-in [found-idx :seller-id] (:seller-id msg))
-      (do (push-error "There was an error when matching the buy request. Please inform us of this event.")
+      (do (push-error "Error matching the buy request.")
           (utils/log* "Error in buy-request/match" msg)))))
 
 (defmethod app-msg-handler :buy-request/timed-out
@@ -296,7 +297,7 @@
     (utils/log* "Error in :buy-request/timed-out" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests state/app) assoc-in [found-idx :seller-id] nil)
-      (do (push-error "There was an error when restarting the buy request. Please inform us of this event.")
+      (do (push-error "Error restarting the buy request.")
           (utils/log* "Error in buy-request/timed-out" msg)))))
 
 (defmethod app-msg-handler :buy-request/accepted
@@ -305,7 +306,7 @@
     (utils/log* "Error in :buy-request/accepted" msg)
     (try (swap! (:buy-requests state/app) (fn [q] (remove #(= (:id msg)) q)))
          (catch :default e
-           (push-error "There was an error when accepting the buy request. Please inform us of this event.")
+           (push-error "Error accepting the buy request. Please inform us of this event.")
            (utils/log* "Error in buy-request/accepted:" e)))))
 
 (defmethod app-msg-handler :buy-request/declined
@@ -314,7 +315,7 @@
     (utils/log* "Error in :buy-request/declined" msg)
     (if-let [found-idx (find-buy-request (:id msg))]
       (swap! (:buy-requests state/app) assoc-in [found-idx :seller-id] nil)
-      (do (push-error "There was an error when matching the buy request. Please inform us of this event.")
+      (do (push-error "Error declining the buy request.")
           (utils/log* "Error in buy-request/declined" msg)))))
 
 (defmethod app-msg-handler :contract/create
@@ -325,7 +326,7 @@
          ;; (when (= (:seller-id msg) @(:user-id state/app))
          ;;   (reset! (:display-contract state/app) (:id msg)))
          (catch :default e
-           (do (push-error "There was an error when creating the contract. Please inform us of this event.")
+           (do (push-error "Error creating the contract.")
                (utils/log* "Error in contract/create" msg))))))
 
 (defmethod app-msg-handler :contract/update
@@ -337,56 +338,56 @@
 (defmethod app-msg-handler :contract/escrow-funded
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error in funding the Escrow. Please inform us of this event.")
+    (do (push-error "Error in funding the Escrow.")
         (utils/log* "Error in contract/escrow-funded" msg))
     (update-contract (:id msg) #(assoc % :stage "waiting-transfer"))))
 
 (defmethod app-msg-handler :contract/mark-transfer-received-ack
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error when marking the transfer as received. Please inform us of this event.")
+    (do (push-error "Error marking the transfer as received.")
         (utils/log* "Error in contract/mark-transfer-received-ack" msg))
     (update-contract (:id msg) #(assoc % :transfer-received true))))
 
 (defmethod app-msg-handler :contract/holding-period
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error when starting the contract holding period. Please inform us of this event.")
+    (do (push-error "Error starting the contract holding period.")
           (utils/log* "Error in contract/holding-period" msg))
     (update-contract (:id msg) #(assoc % :transfer-received true))))
 
 (defmethod app-msg-handler :contract/success
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error setting the contract as successful. Please inform us of this event.")
+    (do (push-error "Erro finalizing the contract.")
         (utils/log* "Error in contract/holding-period" msg))
     (update-contract (:id msg) #(assoc % :stage "contract-success"))))
 
 (defmethod app-msg-handler :contract/broken
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error setting the contract as broken. Please inform us of this event.")
+    (do (push-error "Error breaking the contract.")
         (utils/log* "Error in contract/broken" msg))
     (update-contract (:id msg) #(assoc % :stage "contract-broken"))))
 
 (defmethod app-msg-handler :contract/escrow-insufficient
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+    (do (push-error "Error releasing the Escrow.")
         (utils/log* "Error in contract/escrow-insufficient" msg))
     (update-contract (:id msg) #(assoc % :stage "contract-broken/escrow-insufficient"))))
 
 (defmethod app-msg-handler :contract/escrow-release-success
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+    (do (push-error "Error releasing the Escrow.")
         (utils/log* "Error in contract/escrow-release-success" msg))
     (update-contract (:id msg) #(assoc % :escrow-release "<success>"))))
 
 (defmethod app-msg-handler :contract/escrow-release-failure
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "There was an error releasing the Escrow. Please inform us of this event.")
+    (do (push-error "Error releasing the Escrow.")
         (utils/log* "Error in contract/escrow-release-failed" msg))
     (update-contract (:id msg) #(assoc % :escrow-release "<failure>"))))
 
