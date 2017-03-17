@@ -59,7 +59,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (reset! (:friends2 state/app) (:friends2 resp))
-       (do (push-error "Error. Please try again.")
+       (do (push-error "Error retrieving data. Please relogin.")
            (utils/log* "Error in get-friends2:" resp)))
      (utils/log* "Friends^2:" (str @(:friends2 state/app))))))
 
@@ -71,7 +71,7 @@
        (when-let [requests (:buy-requests resp)]
          (utils/log* "Received requests" requests)
          (reset! (:buy-requests state/app) requests))
-       (do (push-error "There was an error retrieving your previous buy requests. Please try again.")
+       (do (push-error "Error retrieving data. Please relogin.")
            (utils/log* "Error in get-user-requests:" resp))))))
 
 (defn get-user-contracts []
@@ -86,7 +86,7 @@
          ;;                            contracts)]
          ;;   (reset! (:display-contract state/app) contract-id))
          )
-       (do (push-error "There was an error retrieving your previous contracts. Please try again.")
+       (do (push-error "Error retrieving data. Please relogin.")
            (utils/log* "Error in get-user-contract:" resp))))))
 
 (defn get-user-pending-notifications []
@@ -430,7 +430,7 @@
   [{:as ev-msg :keys [?data ?reply-fn event]}]
   (when (and (= ?data [:chsk/ws-ping]) ?reply-fn)
     (?reply-fn {:chsk/ws-ping event}))
-  (utils/log* "Push event from server: " (str ?data))
+  ;; (utils/log* "Push event from server: " (str ?data))
   (app-msg-handler ?data))
 
 ;;
