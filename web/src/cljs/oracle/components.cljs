@@ -598,7 +598,7 @@
                [:img {:style (if _small-display?
                                {:margin-bottom "10px"}
                                {:float "left" :width "28px" :height "28px" :margin-right "4px"})
-                      :src (if (am-i-seller? contract) (:seller-photo contract) (:buyer-photo contract))}]]
+                      :src (if (am-i-seller? contract) (:buyer-photo contract) (:seller-photo contract))}]]
               [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
               (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
               (when-not _small-display?
