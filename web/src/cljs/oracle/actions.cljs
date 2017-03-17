@@ -3,9 +3,11 @@
             [taoensso.sente :as sente :refer (cb-success?)]
             [taoensso.sente.packers.transit :as sente-transit]
             [goog.string :as gstring]
+            [cljs-hash.goog :as gh]
             [fb-sdk-cljs.core :as fb]
             ;; -----
             [oracle.common :as common]
+            [oracle.globals :as globals]
             [oracle.state :as state]
             [oracle.utils :as utils]
             [oracle.network :as network]))
@@ -35,77 +37,6 @@
 (defn push-error [message]
   (swap! (:notifications state/app) conj {:title "Error" :message message}))
 
-(defn logout [] (aset js/window "location" "/"))
-
-(defn get-friends2 []
-  (network/send!
-   [:user/friends-of-friends {:user-id @(:user-id state/app)}] 5000
-   (fn [resp]
-     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:friends2 state/app) (:friends2 resp))
-       (do (push-error "There was an error with your login. Please try again.")
-           (utils/log* "Error in handle-enter:" resp)))
-     (utils/log* "Friends^2" (str @(:friends2 state/app))))))
-
-(defn try-enter [user-fbid user-name hashed-id hashed-friends]
-  (network/send!
-   [:user/enter {:user-fbid user-fbid
-                 :user-name user-name
-                 :hashed-user hashed-id
-                 :hashed-friends hashed-friends}] 5000
-   (fn [resp]
-     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (do (utils/log* "Try Enter: " resp)
-           (reset! (:user-id state/app) (:found-user resp)))
-       (do (push-error "There was an error with your login. Please try again.")
-           (utils/log* "Error in try-enter:" resp))))))
-
-(defn- set-fake-facebooks-ids [hashed-id]
-  (reset! (:user-hash state/app) hashed-id)
-  #_(let [ffbids [10100642548250434 10106263879382352 10213129106885586 10210216755509404 145228535996960 145228535996960 145228535996960 145228535996960]]
-    (reset! (:friend-fbids state/app) ffbids)
-    #_(doseq [[f idx] (zipmap (take 8 f2bids) (range))]
-      (fb/api (str "/" f "/picture")
-              (fn [resp] (swap! (:friends2 state/app) conj {:id f
-                                                            :name (str "Name " f)
-                                                            :photo-url (get-in resp [:data :url])})))))
-  (network/sente-register-init-callback! #(try-enter 1 "Alvatar" hashed-id ["TODO"]))
-  (network/init-sente! event-msg-handler hashed-id))
-
-(defn- set-facebook-ids [response]
-  (if (= (:status response) "connected")
-    (let [user-fbid-str (get-in response [:authResponse :userID])
-          user-fbid (js/Number (get-in response [:authResponse :userID]))
-          hashed-id (cljs-hash.goog/hash :sha1 user-fbid-str)]
-      (fb/api "/me/"
-              (fn [resp]
-                (reset! (:user-name state/app) (:name resp))
-                (reset! (:user-fbid state/app) user-fbid)
-                (reset! (:user-hash state/app) hashed-id)
-                (utils/log* "Connected with Facebook userID: " user-fbid)
-                (utils/log* "Hashed user: " hashed-id)
-                (fb/api "/me/friends" {}
-                        (fn [{friends :data}]
-                          (let [friend-fbids (map :id friends)
-                                hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
-                            (reset! (:friend-fbids state/app) friend-fbids)
-                            (reset! (:friend-hashes state/app) hashed-friends)
-                            (utils/log* "Friend IDs: " (str friend-fbids))
-                            (utils/log* "Hashed friends: " (str hashed-friends))
-                            (network/sente-register-init-callback! #(try-enter user-fbid (:name resp) hashed-id hashed-friends))
-                            (network/init-sente! event-msg-handler hashed-id)))))))
-    (utils/log* "Not logged in: " (clj->js response))))
-
-(defn facebook-login [fb-error]
-  (try
-    (fb/get-login-status
-     (fn [response]
-       (case (:status response)
-         "connected"
-         (set-facebook-ids response)
-         (fb/login #(fb/get-login-status set-facebook-ids) {:scope "user_friends,public_profile"}))))
-    (catch :default e (reset! fb-error (str e)))))
-
 (defn get-server-time []
   (network/send!
    [:server/time {}] 5000
@@ -121,6 +52,16 @@
      (if (sente/cb-success? resp)
        (reset! (:exchange-rates state/app) (get-in resp [:exchange-rates :rates]))
        (utils/log* "Error in currency/get-exchange-rates" resp)))))
+
+(defn get-friends2 []
+  (network/send!
+   [:user/friends-of-friends {:user-id @(:user-id state/app)}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= (:status resp) :ok))
+       (reset! (:friends2 state/app) (:friends2 resp))
+       (do (push-error "Error. Please try again.")
+           (utils/log* "Error in get-friends2:" resp)))
+     (utils/log* "Friends^2:" (str @(:friends2 state/app))))))
 
 (defn get-user-requests []
   (network/send!
@@ -251,6 +192,68 @@
        (update-contract contract-id #(assoc % :stage "contract-broken"))
        (do (utils/log* (gstring/format "Error breaking the contract ID %d" contract-id))
            (push-error "There was an error breaking the contract. Please try again."))))))
+
+
+;;
+;; Data retrieval
+;;
+
+(defn retrieve-app-data []
+  (get-server-time)
+  (get-exchange-rates)
+  (get-friends2)
+  (get-active-sell-offer)
+  (get-sell-offer-matches)
+  (get-user-requests)
+  (get-user-contracts)
+  (get-user-pending-notifications))
+
+(defn retrieve-app-data-cycle-start! []
+  (js/setInterval get-server-time 20000)
+  (js/setInterval #(swap! (:server-time state/app) (partial + 1000)) 1000)
+  (js/setInterval #(let [a (:seconds-since-last-exchange-rates-refresh state/app)]
+                     (if (< @a globals/exchange-rates-refresh-interval)
+                       (swap! a inc)
+                       (do (get-exchange-rates) (reset! a 0))))
+                  1000))
+
+(add-watch (:friends2 state/app) :got-friends2
+           (fn [_1 _2 _3 _4]
+             (doseq [[f idx] (zipmap (take 8 @(:friends2 state/app)) (range))]
+               (fb/api (str "/" (:fb-id f) "/picture")
+                       #(if-let [photo-url (get-in % [:data :url])]
+                          (swap! (:friends2 state/app) assoc-in [idx :photo-url] photo-url)
+                          (utils/log* %))))
+             (remove-watch (:friends2 state/app) :got-friends2)))
+
+(defn get-photo-for! [obj type role]
+  (fb/api (str "/" ((keyword (str (name role) "-fb-id")) obj) "/picture")
+          (fn [resp]
+            (if-let [photo-url (get-in resp [:data :url])]
+              ((case type
+                 :sell-offer update-sell-offer
+                 :buy-request update-buy-request
+                 :contract update-contract)
+               (:id obj) #(assoc % (keyword (str (name role) "-photo")) photo-url))
+              (utils/log* "Couldn't retrieve photo from Facebook")))))
+
+(add-watch (:sell-offer-matches state/app) :fetch-sell-offer-photos
+           (fn [_1 _2 _3 _4]
+             (doseq [c @_2]
+               (when (and (:buyer-id c) (not (:buyer-photo c)))
+                 (get-photo-for! c :sell-offer :buyer)))))
+
+(add-watch (:buy-requests state/app) :fetch-buy-requests-photos
+           (fn [_1 _2 _3 _4]
+             (doseq [c @_2]
+               (when (and (:buyer-id c) (not (:buyer-photo c)))
+                 (get-photo-for! c :buy-request :buyer)))))
+
+(add-watch (:contracts state/app) :fetch-contract-photos
+           (fn [_1 _2 _3 _4]
+             (doseq [c @_2]
+               (when-not (:seller-photo c) (get-photo-for! c :contract :seller))
+               (when-not (:buyer-photo c) (get-photo-for! c :contract :buyer)))))
 
 ;;
 ;; Event Handlers
@@ -423,10 +426,75 @@
   (let [[?uid ?csrf-token ?handshake-data] ?data]
     (utils/log* "Handshake completed...")))
 
-
 (defmethod -event-msg-handler :chsk/recv
   [{:as ev-msg :keys [?data ?reply-fn event]}]
   (when (and (= ?data [:chsk/ws-ping]) ?reply-fn)
     (?reply-fn {:chsk/ws-ping event}))
   (utils/log* "Push event from server: " (str ?data))
   (app-msg-handler ?data))
+
+;;
+;; Authentication
+;;
+
+(defn logout [] (aset js/window "location" "/"))
+
+(defn authenticate [user-fbid user-name hashed-id friend-hashes]
+  (sente/ajax-lite "/login"
+                   {:method :post
+                    :headers {:X-CSRF-Token (:csrf-token @network/chsk-state)}
+                    :params {:hashed-id hashed-id}}
+                   (fn [resp]
+                     (let [logged (utils/json->clj (:?content resp))]
+                       (if (:error logged)
+                         (utils/log* "Login failed:" logged)
+                         (do
+                           (utils/log* "Login successful with ID:" (get logged "id"))
+                           (network/register-init-callback!
+                            (fn []
+                              (reset! (:user-id state/app) (get logged "id"))
+                              (reset! (:user-hash state/app) hashed-id)
+                              (reset! (:user-fbid state/app) user-fbid)
+                              (reset! (:user-name state/app) user-name)
+                              (reset! (:friend-hashes state/app) friend-hashes)
+                              (retrieve-app-data)
+                              (retrieve-app-data-cycle-start!)))
+                           (sente/chsk-reconnect! network/chsk)))))))
+
+(defn- set-fake-facebooks-ids [{:keys [user-id hashed-id fb-id user-name friend-hashes] :as login}]
+  (utils/log* "Connecting with fake data:" login)
+  (authenticate fb-id user-name hashed-id friend-hashes))
+
+(defn- set-facebook-ids [settable-error]
+  (let [set-user! (fn [response]
+                    (if (= (:status response) "connected")
+                      (let [user-fbid-str (get-in response [:authResponse :userID])
+                            user-fbid (js/Number (get-in response [:authResponse :userID]))
+                            hashed-id (cljs-hash.goog/hash :sha1 user-fbid-str)]
+                        (fb/api "/me/"
+                                (fn [resp]
+                                  (utils/log* "Connecting with Facebook userID: " user-fbid)
+                                  (utils/log* "Hashed user: " hashed-id)
+                                  (fb/api "/me/friends" {}
+                                          (fn [{friends :data}]
+                                            (let [friend-fbids (map :id friends)
+                                                  hashed-friends (mapv #(cljs-hash.goog/hash :sha1 (str %)) friend-fbids)]
+                                              (reset! (:friend-fbids state/app) friend-fbids)
+                                              (reset! (:friend-hashes state/app) hashed-friends)
+                                              (utils/log* "Friend IDs: " (str friend-fbids))
+                                              (utils/log* "Hashed friends: " (str hashed-friends))
+                                              (authenticate user-fbid (:name resp) hashed-id hashed-friends)))))))
+                      (utils/log* "Not logged in: " (clj->js response))))]
+    (try
+      (fb/get-login-status
+       (fn [response]
+         (case (:status response)
+           "connected"
+           (set-user! response)
+           (fb/login #(fb/get-login-status set-facebook-ids) {:scope "user_friends,public_profile"}))))
+      (catch :default e (reset! settable-error (str e))))))
+
+(defn login [settable-error]
+  (if globals/hook-fake-id?_
+    (set-fake-facebooks-ids (rand-nth common/fake-users))
+    (set-facebook-ids settable-error)))

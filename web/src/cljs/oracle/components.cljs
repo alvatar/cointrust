@@ -1,3 +1,4 @@
+
 (ns oracle.components
   (:require [taoensso.sente :as sente :refer (cb-success?)]
             [rum.core :as rum]
@@ -747,13 +748,7 @@
                           :primary true
                           :style {:margin "1rem"}
                           :icon (facebook-button-comp)
-                          :on-touch-tap
-                          (fn [e]
-                            (if globals/hook-fake-id?_
-                              (let [hashed-id "asdf" user-id 1]
-                                (utils/log* "Connected with fake user hash: " hashed-id)
-                                (actions/set-fake-facebooks-ids hashed-id))
-                              (actions/facebook-login fb-error)))}))]
+                          :on-touch-tap #(actions/login fb-error)}))]
      [:div.center
       (ui/dialog {:title "Please refresh this web page"
                   :open (boolean (rum/react fb-error))

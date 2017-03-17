@@ -18,6 +18,7 @@
             [taoensso.sente.server-adapters.aleph :refer (get-sch-adapter)]
             [taoensso.sente.packers.transit :as sente-transit]
             [rum.core :as rum]
+            [cheshire.core :as json]
             ;; -----
             [oracle.actions :as actions]
             [oracle.events :as events]
@@ -37,8 +38,7 @@
 (let [packer (sente-transit/get-transit-packer)
       {:keys [ch-recv send-fn connected-uids
               ajax-post-fn ajax-get-or-ws-handshake-fn]}
-      (sente/make-channel-socket! (get-sch-adapter) {:packer packer
-                                                     :user-id-fn (fn [ring-req] (:client-id ring-req))})]
+      (sente/make-channel-socket! (get-sch-adapter) {:packer packer})]
   (def ring-ajax-post ajax-post-fn)
   (def ring-ajax-get-or-ws-handshake ajax-get-or-ws-handshake-fn)
   (def ch-chsk ch-recv) ; ChannelSocket's receive channel
@@ -50,12 +50,29 @@
 ;;              (when (not= old new)
 ;;                (log/debugf "****** Connected uids change: %s" new))))
 
+(defn login-handler [req]
+  (let [{:keys [session params]} req
+        {:keys [hashed-id]} params]
+    ;; TODO: actual login
+    (try
+      (if-let [user (db/get-user-by-hash hashed-id)]
+        {:status 200
+         :session (assoc session :uid hashed-id)
+         :body (json/generate-string user)}
+        {:status 200
+         :body (json/generate-string {:error "login error"})})
+      (catch Exception e
+        (pprint e)
+        {:status 500}))))
+
 (defroutes app
   (GET "/" _ (response/content-type
               ;; (response/resource-response "index.html" {:root "public"})
               (response/response (rum/render-html html/index))
               "text/html"))
   (resources "/" {:root "/public"})
+  ;; Login
+  (POST "/login" req (login-handler req))
   ;; Sente
   (GET "/chsk" req (ring-ajax-get-or-ws-handshake req))
   (POST "/chsk" req (ring-ajax-post req))
@@ -105,8 +122,7 @@
           (aleph.http/start-server
            (-> app
                (wrap-defaults (assoc-in (case (env :env)
-                                          ;; TODO configure this
-                                          ("production" "staging") (assoc site-defaults :proxy true)
+                                          ("production" "staging") (assoc secure-site-defaults :proxy true)
                                           site-defaults)
                                         [:params :keywordize] true))
                wrap-exceptions

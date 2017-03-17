@@ -14,7 +14,7 @@
 (defonce router_ (atom nil))
 (def sente-callback-registry_ (atom []))
 
-(defn sente-register-init-callback! [callback]
+(defn register-init-callback! [callback]
   (swap! sente-callback-registry_ conj callback))
 
 (defn run-initialization-callbacks []
@@ -22,22 +22,20 @@
 
 (defn stop-router! [] (when-let [stop-f @router_] (stop-f)))
 (defn start-router! [ch-chsk event-msg-handler]
-  (stop-router!)
+  ;;(stop-router!)
   (utils/log* "Initializing Sente client router...")
   (reset! router_ (sente/start-client-chsk-router! ch-chsk event-msg-handler)))
 
 (def sente-reconnector (atom nil))
 
-(defn init-sente! [event-msg-handler hashed-id]
+(defn init-sente! [event-msg-handler]
   (utils/log* "Initializing Sente...")
   (let [packer (sente-transit/get-transit-packer)
         {:keys [chsk ch-recv send-fn state]}
-        (sente/make-channel-socket! "/chsk" {:client-id hashed-id
-                                             :type :auto
-                                             :packer packer})]
+        (sente/make-channel-socket! "/chsk" {:type :auto :packer packer})]
     (def chsk chsk)
     (def ch-chsk ch-recv)             ; ChannelSocket's receive channel
-    (def send! send-fn)          ; ChannelSocket's send API fn
+    (def send! send-fn)               ; ChannelSocket's send API fn
     (def chsk-state state)            ; Watchable, read-only atom
     (start-router! ch-chsk event-msg-handler)
     (add-watch chsk-state :chsk-state-reconnect

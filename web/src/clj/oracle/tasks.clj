@@ -216,7 +216,8 @@
                     (idempotency-state-set! mid :pick-counterparty nil)
                     (idempotency-state-set! mid :event-sell-offer-matched nil)
                     (db/buy-request-unset-seller! buy-request-id)
-                    (blacklist-counterparty buyer-id seller-id)
+                    ;; TEMP do not blacklist
+                    ;; (blacklist-counterparty buyer-id seller-id)
                     (clear-buy-request-status buy-request-id)
                     (if (= buy-request-status "<declined>")
                       (events/add-event! seller-id :buy-request-decline buy-request)
@@ -472,15 +473,17 @@
 ;;
 
 (defn populate-test-database! []
-  (db/user-insert! 10213129106885586 "John" "asdf" [])
-  (db/user-insert! 10106263879382352 "Ada" "ffff" ["asdf"])
-  (db/user-insert! 10100642548250434 "Scipio" "aaaa" ["ffff"])
-  (db/user-insert! 10213129106885586 "Thor" "bbbb" ["asdf"])
+  (doseq [u common/fake-users]
+    (let [{:keys [fb-id user-name user-id hashed-id friend-hashes]} u]
+      (println u)
+      (db/user-insert! fb-id user-name hashed-id friend-hashes)))
 
-  (db/user-insert! 145228535996960 "Julius" "cccc" [])
+  ;; (db/user-insert! 145228535996960 "John" "asdf" [])
+  ;; (db/user-insert! 145228535996960 "Ada" "ffff" ["asdf"])
+  ;; (db/user-insert! 10100642548250434 "Scipio" "aaaa" ["ffff"])
+  ;; (db/user-insert! 10213129106885586 "Thor" "bbbb" ["asdf"])
 
-  (db/user-insert! 145228535996960 "Zeus" "dddd" ["eeee"])
-  (db/user-insert! 145228535996960 "Barbara" "eeee" ["dddd"])
+  ;; (db/user-insert! 145228535996960 "Julius" "cccc" [])
   'ok)
 
 (defn total-wipeout!!! []

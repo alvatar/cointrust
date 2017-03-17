@@ -96,8 +96,8 @@ ON CONFLICT DO NOTHING
                                  :name user-name
                                  :hash user-hash
                                  :friend-hashes friend-hashes})
-      {:user user-id
-       :name user-name
+      {:user-id user-id
+       :user-name user-name
        :friends friend-ids})))
 
 (defn get-users []

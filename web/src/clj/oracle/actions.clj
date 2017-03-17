@@ -23,7 +23,7 @@
 
 (defn event-msg-handler
   "Wraps `-event-msg-handler` with logging, error catching, etc."
-  [{:as ev-msg :keys [id ?data event]}]
+  [{:as ev-msg :keys [id ?data event ring-req]}]
   ;; (future (-event-msg-handler ev-msg)) ; Handle event-msgs on a thread pool
   (-event-msg-handler ev-msg))
 
@@ -38,18 +38,6 @@
 (defmethod -event-msg-handler :currency/get-exchange-rates
   [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
   (?reply-fn {:exchange-rates (currency/get-current-exchange-rates)}))
-
-(defmethod -event-msg-handler :user/enter
-  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
-  (try (let [{:keys [user name friends] :as result}
-             (db/user-insert! (:user-fbid ?data)
-                              (:user-name ?data)
-                              (:hashed-user ?data)
-                              (:hashed-friends ?data))]
-         (?reply-fn {:status :ok
-                     :found-user user
-                     :found-friends friends}))
-       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :user/friends-of-friends
   [{:keys [?data ?reply-fn]}]

@@ -6,6 +6,8 @@
 ;; Utils
 ;;
 
+(defn json->clj [s] (js->clj (.parse js/JSON s)))
+
 (defn clj->json [ds] (.stringify js/JSON (clj->js ds)))
 
 (defn log* [& args] (when true (js/console.log (clojure.string/join " " (map str args)))))
