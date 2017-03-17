@@ -537,8 +537,8 @@ SELECT buy_request.*,
        buyer.name AS buyer_name, buyer.fb_id AS buyer_fb_id,
        seller.name AS seller_name, seller.fb_id AS seller_fb_id
 FROM buy_request
-INNER JOIN user_account AS buyer ON (buyer.id = buy_request.buyer_id)
-INNER JOIN user_account AS seller ON (seller.id = buy_request.seller_id)
+LEFT JOIN user_account AS buyer ON (buyer.id = buy_request.buyer_id)
+LEFT JOIN user_account AS seller ON (seller.id = buy_request.seller_id)
 "
                        "
 CREATE OR REPLACE VIEW full_contract AS
