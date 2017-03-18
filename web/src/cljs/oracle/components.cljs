@@ -559,7 +559,7 @@
             {:key (str (:hash contract) "-contract-list-item")
              :primary-toggles-nested-list true
              :nested-items [(ui/list-item
-                             {:key (str (:hash contract) "-contract-list-item-nested")}
+                             {:key (str (:hash contract) "-contract-list-item-nested") :disabled true}
                              [:div
                               (ui/stepper ((if _small-display? #(assoc % :connector nil) identity)
                                            {:active-step (case (:stage contract)
@@ -768,8 +768,7 @@
          :style {:padding "0 0 0 0"}
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-1-nested"
-                          :disabled true}
+                         {:key "qa-text-1-nested" :disabled true}
                          [:ul
                           [:li "Cointrust makes it easy to buy & sell Bitcoin instantly and risk- free by using Facebook, Venmo, and "
                            [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts"]]])]}
@@ -778,8 +777,7 @@
         {:key "qa-text-2"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-2-nested"
-                          :disabled true}
+                         {:key "qa-text-2-nested" :disabled true}
                          [:ul
                           [:li "Match - Cointrust will match you with the best sell offer in your friend network."]
                           [:li "Talk - Coordinate the sale with the buyer/seller using Facebook Messenger."]
@@ -791,8 +789,7 @@
         {:key "qa-text-3"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-3-nested"
-                          :disabled true}
+                         {:key "qa-text-3-nested" :disabled true}
                          [:ul
                           [:li "Cointrust makes Bitcoin purchases risk-free for both buyers and sellers through the use of " [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts."]]
                           [:li "Cointrust acts as a notary, confirming both buyer and seller have lived up to their part of the agreement. And protecting the other person if they don’t."]])]}
@@ -801,8 +798,7 @@
         {:key "qa-text-4"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-4-nested"
-                          :disabled true}
+                         {:key "qa-text-4-nested" :disabled true}
                          [:ul
                           [:li "By using " [:span.hint--bottom.hint--large smart-contract-fields "Smart Contracts"] ", Cointrust acts like a digital notary confirming all the information you need as a buyer or seller to be protected and either perform or reverse a chargeback."]])]}
         [:h3 "What about chargebacks?"])
@@ -810,8 +806,7 @@
         {:key "qa-text-5"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-5-nested"
-                          :disabled true}
+                         {:key "qa-text-5-nested" :disabled true}
                          [:ul
                           [:li "Bitcoin buyers are guaranteed to get what they pay for."]
                           [:li "We hold bitcoins in a " [:span.hint--bottom.hint--large smart-contract-fields "smart contracts"]
@@ -821,8 +816,7 @@
         {:key "qa-text-6"
          :primary-toggles-nested-list true
          :nested-items [(ui/list-item
-                         {:key "qa-text-6-nested"
-                          :disabled true}
+                         {:key "qa-text-6-nested" :disabled true}
                          [:ul
                           [:li "Bitcoin sellers are guaranteed to get paid for what they sold."]
                           [:li "Bitcoin funds are held in escrow."]
