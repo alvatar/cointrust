@@ -70,7 +70,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (when-let [requests (:buy-requests resp)]
-         (utils/log* "Received requests" requests)
+         ;; (utils/log* "Received requests" requests)
          (reset! (:buy-requests state/app) requests))
        (do (push-error "Error retrieving data. Please relogin.")
            (utils/log* "Error in get-user-requests:" resp))))))
@@ -81,7 +81,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
        (when-let [contracts (:contracts resp)]
-         (utils/log* "Received contracts" contracts)
+         ;; (utils/log* "Received contracts" contracts)
          (reset! (:contracts state/app) contracts)
          ;; (if-let [contract-id (some #(and (= (:seller-id %) @(:user-id state/app)) (:id %))
          ;;                            contracts)]
@@ -96,7 +96,7 @@
    (fn [resp]
      (if (and (sente/cb-success? resp))
        (when-let [notifications (:notifications resp)]
-         (utils/log* "Received notifications" notifications)
+         ;; (utils/log* "Received notifications" notifications)
          (doseq [notif notifications]
            (swap! (:notifications state/app) conj notif)))
        (do (push-error "There was an error retrieving your pending notifications. Please try again.")
@@ -141,7 +141,7 @@
    (fn [resp]
      (if (sente/cb-success? resp)
        (let [offer-matches (:offer-matches resp)]
-         (do (utils/log* "Received offer matches" offer-matches)
+         (do ;; (utils/log* "Received offer matches" offer-matches)
              (doseq [m offer-matches] (swap! (:sell-offer-matches state/app) conj
                                              (update m :premium #(float (/ % 100)))))))
        (push-error "There was an error retrieving the sell offer matches.")))))
@@ -176,6 +176,14 @@
        (utils/log* (gstring/format "Buy request ID %d declined" buy-request-id))
        (do (utils/log* (gstring/format "Error declining buy request ID %d" buy-request-id))
            (push-error "There was an error declining the buy request. Please try again."))))))
+
+(defn contract-start [contract-id]
+  (network/send!
+   [:contract/start {:id contract-id}] 5000
+   (fn [resp]
+     (if (sente/cb-success? resp)
+       (update-contract contract-id (constantly resp))
+       (utils/log* (gstring/format "Contract ID started" contract-id))))))
 
 (defn mark-contract-received [contract-id]
   (network/send!
@@ -271,6 +279,7 @@
 
 (defmethod app-msg-handler :sell-offer/match
   [[_ msg]]
+  (utils/log* msg)
   (if (:error msg)
     (utils/log* "Error in :sell-offer/match message")
     (swap! (:sell-offer-matches state/app) conj msg)))
@@ -286,10 +295,7 @@
   (if (:error msg)
     (do (push-error "Error matching the buy request.")
         (utils/log* "Error in buy-request/match" msg))
-    (update-buy-request (:id msg) #(-> %
-                                       (assoc :seller-id (:seller-id msg))
-                                       (assoc :seller-fb-id (:seller-fb-id msg))
-                                       (assoc :seller-name (:seller-name msg))))))
+    (update-buy-request (:id msg) (constantly msg))))
 
 (defmethod app-msg-handler :buy-request/timed-out
   [[_ msg]]
@@ -319,17 +325,9 @@
   (if (:error msg)
     (utils/log* "Error in :contract/create" msg)
     (try (swap! (:contracts state/app) conj msg)
-         ;; (when (= (:seller-id msg) @(:user-id state/app))
-         ;;   (reset! (:display-contract state/app) (:id msg)))
          (catch :default e
            (do (push-error "Error creating the contract.")
                (utils/log* "Error in contract/create" msg))))))
-
-(defmethod app-msg-handler :contract/update
-  [[_ {:keys [stage status id amount]}]]
-  (reset! (:contracts state/app)
-          (for [c @(:contracts state/app)]
-            (if (= (:id c) id) (merge c {:stage stage :status status}) c))))
 
 (defmethod app-msg-handler :contract/escrow-funded
   [[_ msg]]
@@ -343,13 +341,6 @@
   (if (:error msg)
     (do (push-error "Error marking the transfer as received.")
         (utils/log* "Error in contract/mark-transfer-received-ack" msg))
-    (update-contract (:id msg) #(assoc % :transfer-received true))))
-
-(defmethod app-msg-handler :contract/holding-period
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error starting the contract holding period.")
-          (utils/log* "Error in contract/holding-period" msg))
     (update-contract (:id msg) #(assoc % :transfer-received true))))
 
 (defmethod app-msg-handler :contract/success

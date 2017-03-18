@@ -70,6 +70,9 @@
       :contract-create
       (future
         (chsk-send! uid [:contract/create args]))
+      :contract-start
+      (future
+        (chsk-send! uid [:contract/start args]))
       :contract-escrow-funded
       (future
         (chsk-send! uid [:contract/escrow-funded args])

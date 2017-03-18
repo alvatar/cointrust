@@ -198,9 +198,10 @@
                                                       :offers {:currency currency-buyer}})]
                               (db/buy-request-set-seller! buy-request-id counterparty %)
                               (log/debugf "Buyer ID %s - Seller ID %s match for %s %s" buyer-id counterparty (common/currency-as-float amount currency-seller) currency-seller)))]
-        (do (idempotent-ops mid :event-sell-offer-matched state
-                            (events/add-event! seller-id :sell-offer-matched buy-request)
-                            (events/add-event! buyer-id :buy-request-matched {:id buy-request-id :seller-id seller-id}))
+        (let [full-buy-request (db/get-buy-request-by-id buy-request-id)]
+          (idempotent-ops mid :event-sell-offer-matched state
+                          (events/add-event! seller-id :sell-offer-matched full-buy-request)
+                          (events/add-event! buyer-id :buy-request-matched full-buy-request))
             ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
             ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))
             (let [buy-request-status (get-buy-request-status buy-request-id)]
@@ -291,10 +292,29 @@
             (db/contract-update! contract-id {:escrow_open_for (:seller-id contract)})
             {:status :success})
 
+        "waiting-start"
+        (cond (:started-timestamp contract)
+              ;; Contract marked as started
+              (do (with-idempotent-transaction mid :contract-add-event-waiting-start state
+                    (fn [idemp]
+                      (log/debug "Contract stage changed to \"waiting-escrow\"")
+                      (db/contract-add-event! contract-id "waiting-escrow" nil idemp)))
+                  (let [contract (merge contract {:stage "waiting-escrow"})]
+                    (events/add-event! (:seller-id contract) :contract-start contract)
+                    (events/add-event! (:buyer-id contract) :contract-start contract))
+                  {:status :retry :backoff-ms 1})
+              (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/hours 12)))
+              (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
+                    #(db/contract-add-event! contract-id "contract-broken" {:reason "contract start waiting period timed out"} %))
+                  ;; Let the success contract stage handle it
+                  {:status :retry :backoff-ms 1})
+              :else
+              {:status :retry :backoff-ms 1000})
+
         ;; We inform of the expected transaction and the freezing of price.
         ;; We wait for the seller to fund the escrow and provide the transfer details.
         "waiting-escrow"
-        (cond (and (:transfer-info contract) (:escrow-funded contract))
+        (cond (and (:transfer-info contract) (:escrow-funded-timestamp contract))
               ;; Amount expected: amount - premium
               (if (>= (:escrow-amount contract) (* (:amount contract) (common/long->decr (:premium contract))))
                 ;; Received the right amount
@@ -316,7 +336,7 @@
                       (events/add-event! (:buyer-id contract) :contract-escrow-insufficient contract))
                     {:status :retry :backoff-ms 1}))
               ;; The countdown
-              (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/minutes 60)))
+              (> now (utils/unix-after (time-coerce/to-date-time (:started-timestamp contract)) (time/minutes 60)))
               (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
                   ;; Let the success contract stage handle it
@@ -374,12 +394,16 @@
   (let [{:keys [tag data]} message
         buy-request-id (:id data)
         buy-request (db/get-buy-request-by-id buy-request-id)]
-    (log/debug message)
-    (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
-    (events/add-event! (:buyer-id buy-request) :buy-request-accept buy-request) ; Repeat OK
-    ;; Add transfer info to buy-request before creating contract
-    (initiate-contract (merge data buy-request)) ; Idempotent
-    {:status :success}))
+    (if (not-empty buy-request)
+      (do (log/debug message)
+          (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
+          (events/add-event! (:buyer-id buy-request) :buy-request-accept buy-request) ; Repeat OK
+          ;; Add transfer info to buy-request before creating contract
+          (initiate-contract (merge data buy-request)) ; Idempotent
+          {:status :success})
+      (do
+        (log/errorf "BUY REQUEST ID %s NOT FOUND!" buy-request-id)
+        {:status :success}))))
 
 (defmethod common-preemptive-handler :buy-request/decline
   [{:keys [mid message attempt]}]
@@ -389,20 +413,6 @@
     (log/debug message)
     (set-buy-request-status buy-request-id "<declined>") ; Idempotent
     (events/add-event! (:buyer-id buy-request) :buy-request-decline buy-request)
-    {:status :success}))
-
-(defmethod common-preemptive-handler :contract/break
-  [{:keys [mid message attempt]}]
-  (let [{:keys [tag data]} message]
-    (log/debug message)
-    (db/contract-add-event! (:id data) "contract-broken" nil)
-    {:status :success}))
-
-(defmethod common-preemptive-handler :contract/mark-transfer-received
-  [{:keys [mid message attempt]}]
-  (let [{:keys [tag data]} message]
-    (log/debug message)
-    (db/contract-update! (:id data) {:transfer_received true})
     {:status :success}))
 
 (defmethod common-preemptive-handler :escrow/release-to-user

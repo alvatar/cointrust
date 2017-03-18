@@ -113,13 +113,23 @@
   [args]
   (preemptive-task-handler args :buy-request/decline))
 
+(defmethod -event-msg-handler :contract/start
+  [{:keys [?data ?reply-fn]}]
+  (try (let [contract (db/contract-start! (:id ?data))]
+         (?reply-fn contract))
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+
 (defmethod -event-msg-handler :contract/break
-  [args]
-  (preemptive-task-handler args :contract/break))
+  [{:keys [?data ?reply-fn]}]
+  (try (db/contract-add-event! (:id ?data) "contract-broken" nil)
+       (?reply-fn {:status :ok})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :contract/mark-transfer-received
-  [args]
-  (preemptive-task-handler args :contract/mark-transfer-received))
+  [{:keys [?data ?reply-fn]}]
+  (try (db/contract-update! (:id ?data) {:transfer_received true})
+       (?reply-fn {:status :ok})
+       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
 
 (defmethod -event-msg-handler :escrow/get-user-key
   [{:keys [?data ?reply-fn]}]

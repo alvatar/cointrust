@@ -50,13 +50,17 @@
                 secs (mod secs-raw 60)]
             (if (pos? secs-raw)
               (gstring/format "%s min. %s sec." mins secs)
-              "no time")))
-        time-diff (- server-time (:created contract))]
+              "no time")))]
     (case (:stage contract)
+      "waiting-start" ;; 12 hours
+      (milliseconds->mins-formatted (- (* 12 60 60 1000)
+                                       (- server-time (:created contract))))
       "waiting-escrow" ;; 60 mins
-      (milliseconds->mins-formatted (- (* 60 60 1000) time-diff))
+      (milliseconds->mins-formatted (- (* 60 60 1000)
+                                       (- server-time (:started-timestamp contract))))
       "waiting-transfer" ;; 30 mins
-      (milliseconds->mins-formatted (- (* 30 60 1000) time-diff))
+      (milliseconds->mins-formatted (- (* 30 60 1000)
+                                       (- server-time (:escrow-funded-timestamp contract))))
       0)))
 
 (defn close-display-contract! [] (reset! (:display-contract state/app) nil))
@@ -75,7 +79,8 @@
                 :top 0 :left 0 :right 0
                 :height "3rem"
                 :line-height "3rem"
-                :background-color "rgb(0, 188, 212)"}}
+                :background-color "rgb(0, 188, 212)"
+                :z-index 99999}}
        (gstring/format "Disconnected. Trying to reconnect in %s seconds..." seconds-until)])))
 
 (defn mobile-overlay [open? & children]
@@ -338,6 +343,7 @@
             (fn [role]
              (let [buttons
                    [(ui/flat-button {:label "Ok"
+                                     :key (str "contract-ok-button-" (:id contract))
                                      :primary true
                                      :on-touch-tap
                                      (fn []
@@ -368,6 +374,7 @@
                                              (do (reset! state/error "There was an error in requesting the Escrow funds. Please inform us of this event.")
                                                  (utils/log* "Error calling contract/release-escrow-buyer" %))))))})
                     (ui/flat-button {:label "Cancel"
+                                     :key (str "contract-cancel-" contract-id)
                                      :primary false
                                      :on-touch-tap close-display-contract!})]
                    content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
@@ -398,8 +405,33 @@
 
         (case (:stage contract)
 
+          "waiting-start"
+          (let [buttons [(ui/flat-button {:label "Close"
+                                          :key (str "ws-close-button-contract-" contract-id)
+                                          :primary true
+                                          :on-touch-tap close-display-contract!})]
+                content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
+                         [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
+                          [:h3 (str "Time left: " time-left)]]
+                         (when (am-i-seller? contract)
+                           (ui/raised-button {:label "Start Interaction"
+                                              :key (str "ws-start-interaction-button-contract" contract-id)
+                                              :primary true
+                                              :on-touch-tap (fn []
+                                                              (actions/contract-start contract-id)
+                                                              (close-display-contract!))}))]]
+            (if (rum/react small-display?)
+              (mobile-overlay true content buttons)
+              (ui/dialog {:title (str "Contract ID: " (:human-id contract))
+                          :open (boolean contract)
+                          :modal true
+                          :content-style {:width "500px"}
+                          :actions buttons}
+                         content)))
+
           "waiting-escrow"
           (let [buttons [(ui/flat-button {:label "Close"
+                                          :key (str "we-close-button-contract-" contract-id)
                                           :primary true
                                           :on-touch-tap close-display-contract!})]
                 content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
@@ -411,15 +443,13 @@
                             [:div
                              [:div.center
                               (if (and (nil? (rum/react user-key)) (not (:escrow-seller-has-key contract)))
-                                (ui/raised-button {:label "Get the Escrow Key"
-                                                   :primary true
+                                (ui/raised-button {:label "Get the Escrow Key" :primary true
                                                    :on-touch-tap (fn [] (network/send!
                                                                          [:escrow/get-user-key {:id (:id contract) :role "seller"}] 5000
                                                                          #(if (and (sente/cb-success? %) (= :ok (:status %)))
                                                                             (reset! user-key (:escrow-user-key %))
                                                                             (utils/log* "Error in escrow/get-user-key" %))))})
-                                (ui/raised-button {:label "I have stored my key in a secure place"
-                                                   :primary true
+                                (ui/raised-button {:label "I have stored my key in a secure place" :primary true
                                                    :on-touch-tap (fn [] (when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
                                                                           (network/send!
                                                                            [:escrow/forget-user-key {:id (:id contract) :role "seller"}] 5000
@@ -516,6 +546,7 @@
                                                           (close-display-contract!))})]])
                 buttons
                 [(ui/flat-button {:label "Close"
+                                  :key (str "wt-close-button-contract-" contract-id)
                                   :primary true
                                   :on-touch-tap close-display-contract!})]]
             (if (rum/react small-display?)
@@ -531,7 +562,7 @@
           (when (am-i-buyer? contract) (escrow-release-dialog :buyer))
 
           "contract-broken"
-          (when (and (am-i-seller? contract) (:escrow-funded contract))
+          (when (and (am-i-seller? contract) (:escrow-funded-timestamp contract))
             (escrow-release-dialog :seller))
 
           "contract-broken/escrow-insufficient"
@@ -557,19 +588,20 @@
         (ui/list
          (for [contract contracts]
            (ui/list-item
-            {:key (str (:hash contract) "-contract-list-item")
+            {:key (str "contract-list-item-" (:id contract))
              :primary-toggles-nested-list true
              :nested-items [(ui/list-item
                              {:key (str (:hash contract) "-contract-list-item-nested") :disabled true}
                              [:div
                               (ui/stepper ((if _small-display? #(assoc % :connector nil) identity)
                                            {:active-step (case (:stage contract)
+                                                           "waiting-start" 0
                                                            "waiting-escrow" 1
                                                            "waiting-transfer" 2
                                                            ("contract-success" "contract-broken" "contract-broken/escrow-insufficient") 3)
                                             :orientation (if _small-display? "vertical" "horizontal")
                                             :style (if _small-display? {:width "12rem" :margin "0 auto"} {})})
-                                          (ui/step (ui/step-label "Contract creation"))
+                                          (ui/step (ui/step-label "Contract initialization"))
                                           (ui/step (ui/step-label "Escrow funding"))
                                           (ui/step (ui/step-label "Contract execution")))
                               [:p.center [:strong "Contract ID: "] (:human-id contract)]
@@ -583,16 +615,22 @@
                                  [:span.tx-link " / "]
                                  [(if (:output-tx contract) :a.tx-link :a.tx-link-shadow) (when (:output-tx contract) {:href (str explorer-url (:output-tx contract)) :target "_blank"})
                                   [:strong "escrow output transaction"]]])
-                              #_(when (:output-tx contract) [:a.tx-link {:href (str "https://tbtc.blockr.io/tx/info/" (:output-tx contract))  :target "_blank"}
-                                                             [:strong "Escrow Output Transaction"]])
-                              (when (or (= (:stage contract) "waiting-transfer")
-                                        (and (= (:stage contract) "waiting-escrow")
-                                             (am-i-seller? contract)))
+                              (when (case (:stage contract)
+                                      ("waiting-start" "waiting-transfer") true
+                                      "waiting-escrow" (am-i-seller? contract))
                                 [:div.center {:style {:margin-bottom "5rem"}}
-                                 (ui/flat-button {:label "Break contract"
+                                 (ui/flat-button {:key (str "cancel-button-contract-" (:id contract))
+                                                  :label "Break contract"
                                                   :style {:margin "0 1rem 0 1rem"}
                                                   :on-touch-tap #(when (js/confirm "Are you sure?") (actions/break-contract (:id contract)))})])])]}
-            [:div.hint--bottom {:aria-label (gstring/format "Waiting for %s to deposit Bitcoins into this Smart Contract" (:seller-name contract))
+            [:div.hint--bottom {:aria-label (case (:stage contract)
+                                              "waiting-start" (if (am-i-seller? contract)
+                                                                (gstring/format "Waiting for you to initiate the interaction with %s. You'll have 60 minutes for a fully-confirmed Escrow funding" (:buyer-name contract))
+                                                                (gstring/format "Waiting for %s and you to agree on initiation time." (:seller-name contract)))
+                                              "waiting-escrow" (if (am-i-seller? contract)
+                                                                 "Waiting for you to deposit Bitcoins into this Smart Contract"
+                                                                 (gstring/format "Waiting for %s to deposit Bitcoins into this Smart Contract" (:seller-name contract)))
+                                              "")
                                 :style {:width "100%"}}
              [(if _small-display? :div.center :div.column-half)
               [:div {:style (when-not _small-display? {:display "block" :clear "both"})}
@@ -602,8 +640,7 @@
                       :src (if (am-i-seller? contract) (:buyer-photo contract) (:seller-photo contract))}]]
               [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
               (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
-              (when-not _small-display?
-                [:span {:style {:font-size "x-small" :display "table-cell" :vertical-align "middle"}} (str "Contract ID: " (:human-id contract))])]
+              (when-not _small-display? [:span {:style {:font-size "x-small" :display "table-cell" :vertical-align "middle"}} (str "Contract ID: " (:human-id contract))])]
              (let [action-required (fn [text]
                                      [(if _small-display? :div.center.margin-1rem-top :div.column-half)
                                       [:div.center.action-required {:on-click #(reset! (:display-contract state/app) (:id contract))} text]])
@@ -611,6 +648,7 @@
                    waiting [status-class [:div.center "WAITING"]]
                    time-left (contract-time-left contract server-time)]
                (case (:stage contract)
+                 "waiting-start" (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
                  "waiting-escrow" (if (am-i-seller? contract)
                                     (action-required (gstring/format "ACTION REQUIRED (%s left)" time-left))
                                     [status-class [:div.center (gstring/format "WAITING (%s left)" time-left)]])
@@ -629,10 +667,10 @@
                                         "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
                                         [status-class [:div.center "UNKNOWN ESCROW STATE"]]))
                  "contract-broken" (if (am-i-buyer? contract)
-                                     (if (:escrow-funded contract)
+                                     (if (:escrow-funded-timestamp contract)
                                        [status-class [:div.center "PERFORM CHARGEBACK"]]
                                        [status-class [:div.center "CONTRACT BROKEN"]])
-                                     (if (:escrow-funded contract)
+                                     (if (:escrow-funded-timestamp contract)
                                        (case (:escrow-release contract)
                                          "<fresh>" (action-required "RELEASE FUNDS")
                                          "<failure>" (action-required "FAILED RELEASE")
@@ -680,14 +718,15 @@
         account-info (::account-info state_)]
     (when current
       (let [buttons [(ui/flat-button {:label "Accept"
+                                      :key (str "br-accept-" (:id current))
                                       :primary true
                                       :disabled (clojure.string/blank? (:name (rum/react account-info)))
                                       :on-touch-tap (fn []
+                                                      (swap! (:sell-offer-matches state/app) pop)
                                                       (actions/accept-buy-request
                                                        (:id current)
                                                        ;;(clojure.string/join "\n" (map (fn [[k v]] (gstring/format "%s: %s" (name k) v)) @account-info))
-                                                       (:name @account-info))
-                                                      (swap! (:sell-offer-matches state/app) pop))})
+                                                       (:name @account-info)))})
                      (ui/flat-button {:label "Decline"
                                       :on-touch-tap (fn []
                                                       (actions/decline-buy-request (:id current))
@@ -700,8 +739,7 @@
                                               (* (common/currency-as-float
                                                   (:amount current)
                                                   (:currency-seller current))
-                                                 (- 1 (/ (:premium current) 100)))
-                                              (clojure.string/upper-case (:currency-seller current)))]
+                                                 (- 1 (float (/ (:premium current) 100)))))]
                      [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
                       [:a.hint--bottom {:aria-label (:buyer-name current)}
                        [:img {:src (:buyer-photo current)}]]]

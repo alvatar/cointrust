@@ -197,10 +197,10 @@ VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 " user-id amount currency-buyer currency-seller exchange-rate]))]
       (log-op! tx "buy-request-create" {:user-id user-id
-                                     :amount amount
-                                     :currency-buyer currency-buyer
-                                     :currency-seller currency-seller
-                                     :exchange-rate exchange-rate})
+                                        :amount amount
+                                        :currency-buyer currency-buyer
+                                        :currency-seller currency-seller
+                                        :exchange-rate exchange-rate})
       (let [kb-buy-request (->kebab-case buy-request)]
         (when txcb (txcb kb-buy-request))
         kb-buy-request))))
@@ -217,10 +217,10 @@ SELECT * FROM full_buy_request WHERE buyer_id = ?;
 SELECT * FROM full_buy_request WHERE seller_id = ?;
 " counterparty])))
 
-(defn get-buy-request-by-id [buy-request]
+(defn get-buy-request-by-id [id]
   (-> (sql/query db ["
 SELECT * FROM full_buy_request WHERE id = ?;
-" buy-request])
+" id])
       first
       ->kebab-case))
 
@@ -284,7 +284,7 @@ SELECT * FROM full_buy_request;
           (loop [human-id (format "%s - %s - %s Bitcoins - %s UTC" buyer-name seller-name (common/satoshi->btc amount) (utils/human-now))]
             (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
               (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
-              (let [init-stage "waiting-escrow" contract (first (sql/query tx ["
+              (let [init-stage "waiting-start" contract (first (sql/query tx ["
 INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
@@ -397,9 +397,24 @@ INNER JOIN (
 
 ;; TODO: instead of setting the timestamp here, use the timestamp from latest event
 
+(defn contract-start! [id]
+  (->
+   (sql/with-db-transaction
+     [tx db]
+     (sql/execute! db ["
+UPDATE contract SET started_timestamp = CURRENT_TIMESTAMP
+WHERE id = ?
+" id])
+     (sql/query tx ["
+SELECT * FROM full_contract
+WHERE full_contract.id = ?
+" id]))
+   first
+   ->kebab-case))
+
 (defn contract-set-escrow-funded! [id amount-received tx-hash]
   (sql/execute! db ["
-UPDATE contract SET escrow_funded = true, escrow_amount = ?, input_tx = ?, escrow_funded_timestamp = CURRENT_TIMESTAMP
+UPDATE contract SET escrow_amount = ?, input_tx = ?, escrow_funded_timestamp = CURRENT_TIMESTAMP
 WHERE id = ?
 " amount-received tx-hash id]))
 
@@ -482,6 +497,8 @@ CREATE TABLE contract (
   hash                             VARCHAR(128) NOT NULL UNIQUE,
   human_id                         VARCHAR(256) NOT NULL UNIQUE,
   created                          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  started_timestamp                TIMESTAMP,
+  escrow_funded_timestamp          TIMESTAMP,
   buyer_id                         INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   seller_id                        INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE NOT NULL,
   amount                           BIGINT NOT NULL,
@@ -498,8 +515,6 @@ CREATE TABLE contract (
   escrow_our_key                   VARCHAR(128),
   escrow_buyer_has_key             BOOLEAN DEFAULT false,
   escrow_seller_has_key            BOOLEAN DEFAULT false,
-  escrow_funded                    BOOLEAN DEFAULT false,
-  escrow_funded_timestamp          TIMESTAMP,
   escrow_amount                    BIGINT,
   escrow_open_for                  INTEGER REFERENCES user_account(id) ON UPDATE CASCADE ON DELETE CASCADE,
   escrow_release                   VARCHAR(64) DEFAULT '<fresh>',
