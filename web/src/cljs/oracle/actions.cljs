@@ -329,6 +329,13 @@
            (do (push-error "Error creating the contract.")
                (utils/log* "Error in contract/create" msg))))))
 
+(defmethod app-msg-handler :contract/start
+  [[_ msg]]
+  (if (:error msg)
+    (do (push-error "Error in starting the contract.")
+        (utils/log* "Error in contract/start" msg))
+    (update-contract (:id msg) #(assoc % :stage "waiting-escrow"))))
+
 (defmethod app-msg-handler :contract/escrow-funded
   [[_ msg]]
   (if (:error msg)

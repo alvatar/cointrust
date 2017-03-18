@@ -591,7 +591,7 @@
             {:key (str "contract-list-item-" (:id contract))
              :primary-toggles-nested-list true
              :nested-items [(ui/list-item
-                             {:key (str (:hash contract) "-contract-list-item-nested") :disabled true}
+                             {:key (str "contract-list-item-nested-" (:id contract)) :disabled true}
                              [:div
                               (ui/stepper ((if _small-display? #(assoc % :connector nil) identity)
                                            {:active-step (case (:stage contract)
