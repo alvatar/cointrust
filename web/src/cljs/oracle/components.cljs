@@ -81,8 +81,9 @@
 (defn mobile-overlay [open? & children]
   [:div {:style {:position "fixed"
                  :top 0 :left 0 :right 0 :bottom 0
-                 :background-color "#fff"}
-         :aria-hidden (not open?)}
+                 :background-color "#fff"
+                 :z-index 9999
+                 :display (if open? "block" "none")}}
    (into [:div {:style {:position :static}}]
          children)])
 
