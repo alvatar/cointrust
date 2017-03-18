@@ -7,8 +7,10 @@
             [byte-streams :as bs]
             [aleph.http :as http]
             [cheshire.core :as json]
+            [taoensso.carmine :as r]
             ;; -----
             [oracle.common :as common]
+            [oracle.redis :as redis]
             [oracle.utils :as utils]))
 
 ;;
@@ -53,7 +55,10 @@
       (try
         (when @exchange-rates-worker-running?
           ;; (log/debug "Updating exchange rates")
-          (swap! current-rates #(or (get-coinbase-rates) %))
+          (if-let [rates (get-coinbase-rates)]
+            (do (redis/wcar* (r/set "coinbase-rates" (json/generate-string rates)))
+                (reset! current-rates rates))
+            (reset! current-rates (json/parse-string (r/get "coinbase-rates"))))
           (Thread/sleep 60000))
         (catch Exception e
           (println e)
