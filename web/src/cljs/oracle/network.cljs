@@ -9,19 +9,18 @@
 ;; Setup
 ;;
 
-(enable-console-print!)
-
 (defonce router_ (atom nil))
 (defonce sente-callback-registry (atom []))
-(defonce sente-init-callbacks-ran? (atom false))
+(defonce sente-callbacks-run? (atom false))
 
 (defn register-init-callback! [callback]
-  (swap! sente-callback-registry conj callback))
+  (swap! sente-callback-registry conj callback)
+  (reset! sente-callbacks-run? false))
 
 (defn run-initialization-callbacks []
-  (when-not @sente-init-callbacks-ran?
+  (when-not @sente-callbacks-run?
     (doseq [cb @sente-callback-registry] (cb))
-    (reset! sente-init-callbacks-ran? true)))
+    (reset! sente-callbacks-run? true)))
 
 (defn stop-router! [] (when-let [stop-f @router_] (stop-f)))
 (defn start-router! [ch-chsk event-msg-handler]

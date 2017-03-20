@@ -16,6 +16,8 @@
 ;; Init
 ;;
 
+(enable-console-print!)
+
 (js/console.log (str "Frontend environment is: " globals/*env*))
 
 (try
