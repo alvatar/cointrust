@@ -46,10 +46,14 @@
   (let [milliseconds->mins-formatted
         (fn [mil]
           (let [secs-raw (long (/ mil 1000))
-                mins (quot secs-raw 60)
-                secs (mod secs-raw 60)]
+                secs (mod secs-raw 60)
+                mins-tot (quot secs-raw 60)
+                hours (quot mins-tot 60)
+                mins (mod mins-tot 60)]
             (if (pos? secs-raw)
-              (gstring/format "%s min. %s sec." mins secs)
+              (if (zero? hours)
+                (gstring/format "%s min. %s sec." mins secs)
+                (gstring/format "%sh %sm %ss" hours mins secs))
               "no time")))]
     (case (:stage contract)
       "waiting-start" ;; 12 hours

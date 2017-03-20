@@ -56,7 +56,7 @@
         (chsk-send! uid [:buy-request/update args]))
       :buy-request/delete
       (future
-        (chsk-send! uid [:buy-request/update args]))
+        (chsk-send! uid [:buy-request/delete args]))
 
       :contract/create
       (future

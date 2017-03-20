@@ -371,7 +371,7 @@
   [{:as ev-msg :keys [?data ?reply-fn event]}]
   (when (and (= ?data [:chsk/ws-ping]) ?reply-fn)
     (?reply-fn {:chsk/ws-ping event}))
-  (utils/log* "Push event from server: " (str ?data))
+  ;; (utils/log* "Push event from server: " (str ?data))
   (app-msg-handler ?data))
 
 ;;
