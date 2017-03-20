@@ -334,7 +334,7 @@
   (if (:error msg)
     (do (push-error "Error in starting the contract.")
         (utils/log* "Error in contract/start" msg))
-    (update-contract (:id msg) #(assoc % :stage "waiting-escrow"))))
+    (update-contract (:id msg) (constantly msg))))
 
 (defmethod app-msg-handler :contract/escrow-funded
   [[_ msg]]
