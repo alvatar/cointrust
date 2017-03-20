@@ -736,11 +736,9 @@
             title "We found a buyer!"
             content [:div
                      [:h3 (gstring/format "%s wants to buy %f Bitcoins"
-                                              (:buyer-name current)
-                                              (* (common/currency-as-float
-                                                  (:amount current)
-                                                  (:currency-seller current))
-                                                 (- 1 (float (/ (:premium current) 100)))))]
+                                          (:buyer-name current)
+                                          (* (common/currency-as-float (:amount current) (:currency-seller current))
+                                             (common/long->decr (:premium current))))]
                      [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
                       [:a.hint--bottom {:aria-label (:buyer-name current)}
                        [:img {:src (:buyer-photo current)}]]]

@@ -29,10 +29,10 @@
     :usd (str "$" amount)))
 
 (defn long->incr [val]
-  (+ 1 (/ val 10000)))
+  (float (+ 1 (/ val 10000))))
 
 (defn long->decr [val]
-  (- 1 (/ val 10000)))
+  (float (- 1 (/ val 10000))))
 
 #?(:cljs
    (defn round-currency
