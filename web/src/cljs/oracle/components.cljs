@@ -617,7 +617,8 @@
                                   [:strong "escrow output transaction"]]])
                               (when (case (:stage contract)
                                       ("waiting-start" "waiting-transfer") true
-                                      "waiting-escrow" (am-i-seller? contract))
+                                      "waiting-escrow" (am-i-seller? contract)
+                                      false)
                                 [:div.center {:style {:margin-bottom "5rem"}}
                                  (ui/flat-button {:key (str "cancel-button-contract-" (:id contract))
                                                   :label "Break contract"
