@@ -20,8 +20,7 @@
 
 (defn update-sell-offer [id f]
   (reset! (:sell-offer-matches state/app)
-          ;; Using vector
-          (doall (utils/some-updatev #(= (:id %) id) f @(:sell-offer-matches state/app)))))
+          (doall (utils/some-update #(= (:id %) id) f @(:sell-offer-matches state/app)))))
 
 (defn update-buy-request [id f]
   (reset! (:buy-requests state/app)
@@ -185,7 +184,7 @@
        (update-contract contract-id (constantly resp))
        (utils/log* (gstring/format "Contract ID started" contract-id))))))
 
-(defn mark-contract-received [contract-id]
+(defn mark-contract-transfer-received [contract-id]
   (network/send!
    [:contract/mark-transfer-received {:id contract-id}] 5000
    (fn [resp]
@@ -202,6 +201,20 @@
        (do (utils/log* (gstring/format "Error breaking the contract ID %d" contract-id))
            (push-error "There was an error breaking the contract. Please try again."))))))
 
+(defn escrow-forget-key [contract-id role]
+  (network/send!
+   [:escrow/forget-user-key {:id contract-id :role (name role)}] 5000
+   (fn [resp]
+     (if (and (sente/cb-success? resp) (= :ok (:status resp)))
+       (update-contract contract-id #(assoc % :escrow-seller-has-key true))
+       (utils/log* "Error in escrow-forget-key" resp)))))
+
+(defn escrow-retrieve-key [contract-id role user-key]
+  (network/send!
+   [:escrow/get-user-key {:id contract-id :role (name role)}] 5000
+   #(if (and (sente/cb-success? %) (= :ok (:status %)))
+      (reset! user-key (:escrow-user-key %))
+      (utils/log* "Error in escrow-retrieve-key" %))))
 
 ;;
 ;; Data retrieval
@@ -277,9 +290,8 @@
   [app-msg]
   (utils/log* "Unhandled app event: " (str app-msg)))
 
-(defmethod app-msg-handler :sell-offer/match
+(defmethod app-msg-handler :sell-offer-match/create
   [[_ msg]]
-  (utils/log* msg)
   (if (:error msg)
     (utils/log* "Error in :sell-offer/match message")
     (swap! (:sell-offer-matches state/app) conj msg)))
@@ -290,101 +302,35 @@
     (utils/log* "Error in :buy-request/create" msg)
     (swap! (:buy-requests state/app) conj msg)))
 
-(defmethod app-msg-handler :buy-request/match
+(defmethod app-msg-handler :buy-request/update
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "Error matching the buy request.")
-        (utils/log* "Error in buy-request/match" msg))
+    (do (push-error "Error update buy request.")
+        (utils/log* "Error in buy-request/update" msg))
     (update-buy-request (:id msg) (constantly msg))))
 
-(defmethod app-msg-handler :buy-request/timed-out
+(defmethod app-msg-handler :buy-request/delete
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "Error restarting the buy request.")
-        (utils/log* "Error in buy-request/timed-out" msg))
-    (update-buy-request (:id msg) #(dissoc % :seller-id))))
-
-(defmethod app-msg-handler :buy-request/accepted
-  [[_ msg]]
-  (if (:error msg)
-    (utils/log* "Error in :buy-request/accepted" msg)
+    (utils/log* "Error in :buy-request/delete" msg)
     (try (swap! (:buy-requests state/app) (fn [q] (remove #(= (:id msg)) q)))
          (catch :default e
            (push-error "Error accepting the buy request. Please inform us of this event.")
            (utils/log* "Error in buy-request/accepted:" e)))))
 
-(defmethod app-msg-handler :buy-request/declined
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error declining the buy request.")
-        (utils/log* "Error in buy-request/declined" msg))
-    (update-buy-request (:id msg) #(dissoc % :seller-id))))
-
 (defmethod app-msg-handler :contract/create
   [[_ msg]]
   (if (:error msg)
-    (utils/log* "Error in :contract/create" msg)
-    (try (swap! (:contracts state/app) conj msg)
-         (catch :default e
-           (do (push-error "Error creating the contract.")
-               (utils/log* "Error in contract/create" msg))))))
+    (do (push-error "Error creating the contract.")
+        (utils/log* "Error in contract/create" msg))
+    (swap! (:contracts state/app) conj msg)))
 
-(defmethod app-msg-handler :contract/start
+(defmethod app-msg-handler :contract/update
   [[_ msg]]
   (if (:error msg)
-    (do (push-error "Error in starting the contract.")
-        (utils/log* "Error in contract/start" msg))
+    (do (push-error "Error updating the contract.")
+        (utils/log* "Error in contract/update" msg))
     (update-contract (:id msg) (constantly msg))))
-
-(defmethod app-msg-handler :contract/escrow-funded
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error in funding the Escrow.")
-        (utils/log* "Error in contract/escrow-funded" msg))
-    (update-contract (:id msg) #(assoc % :stage "waiting-transfer"))))
-
-(defmethod app-msg-handler :contract/mark-transfer-received-ack
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error marking the transfer as received.")
-        (utils/log* "Error in contract/mark-transfer-received-ack" msg))
-    (update-contract (:id msg) #(assoc % :transfer-received true))))
-
-(defmethod app-msg-handler :contract/success
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Erro finalizing the contract.")
-        (utils/log* "Error in contract/holding-period" msg))
-    (update-contract (:id msg) #(assoc % :stage "contract-success"))))
-
-(defmethod app-msg-handler :contract/broken
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error breaking the contract.")
-        (utils/log* "Error in contract/broken" msg))
-    (update-contract (:id msg) #(assoc % :stage "contract-broken"))))
-
-(defmethod app-msg-handler :contract/escrow-insufficient
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error releasing the Escrow.")
-        (utils/log* "Error in contract/escrow-insufficient" msg))
-    (update-contract (:id msg) #(assoc % :stage "contract-broken/escrow-insufficient"))))
-
-(defmethod app-msg-handler :contract/escrow-release-success
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error releasing the Escrow.")
-        (utils/log* "Error in contract/escrow-release-success" msg))
-    (update-contract (:id msg) #(assoc % :escrow-release "<success>"))))
-
-(defmethod app-msg-handler :contract/escrow-release-failure
-  [[_ msg]]
-  (if (:error msg)
-    (do (push-error "Error releasing the Escrow.")
-        (utils/log* "Error in contract/escrow-release-failed" msg))
-    (update-contract (:id msg) #(assoc % :escrow-release "<failure>"))))
-
 
 (defmethod app-msg-handler :notification/create
   [[_ msg]]
@@ -425,7 +371,7 @@
   [{:as ev-msg :keys [?data ?reply-fn event]}]
   (when (and (= ?data [:chsk/ws-ping]) ?reply-fn)
     (?reply-fn {:chsk/ws-ping event}))
-  ;; (utils/log* "Push event from server: " (str ?data))
+  (utils/log* "Push event from server: " (str ?data))
   (app-msg-handler ?data))
 
 ;;

@@ -371,7 +371,7 @@ WHERE input_address = ?
 (defn get-contracts []
   (map ->kebab-case
        (sql/query db ["
-SELECT * FROM contract
+SELECT * FROM full_contract
 "])))
 
 (defn get-events []

@@ -31,6 +31,6 @@
                            :version "v2.8"})))
   (catch :default e (js/console.log e)))
 
-(rum/mount (components/app) (js/document.getElementById "app"))
+(defonce app_ (rum/mount (components/app) (js/document.getElementById "app")))
 
-(network/init-sente! actions/event-msg-handler)
+(defonce network_ (network/init-sente! actions/event-msg-handler))

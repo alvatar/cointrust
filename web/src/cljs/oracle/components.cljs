@@ -444,18 +444,10 @@
                              [:div.center
                               (if (and (nil? (rum/react user-key)) (not (:escrow-seller-has-key contract)))
                                 (ui/raised-button {:label "Get the Escrow Key" :primary true
-                                                   :on-touch-tap (fn [] (network/send!
-                                                                         [:escrow/get-user-key {:id (:id contract) :role "seller"}] 5000
-                                                                         #(if (and (sente/cb-success? %) (= :ok (:status %)))
-                                                                            (reset! user-key (:escrow-user-key %))
-                                                                            (utils/log* "Error in escrow/get-user-key" %))))})
+                                                   :on-touch-tap #(actions/escrow-retrieve-key contract-id :seller user-key)})
                                 (ui/raised-button {:label "I have stored my key in a secure place" :primary true
-                                                   :on-touch-tap (fn [] (when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
-                                                                          (network/send!
-                                                                           [:escrow/forget-user-key {:id (:id contract) :role "seller"}] 5000
-                                                                           (fn [resp] (if (and (sente/cb-success? resp) (= :ok (:status resp)))
-                                                                                        (actions/update-contract (:id contract) #(assoc % :escrow-seller-has-key true))
-                                                                                        (utils/log* "Error in escrow/forget-user-key" resp))))))}))]
+                                                   :on-touch-tap #(when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
+                                                                    (actions/escrow-forget-key contract-id :seller))}))]
                              [:div.center.margin-2rem
                               [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                          [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
@@ -500,21 +492,11 @@
                         (if (and (nil? (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
                           (ui/raised-button {:label "Get the Escrow Key"
                                              :primary true
-                                             :on-touch-tap (fn [] (network/send!
-                                                                   [:escrow/get-user-key {:id (:id contract) :role "buyer"}] 5000
-                                                                   #(if (and (sente/cb-success? %) (= :ok (:status %)))
-                                                                      (reset! user-key (:escrow-user-key %))
-                                                                      (utils/log* "Error in escrow/get-user-key" %))))})
+                                             :on-touch-tap #(actions/escrow-retrieve-key contract-id :buyer user-key)})
                           (ui/raised-button {:label "I have stored my key in a secure place"
                                              :primary true
-                                             :on-touch-tap (fn [] (when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
-                                                                    (network/send!
-                                                                     [:escrow/forget-user-key {:id (:id contract) :role "buyer"}] 5000
-                                                                     #(if (and (sente/cb-success? %) (= :ok (:status %)))
-                                                                        (if-let [found-idx (utils/find-in @(:contracts state/app) (:id contract))]
-                                                                          (swap! (:contracts state/app) assoc-in [found-idx :escrow-buyer-has-key] true)
-                                                                          (utils/log* "Error in escrow/forget-user-key (contract not found)" %))
-                                                                        (utils/log* "Error in escrow/forget-user-key" %)))))}))]
+                                             :on-touch-tap #(when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
+                                                             (actions/escrow-forget-key contract-id :buyer))}))]
                        [:div.center.margin-2rem
                         [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                    [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
@@ -542,7 +524,7 @@
                    [:div.center
                     (ui/raised-button {:label "I've received the funds"
                                        :primary true
-                                       :on-touch-tap #(do (actions/mark-contract-received (:id contract))
+                                       :on-touch-tap #(do (actions/mark-contract-transfer-received (:id contract))
                                                           (close-display-contract!))})]])
                 buttons
                 [(ui/flat-button {:label "Close"

@@ -16,7 +16,7 @@
               :sell-offer (atom nil)
               :sell-offer-matches (atom [])
               :buy-requests (atom [])
-              :contracts (atom nil)
+              :contracts (atom [])
               :notifications (atom cljs.core/PersistentQueue.EMPTY)
               :display-contract (atom nil)
               :server-time (atom nil)})

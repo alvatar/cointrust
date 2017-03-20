@@ -184,24 +184,22 @@
                            (do (log/debug "Buy request created:" result) result)
                            (throw (Exception. "Couldn't create buy-request"))))
           buy-request-id (:id buy-request)]
-      ;; TODO: retrieve exchange rate (probably a background worker updating a Redis key)
       ;; (log/debugf "STATE: %s" state)
       ;; (log/debug "Processing buy request: " buy-request)
       (idempotent-ops mid :event-buy-request-created state
-                      (events/add-event! buyer-id :buy-request-created buy-request))
+                      (events/send-event! buyer-id :buy-request/create buy-request))
       (if-let [seller-id (with-idempotent-transaction mid :pick-counterparty state
                            #(when-let [counterparty (pick-counterparty
                                                      buy-request
                                                      ;; Request to buy of what the seller has
-                                                     ;; TODO: improve semantics upstream to match this
                                                      {:wants {:amount amount :currency currency-seller}
                                                       :offers {:currency currency-buyer}})]
                               (db/buy-request-set-seller! buy-request-id counterparty %)
                               (log/debugf "Buyer ID %s - Seller ID %s match for %s %s" buyer-id counterparty (common/currency-as-float amount currency-seller) currency-seller)))]
         (let [full-buy-request (db/get-buy-request-by-id buy-request-id)]
           (idempotent-ops mid :event-sell-offer-matched state
-                          (events/add-event! seller-id :sell-offer-matched full-buy-request)
-                          (events/add-event! buyer-id :buy-request-matched full-buy-request))
+                          (events/send-event! seller-id :sell-offer-match/create full-buy-request)
+                          (events/send-event! buyer-id :buy-request/update full-buy-request))
             ;; Here we check if its accepted. If so, the task succeeds. Handle timeout waiting for response.
             ;; (log/debugf "%s seconds have passed since this task was created." (float (/ (- now (:started (:global state))) 1000)))
             (let [buy-request-status (get-buy-request-status buy-request-id)]
@@ -220,9 +218,7 @@
                     ;; TEMP do not blacklist
                     ;; (blacklist-counterparty buyer-id seller-id)
                     (clear-buy-request-status buy-request-id)
-                    (if (= buy-request-status "<declined>")
-                      (events/add-event! seller-id :buy-request-decline buy-request)
-                      (events/add-event! seller-id :buy-request-timed-out buy-request))
+                    (events/send-event! seller-id :buy-request/update (dissoc buy-request :seller-id))
                     {:status :retry :backoff-ms 1})
                 :else
                 {:status :retry :backoff-ms 1000})))
@@ -269,8 +265,8 @@
                       ;; Keep in mind that we are deleting the request here, so we rely on the master task
                       ;; to retrieve the buy request info from the idempotency cache in Redis
                       (db/buy-request-delete! (:id buy-request)) ; Idempotent, must be done at the end
-                      (events/add-event! (:buyer-id contract) :contract-create contract)
-                      (events/add-event! (:seller-id contract) :contract-create contract)
+                      (events/send-event! (:buyer-id contract) :contract/create contract)
+                      (events/send-event! (:seller-id contract) :contract/create contract)
                       (escrow/setup-keys-for-contract! contract-id))
       (case (:stage contract)
 
@@ -280,15 +276,15 @@
 
         ;; Contract can be cancelled anytime
         "contract-broken"
-        (do (events/add-event! (:buyer-id contract) :contract-broken contract)
-            (events/add-event! (:seller-id contract) :contract-broken contract)
+        (do (events/send-event! (:buyer-id contract) :contract/update contract)
+            (events/send-event! (:seller-id contract) :contract/update contract)
             (db/contract-update! contract-id {:escrow_open_for (:seller-id contract)})
             {:status :success})
 
         ;; Contract can be cancelled anytime
         "contract-broken/escrow-insufficient"
-        (do (events/add-event! (:buyer-id contract) :contract-escrow-insufficient contract)
-            (events/add-event! (:seller-id contract) :contract-escrow-insufficient contract)
+        (do (events/send-event! (:buyer-id contract) :contract/update contract)
+            (events/send-event! (:seller-id contract) :contract/update contract)
             (db/contract-update! contract-id {:escrow_open_for (:seller-id contract)})
             {:status :success})
 
@@ -300,8 +296,8 @@
                       (log/debug "Contract stage changed to \"waiting-escrow\"")
                       (db/contract-add-event! contract-id "waiting-escrow" nil idemp)))
                   (let [contract (merge contract {:stage "waiting-escrow"})]
-                    (events/add-event! (:seller-id contract) :contract-start contract)
-                    (events/add-event! (:buyer-id contract) :contract-start contract))
+                    (events/send-event! (:seller-id contract) :contract/update contract)
+                    (events/send-event! (:buyer-id contract) :contract/update contract))
                   {:status :retry :backoff-ms 1})
               (> now (utils/unix-after (time-coerce/to-date-time (:created contract)) (time/hours 12)))
               (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
@@ -323,8 +319,8 @@
                         (log/debug "Contract stage changed to \"waiting-transfer\"")
                         (db/contract-add-event! contract-id "waiting-transfer" nil idemp)))
                     (let [contract (merge contract {:stage "waiting-transfer"})]
-                      (events/add-event! (:seller-id contract) :contract-escrow-funded contract)
-                      (events/add-event! (:buyer-id contract) :contract-escrow-funded contract))
+                      (events/send-event! (:seller-id contract) :contract/update contract)
+                      (events/send-event! (:buyer-id contract) :contract/update contract))
                     {:status :retry :backoff-ms 1})
                 ;; Received less than required
                 (do (with-idempotent-transaction mid :contract-add-event-escrow-insufficient state
@@ -332,8 +328,8 @@
                         (log/debug "Contract stage changed to \"contract-broken/escrow-insufficient\"")
                         (db/contract-add-event! contract-id "contract-broken/escrow-insufficient" nil idemp)))
                     (let [contract (merge contract {:stage "contract-broken/escrow-insufficient"})]
-                      (events/add-event! (:seller-id contract) :contract-escrow-insufficient contract)
-                      (events/add-event! (:buyer-id contract) :contract-escrow-insufficient contract))
+                      (events/send-event! (:seller-id contract) :contract/update contract)
+                      (events/send-event! (:buyer-id contract) :contract/update contract))
                     {:status :retry :backoff-ms 1}))
               ;; The countdown
               (> now (utils/unix-after (time-coerce/to-date-time (:started-timestamp contract)) (time/minutes 60)))
@@ -349,20 +345,22 @@
         (cond (and (:transfer-received contract)
                    (:escrow-seller-has-key contract)
                    (:escrow-buyer-has-key contract))
-              (do (db/contract-update! contract-id {:escrow_open_for (:buyer-id contract)}) ; Idempotent
-                  (events/add-event! (:buyer-id contract) :contract-success contract)
-                  (events/add-event! (:seller-id contract) :contract-success contract)
-                  (with-idempotent-transaction mid :contract-success state
-                    #(db/contract-add-event! contract-id "contract-success" nil %))
-                  ;; Let the success contract stage handle it
-                  {:status :retry :backoff-ms 1})
+              (let [contract (merge contract {:stage "contract-success"})]
+                (db/contract-update! contract-id {:escrow_open_for (:buyer-id contract)}) ; Idempotent
+                (events/send-event! (:buyer-id contract) :contract/update contract)
+                (events/send-event! (:seller-id contract) :contract/update contract)
+                (with-idempotent-transaction mid :contract-success state
+                  #(db/contract-add-event! contract-id "contract-success" nil %))
+                ;; Let the success contract stage handle it
+                {:status :retry :backoff-ms 1})
               ;; The countdown
               (> now (utils/unix-after (time-coerce/to-date-time (:escrow-funded-timestamp contract)) (time/minutes 30)))
-              (do (events/add-event! (:buyer-id contract) :contract-success contract)
-                  (events/add-event! (:seller-id contract) :contract-success contract)
-                  (with-idempotent-transaction mid :contract-add-event-contract-boken state
-                    #(db/contract-add-event! contract-id "contract-broken" {:reason "running contract timed out"} %))
-                  {:status :success})
+              (let [contract (merge contract {:stage "contract-broken"})]
+                (events/send-event! (:buyer-id contract) :contract/update contract)
+                (events/send-event! (:seller-id contract) :contract/update contract)
+                (with-idempotent-transaction mid :contract-add-event-contract-boken state
+                  #(db/contract-add-event! contract-id "contract-broken" {:reason "running contract timed out"} %))
+                {:status :success})
               :else
               {:status :retry :backoff-ms 1000})
 
@@ -397,7 +395,7 @@
     (if (not-empty buy-request)
       (do (log/debug message)
           (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
-          (events/add-event! (:buyer-id buy-request) :buy-request-accept buy-request) ; Repeat OK
+          (events/send-event! (:buyer-id buy-request) :buy-request/delete buy-request) ; Repeat OK
           ;; Add transfer info to buy-request before creating contract
           (initiate-contract (merge data buy-request)) ; Idempotent
           {:status :success})
@@ -412,7 +410,7 @@
         buy-request (db/get-buy-request-by-id buy-request-id)]
     (log/debug message)
     (set-buy-request-status buy-request-id "<declined>") ; Idempotent
-    (events/add-event! (:buyer-id buy-request) :buy-request-decline buy-request)
+    (events/send-event! (:buyer-id buy-request) :buy-request/update (dissoc buy-request :seller-id))
     {:status :success}))
 
 (defmethod common-preemptive-handler :escrow/release-to-user
@@ -430,14 +428,14 @@
           (long (* (:amount contract)
                    (common/long->decr (:fee contract))
                    (common/long->decr (:premium contract)))))
-      (do
+      (let [contract (merge contract {:escrow_release "<success>"})]
         (db/contract-update! contract-id {:escrow_release "<success>"})
-        (events/add-event! (:buyer-id contract) :contract-escrow-release-success contract) ; Allow repetition
-        (events/add-event! (:seller-id contract) :contract-escrow-release-success contract) ; Allow repetition
+        (events/send-event! (:buyer-id contract) :contract/update contract)
+        (events/send-event! (:seller-id contract) :contract/update contract)
         (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
-      (do
-        (events/add-event! (:buyer-id contract) :contract-escrow-release-failure contract) ; Allow repetition
-        (events/add-event! (:seller-id contract) :contract-escrow-release-failure contract) ; Allow repetition
+      (let [contract (merge contract {:escrow_release "<failure>"})]
+        (events/send-event! (:buyer-id contract) :contract/update contract)
+        (events/send-event! (:seller-id contract) :contract/update contract)
         (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"})))
     {:status :success}))
 
@@ -516,7 +514,7 @@
 ;; 2. Accept buy request
 
 ;; 3. Seller sends money to Escrow
-;; (oracle.database/contract-set-escrow-funded! 1 (common/btc->satoshi 2) "fake-transaction-hash")
+;; (oracle.database/contract-set-escrow-funded! 1 (oracle.common/btc->satoshi 2) "fake-transaction-hash")
 
 
 ;; -- EXTRA
@@ -552,7 +550,8 @@
 ;; (oracle.tasks/initiate-contract {:id 1, :created #inst "2017-01-16T18:22:07.389569000-00:00", :buyer-id 1, :seller-id 2, :amount 100000000, :currency-buyer "usd", :currency-seller "btc", :exchange-rate 1000.000000M, :transfer-info "cosmicbro" :premium 100 :fee 100})
 
 (defn contract-force-success [id]
-  (let [contract (db/get-contract-by-id-fast id)]
+  (let [contract (db/get-contract-by-id-fast id)
+        contract (merge contract {:stage "contract-success"})]
     (db/contract-add-event! id "contract-success" nil)
-    (events/add-event! (:seller-id contract) :contract-success contract)
-    (events/add-event! (:buyer-id contract) :contract-success contract)))
+    (events/send-event! (:seller-id contract) :contract/update contract)
+    (events/send-event! (:buyer-id contract) :contract/update contract)))

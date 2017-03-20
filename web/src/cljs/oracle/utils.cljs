@@ -19,6 +19,8 @@
 
 (defn find-in [col id] (first (keep-indexed #(when (= (:id %2) id) %1) col)))
 
-(defn some-update [predicate f coll] (map (fn [x] (if (predicate x) (f x) x)) coll))
-
-(defn some-updatev [predicate f coll] (mapv (fn [x] (if (predicate x) (f x) x)) coll))
+(defn some-update [predicate f coll]
+  ((cond (vector? coll) mapv
+         :else map)
+   (fn [x] (if (predicate x) (f x) x))
+   coll))
