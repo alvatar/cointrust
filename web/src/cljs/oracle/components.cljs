@@ -277,7 +277,7 @@
     (for [{:keys [id name photo-url]} (rum/react (:friends2 state/app))]
       [:span.profile-image.hint--bottom {:key (str "friend-photo-" id) :aria-label name}
        [:figure
-        [:img {:src photo-url}]]])]
+        [:img.circle {:src photo-url}]]])]
    (when-let [error (rum/react state/error)] [:h5.center.error error])
    [:div.center
     (ui/raised-button {:label "BUY Bitcoins"
@@ -506,7 +506,7 @@
                    [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
                    [:div.center
                     [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"}
-                     [:img {:src (:seller-photo contract)}]]]
+                     [:img.circle {:src (:seller-photo contract)}]]]
                    [:h3 "Step 3: On Facebook, " [:a {:href "https://www.youtube.com/watch?v=ZeAJDFgcCYA" :target "_blank"} "send a video message to Cedric."] " Record yourself reading this script."]
                    (legal-text :buyer)
                    [:h3 "Step 4: send "
@@ -522,7 +522,7 @@
                    [:h3 (gstring/format "Step 1: Expect a video from %s reading the following text" (:buyer-name contract))]
                    [:div.center
                     [:a.hint--bottom {:aria-label (:buyer-name contract)}
-                     [:img {:src (:buyer-photo contract)}]]]
+                     [:img.circle {:src (:buyer-photo contract)}]]]
                    (legal-text :seller)
                    [:h3 "Step 2: As soon as you receive a valid video in Facebook and the funds in Venmo, press the button below:"]
                    [:div.center
@@ -621,10 +621,10 @@
                                 :style {:width "100%"}}
              [(if _small-display? :div.center :div.column-half)
               [:div {:style (when-not _small-display? {:display "block" :clear "both"})}
-               [:img {:style (if _small-display?
-                               {:margin-bottom "10px"}
-                               {:float "left" :width "28px" :height "28px" :margin-right "4px"})
-                      :src (if (am-i-seller? contract) (:buyer-photo contract) (:seller-photo contract))}]]
+               [:img.circle {:style (if _small-display?
+                                      {:margin-bottom "10px"}
+                                      {:float "left" :width "28px" :height "28px" :margin-right "4px"})
+                             :src (if (am-i-seller? contract) (:buyer-photo contract) (:seller-photo contract))}]]
               [:strong (if (am-i-seller? contract) "SELLER" "BUYER")]
               (gstring/format " // %s BTC " (common/satoshi->btc (:amount contract)))
               (when-not _small-display? [:span {:style {:font-size "x-small" :display "table-cell" :vertical-align "middle"}} (str "Contract ID: " (:human-id contract))])]
@@ -727,7 +727,7 @@
                                              (common/long->decr (:premium current))))]
                      [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
                       [:a.hint--bottom {:aria-label (:buyer-name current)}
-                       [:img {:src (:buyer-photo current)}]]]
+                       [:img.circle {:src (:buyer-photo current)}]]]
                      [:div.left [:span {:style {:margin-right "2px"}} "@"]
                       (ui/text-field {:id "account-name"
                                       :hint-text "Enter your Venmo ID to get paid!"
