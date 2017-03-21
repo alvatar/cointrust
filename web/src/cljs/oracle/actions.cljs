@@ -377,11 +377,15 @@
 
 (defn logout [] (aset js/window "location" "/"))
 
-(defn authenticate [user-fbid user-name hashed-id friend-hashes]
+(defn authenticate [user-fbid user-name user-hash friend-hashes]
   (sente/ajax-lite "/login"
                    {:method :post
                     :headers {:X-CSRF-Token (:csrf-token @network/chsk-state)}
-                    :params {:hashed-id hashed-id}}
+                    :params {:user (utils/clj->json
+                                    {:user-hash user-hash
+                                     :user-fbid user-fbid
+                                     :user-name user-name
+                                     :friend-hashes friend-hashes})}}
                    (fn [resp]
                      (let [logged (utils/json->clj (:?content resp))]
                        (if (:error logged)
@@ -391,7 +395,7 @@
                            (network/register-init-callback!
                             (fn []
                               (reset! (:user-id state/app) (get logged "id"))
-                              (reset! (:user-hash state/app) hashed-id)
+                              (reset! (:user-hash state/app) user-hash)
                               (reset! (:user-fbid state/app) user-fbid)
                               (reset! (:user-name state/app) user-name)
                               (reset! (:friend-hashes state/app) friend-hashes)
@@ -399,20 +403,20 @@
                               (retrieve-app-data-cycle-start!)))
                            (sente/chsk-reconnect! network/chsk)))))))
 
-(defn- set-fake-facebooks-ids [{:keys [user-id hashed-id fb-id user-name friend-hashes] :as login}]
+(defn- set-fake-facebooks-ids [{:keys [user-id user-hash fb-id user-name friend-hashes] :as login}]
   (utils/log* "Connecting with fake data:" login)
-  (authenticate fb-id user-name hashed-id friend-hashes))
+  (authenticate fb-id user-name user-hash friend-hashes))
 
 (defn- set-facebook-ids [settable-error]
   (let [set-user! (fn [response]
                     (if (= (:status response) "connected")
                       (let [user-fbid-str (get-in response [:authResponse :userID])
                             user-fbid (js/Number (get-in response [:authResponse :userID]))
-                            hashed-id (cljs-hash.goog/hash :sha1 user-fbid-str)]
+                            user-hash (cljs-hash.goog/hash :sha1 user-fbid-str)]
                         (fb/api "/me/"
                                 (fn [resp]
                                   (utils/log* "Connecting with Facebook userID: " user-fbid)
-                                  (utils/log* "Hashed user: " hashed-id)
+                                  (utils/log* "Hashed user: " user-hash)
                                   (fb/api "/me/friends" {}
                                           (fn [{friends :data}]
                                             (let [friend-fbids (map :id friends)
@@ -421,7 +425,7 @@
                                               (reset! (:friend-hashes state/app) hashed-friends)
                                               (utils/log* "Friend IDs: " (str friend-fbids))
                                               (utils/log* "Hashed friends: " (str hashed-friends))
-                                              (authenticate user-fbid (:name resp) hashed-id hashed-friends)))))))
+                                              (authenticate user-fbid (:name resp) user-hash hashed-friends)))))))
                       (utils/log* "Not logged in: " (clj->js response))))]
     (try
       (fb/get-login-status

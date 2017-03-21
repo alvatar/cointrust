@@ -51,16 +51,16 @@
 ;;                (log/debugf "****** Connected uids change: %s" new))))
 
 (defn login-handler [req]
-  (let [{:keys [session params]} req
-        {:keys [hashed-id]} params]
-    ;; TODO: actual login
+  (let [{:keys [session params]} req]
     (try
-      (if-let [user (db/get-user-by-hash hashed-id)]
-        {:status 200
-         :session (assoc session :uid hashed-id)
-         :body (json/generate-string user)}
-        {:status 200
-         :body (json/generate-string {:error "login error"})})
+      (let [user-input (json/parse-string (:user params) true)
+            {:keys [user-fbid user-name user-hash friend-hashes]} user-input]
+        (if-let [user (db/user-insert! (BigDecimal. user-fbid) user-name user-hash friend-hashes)]
+          {:status 200
+           :session (assoc session :uid user-hash)
+           :body (json/generate-string user)}
+          {:status 200
+           :body (json/generate-string {:error "login error"})}))
       (catch Exception e
         (pprint e)
         {:status 500}))))

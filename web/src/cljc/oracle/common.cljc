@@ -47,5 +47,5 @@
 ;;
 
 (def fake-users
-  [{:hashed-id "dddd" :user-id 1 :user-name "Zeus" :fb-id 10213129106885586 :friend-hashes ["eeee"]}
-   {:hashed-id "eeee" :user-id 2 :user-name "Barbara" :fb-id 10106263879382352 :friend-hashes ["dddd"]}])
+  [{:user-hash "dddd" :user-id 1 :user-name "Zeus" :fb-id 10213129106885586 :friend-hashes ["eeee"]}
+   {:user-hash "eeee" :user-id 2 :user-name "Barbara" :fb-id 10106263879382352 :friend-hashes ["dddd"]}])

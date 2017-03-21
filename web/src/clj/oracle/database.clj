@@ -93,12 +93,16 @@ ON CONFLICT DO NOTHING
 " user-id1 user-id2]))))
                 friend-ids)]
       (log-op! tx "user-insert" {:id user-id
-                                 :name user-name
                                  :hash user-hash
+                                 :fb-id user-fbid
+                                 :name user-name
                                  :friend-hashes friend-hashes})
-      {:user-id user-id
-       :user-name user-name
-       :friends friend-ids})))
+      {:id user-id
+       :hash user-hash
+       :fb-id user-fbid
+       :name user-name
+       :friend-hashes friend-hashes})))
+
 
 (defn get-users []
   (sql/query db ["SELECT * FROM user_account;"]))
@@ -462,7 +466,6 @@ CREATE TABLE user_account (
   hash                             VARCHAR(128) NOT NULL UNIQUE,
   fb_id                            BIGINT NOT NULL,
   name                             VARCHAR(256),
-  username                         VARCHAR(256),
   photo_url                        VARCHAR(2083)
 );"
                        "

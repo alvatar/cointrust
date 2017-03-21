@@ -482,9 +482,9 @@
 
 (defn populate-test-database! []
   (doseq [u common/fake-users]
-    (let [{:keys [fb-id user-name user-id hashed-id friend-hashes]} u]
+    (let [{:keys [fb-id user-name user-id user-hash friend-hashes]} u]
       (println u)
-      (db/user-insert! fb-id user-name hashed-id friend-hashes)))
+      (db/user-insert! fb-id user-name user-hash friend-hashes)))
 
   ;; (db/user-insert! 145228535996960 "John" "asdf" [])
   ;; (db/user-insert! 145228535996960 "Ada" "ffff" ["asdf"])
