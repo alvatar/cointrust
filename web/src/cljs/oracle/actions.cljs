@@ -58,7 +58,12 @@
    [:user/friends-of-friends {:user-id @(:user-id state/app)}] 5000
    (fn [resp]
      (if (and (sente/cb-success? resp) (= (:status resp) :ok))
-       (reset! (:friends2 state/app) (:friends2 resp))
+       (do (reset! (:friends2 state/app) (:friends2 resp))
+           (doseq [[f idx] (zipmap (take 8 @(:friends2 state/app)) (range))]
+             (fb/api (str "/" (:fb-id f) "/picture")
+                     #(if-let [photo-url (get-in % [:data :url])]
+                        (swap! (:friends2 state/app) assoc-in [idx :photo-url] photo-url)
+                        (utils/log* %)))))
        (do (push-error "Error retrieving data. Please relogin.")
            (utils/log* "Error in get-friends2:" resp)))
      (utils/log* "Friends^2:" (str @(:friends2 state/app))))))
@@ -202,12 +207,13 @@
            (push-error "There was an error breaking the contract. Please try again."))))))
 
 (defn escrow-forget-key [contract-id role]
-  (network/send!
-   [:escrow/forget-user-key {:id contract-id :role (name role)}] 5000
-   (fn [resp]
-     (if (and (sente/cb-success? resp) (= :ok (:status resp)))
-       (update-contract contract-id #(assoc % :escrow-seller-has-key true))
-       (utils/log* "Error in escrow-forget-key" resp)))))
+  (let [rolestr (name role)]
+    (network/send!
+     [:escrow/forget-user-key {:id contract-id :role rolestr}] 5000
+     (fn [resp]
+       (if (and (sente/cb-success? resp) (= :ok (:status resp)))
+         (update-contract contract-id #(assoc % (keyword (str "escrow-" rolestr "-has-key")) true))
+         (utils/log* "Error in escrow-forget-key" resp))))))
 
 (defn escrow-retrieve-key [contract-id role user-key]
   (network/send!
@@ -239,16 +245,7 @@
                        (do (get-exchange-rates) (reset! a 0))))
                   1000))
 
-(add-watch (:friends2 state/app) :got-friends2
-           (fn [_1 _2 _3 _4]
-             (doseq [[f idx] (zipmap (take 8 @(:friends2 state/app)) (range))]
-               (fb/api (str "/" (:fb-id f) "/picture")
-                       #(if-let [photo-url (get-in % [:data :url])]
-                          (swap! (:friends2 state/app) assoc-in [idx :photo-url] photo-url)
-                          (utils/log* %))))
-             (remove-watch (:friends2 state/app) :got-friends2)))
-
-(defn get-photo-for! [obj type role]
+(defn get-facebook-info-for! [obj type role]
   (when-let [id ((keyword (str (name role) "-fb-id")) obj)]
     (fb/api (str "/" id "/picture")
             (fn [resp]
@@ -264,19 +261,19 @@
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
                (when (and (:buyer-id c) (not (:buyer-photo c)))
-                 (get-photo-for! c :sell-offer :buyer)))))
+                 (get-facebook-info-for! c :sell-offer :buyer)))))
 
 (add-watch (:buy-requests state/app) :fetch-buy-requests-photos
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
                (when (and (:seller-id c) (not (:seller-photo c)))
-                 (get-photo-for! c :buy-request :seller)))))
+                 (get-facebook-info-for! c :buy-request :seller)))))
 
 (add-watch (:contracts state/app) :fetch-contract-photos
            (fn [_1 _2 _3 _4]
              (doseq [c @_2]
-               (when-not (:seller-photo c) (get-photo-for! c :contract :seller))
-               (when-not (:buyer-photo c) (get-photo-for! c :contract :buyer)))))
+               (when-not (:seller-photo c) (get-facebook-info-for! c :contract :seller))
+               (when-not (:buyer-photo c) (get-facebook-info-for! c :contract :buyer)))))
 
 ;;
 ;; Event Handlers

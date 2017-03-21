@@ -462,6 +462,7 @@ CREATE TABLE user_account (
   hash                             VARCHAR(128) NOT NULL UNIQUE,
   fb_id                            BIGINT NOT NULL,
   name                             VARCHAR(256),
+  username                         VARCHAR(256),
   photo_url                        VARCHAR(2083)
 );"
                        "
