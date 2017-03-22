@@ -175,7 +175,7 @@
                               (escrow/encode-key (escrow/get-buyer-key (:id ?data)))
                               (escrow/encode-key (escrow/get-seller-key (:id ?data)))))
       (?reply-fn {:status :error-wrong-key})
-      (not (:escrow-funded (db/get-contract-by-id-fast (:id ?data))))
+      (not (:escrow-amount (db/get-contract-by-id-fast (:id ?data))))
       (?reply-fn {:status :error-escrow-not-funded})
       ;;
       :else

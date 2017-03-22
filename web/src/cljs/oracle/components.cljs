@@ -366,7 +366,7 @@
                                                (do (actions/update-contract
                                                     (:id contract)
                                                     (fn [c] (-> c
-                                                                (assoc :output-address "<failure>")
+                                                                (assoc :output-address (:output-address @input))
                                                                 (assoc :escrow-release "<processing>"))))
                                                    (close-display-contract!))
                                                :error-wrong-key
@@ -374,7 +374,12 @@
                                                :error-wrong-address
                                                (swap! errors assoc :output-address "Invalid address")
                                                :error-missing-parameters
-                                               (utils/log* "Error calling contract/release-escrow-buyer" %))
+                                               (utils/log* "Error calling contract/release-escrow-buyer" %)
+                                               :error-escrow-not-funded
+                                               (swap! errors assoc :output-address "Escrow not funded or not enough confirmations.")
+                                               (do (swap! errors assoc :key "Unknown Error")
+                                                   (swap! errors assoc :output-address "Unknown Error")
+                                                   (utils/log* %)))
                                              (do (reset! state/error "There was an error in requesting the Escrow funds. Please inform us of this event.")
                                                  (utils/log* "Error calling contract/release-escrow-buyer" %))))))})
                     (ui/flat-button {:label "Cancel"
@@ -584,7 +589,8 @@
                                                            "waiting-start" 0
                                                            "waiting-escrow" 1
                                                            "waiting-transfer" 2
-                                                           ("contract-success" "contract-broken" "contract-broken/escrow-insufficient") 3)
+                                                           ("contract-success" "contract-broken" "contract-broken/escrow-insufficient") 3
+                                                           3)
                                             :orientation (if _small-display? "vertical" "horizontal")
                                             :style (if _small-display? {:width "12rem" :margin "0 auto"} {})})
                                           (ui/step (ui/step-label "Contract initialization"))
@@ -648,7 +654,7 @@
                  "contract-success" (if (am-i-seller? contract)
                                       [status-class [:div.center "RELEASING TO BUYER"]]
                                       (case (:escrow-release contract)
-                                        "<fresh>" (action-required "GET BITCOINS")
+                                        "<fresh>" (action-required "RELEASE BITCOINS")
                                         "<failure>" (action-required "FAILED RELEASE")
                                         "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
                                         "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
@@ -659,7 +665,7 @@
                                        [status-class [:div.center "CONTRACT BROKEN"]])
                                      (if (:escrow-funded-timestamp contract)
                                        (case (:escrow-release contract)
-                                         "<fresh>" (action-required "RELEASE FUNDS")
+                                         "<fresh>" (action-required "RELEASE BITCOINS")
                                          "<failure>" (action-required "FAILED RELEASE")
                                          "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
                                          "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]

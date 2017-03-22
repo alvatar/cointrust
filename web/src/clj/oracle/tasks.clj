@@ -417,7 +417,7 @@
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
         contract-id (:id data)
-        contract (db/get-contract-by-id-fast contract-id)]
+        contract (db/get-contract-by-id contract-id)]
     (log/debug message)
     ;; TEMPORARY APPROACH
     (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
@@ -428,12 +428,13 @@
           (long (* (:amount contract)
                    (common/long->decr (:fee contract))
                    (common/long->decr (:premium contract)))))
-      (let [contract (merge contract {:escrow_release "<success>"})]
-        (db/contract-update! contract-id {:escrow_release "<success>"})
+      (let [contract (merge contract {:escrow-release "<success>"})]
+        (db/contract-update! contract-id {:escrow-release "<success>"})
         (events/send-event! (:buyer-id contract) :contract/update contract)
         (events/send-event! (:seller-id contract) :contract/update contract)
         (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
-      (let [contract (merge contract {:escrow_release "<failure>"})]
+      (let [contract (merge contract {:escrow-release "<failure>"})]
+        (db/contract-update! contract-id {:escrow_release "<failure>"})
         (events/send-event! (:buyer-id contract) :contract/update contract)
         (events/send-event! (:seller-id contract) :contract/update contract)
         (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"})))
