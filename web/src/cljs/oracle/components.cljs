@@ -479,7 +479,7 @@
                               "My name on Facebook is "
                               (case role :buyer "<say your Facebook name>" :seller "<his/her name on Facebook>")
                               [:br]
-                              (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s USD of bitcoin."
+                              (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s Bitcoins."
                                               (common/currency-as-float (:amount contract) (:currency-seller contract)))
                               [:br]
                               (gstring/format "As long as the contract ID '%s' listed at cointrust.io shows that the contract is completed when I log into CoinTrust with my Facebook ID." (:human-id contract))])
