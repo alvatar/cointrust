@@ -55,7 +55,7 @@
     (try
       (let [user-input (json/parse-string (:user params) true)
             {:keys [user-fbid user-name user-hash friend-hashes]} user-input]
-        (if-let [user (db/user-insert! (BigDecimal. user-fbid) user-name user-hash friend-hashes)]
+        (if-let [user (db/user-insert! (BigDecimal. (str user-fbid)) user-name user-hash friend-hashes)]
           {:status 200
            :session (assoc session :uid user-hash)
            :body (json/generate-string user)}
