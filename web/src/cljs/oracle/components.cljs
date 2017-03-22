@@ -648,7 +648,7 @@
                  "contract-success" (if (am-i-seller? contract)
                                       [status-class [:div.center "RELEASING TO BUYER"]]
                                       (case (:escrow-release contract)
-                                        "<fresh>" (action-required "RELEASE FUNDS")
+                                        "<fresh>" (action-required "GET BITCOINS")
                                         "<failure>" (action-required "FAILED RELEASE")
                                         "<success>" [status-class [:div.center (str "RELEASED TO: " (:output-address contract))]]
                                         "<processing>" [status-class [:div.center (str "RELEASING TO: " (:output-address contract))]]
