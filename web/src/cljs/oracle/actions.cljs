@@ -383,7 +383,7 @@
                     :headers {:X-CSRF-Token (:csrf-token @network/chsk-state)}
                     :params {:user (utils/clj->json
                                     {:user-hash user-hash
-                                     :user-fbid user-fbid
+                                     :user-fbid (str user-fbid)
                                      :user-name user-name
                                      :friend-hashes friend-hashes})}}
                    (fn [resp]
