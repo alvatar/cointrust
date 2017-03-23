@@ -508,7 +508,7 @@
                                                              (actions/escrow-forget-key contract-id :buyer))}))]
                        [:div.center.margin-2rem
                         [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
-                   [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
+                   [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
                    [:div.center
                     [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"}
                      [:img.circle {:src (:seller-photo contract)}]]]
