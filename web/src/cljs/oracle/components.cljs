@@ -427,7 +427,7 @@
                                 (gstring/format "Once started you’ll have 60 minutes to send the bitcoin to a smart contract and 30 minutes to confirm you’ve received payment from %s." the-other)
                                 (gstring/format "Once started you'll have to wait for a maximum of 60 minutes for %s to send the Bitcoins to the smart contract, and then you will have 30 minutes to make the payment." the-other))]]
                          (when (am-i-seller? contract)
-                           (ui/raised-button {:label "Start Interaction"
+                           (ui/raised-button {:label "Start Trade"
                                               :key (str "ws-start-interaction-button-contract" contract-id)
                                               :primary true
                                               :on-touch-tap (fn []
