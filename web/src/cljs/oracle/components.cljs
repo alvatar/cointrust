@@ -140,7 +140,7 @@
                   [:h4 {:style {:margin-top "-1rem"}}
                    (gstring/format "You will be paying $%s and receiving %s Bitcoin"
                                    (current-by-currency :usd)
-                                   (* 0.99 0.99 (current-by-currency :btc)))]]
+                                   (common/round-currency (* 0.99 0.99 (current-by-currency :btc)) 5))]]
                  (when (:processing (rum/react input))
                    [:div
                     (ui/linear-progress {:size 60 :mode "indeterminate"
