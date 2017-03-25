@@ -419,9 +419,14 @@
                                           :key (str "ws-close-button-contract-" contract-id)
                                           :primary true
                                           :on-touch-tap close-display-contract!})]
+                the-other (if (am-i-seller? contract) (:buyer-name contract) (:seller-name contract))
                 content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                          [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
-                          [:h3 (str "Time left: " time-left)]]
+                          [:h3 (str "Time left: " time-left)]
+                          [:p (gstring/format "You must coordinate a start-time for this trade with %s on Facebook Messenger within the time left." the-other)]
+                          [:p (if (am-i-seller? contract)
+                                (gstring/format "Once started you’ll have 60 minutes to send the bitcoin to a smart contract and 30 minutes to confirm you’ve received payment from %s." the-other)
+                                (gstring/format "Once started you'll have to wait for a maximum of 60 minutes for %s to send the Bitcoins to the smart contract, and then you will have 30 minutes to make the payment." the-other))]]
                          (when (am-i-seller? contract)
                            (ui/raised-button {:label "Start Interaction"
                                               :key (str "ws-start-interaction-button-contract" contract-id)
