@@ -196,7 +196,7 @@
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                  [:div
                   [:h4 "How much would you like to sell? (Your coins will be sold at the market price, as listed on the top US exchange)"]
-                  [:h4 "Bitcoin price: " (:btc-usd (rum/react (:exchange-rates state/app))) " BTC/USD"]
+                  [:h4 "Bitcoin price: $" (:btc-usd (rum/react (:exchange-rates state/app)))]
                   [:h6 {:style {:margin-top "-1rem"}}
                    (gstring/format "Exchange rate will update in %s seconds" (- globals/exchange-rates-refresh-interval
                                                                                 (rum/react (:seconds-since-last-exchange-rates-refresh state/app))))]
