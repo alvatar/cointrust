@@ -196,7 +196,7 @@
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                  [:div
                   [:h4 "How much would you like to sell? (Your coins will be sold at the market price, as listed on the top US exchange)"]
-                  [:h4 "Bitcoin price: $" (:btc-usd (rum/react (:exchange-rates state/app)))]
+                  [:h4 "Bitcoin price: $1" (:btc-usd (rum/react (:exchange-rates state/app)))]
                   [:h6 {:style {:margin-top "-1rem"}}
                    (gstring/format "Exchange rate will update in %s seconds" (- globals/exchange-rates-refresh-interval
                                                                                 (rum/react (:seconds-since-last-exchange-rates-refresh state/app))))]
@@ -599,7 +599,7 @@
                                             :orientation (if _small-display? "vertical" "horizontal")
                                             :style (if _small-display? {:width "12rem" :margin "0 auto"} {})})
                                           (ui/step (ui/step-label "Contract initialization"))
-                                          (ui/step (ui/step-label "Smart Contract funding"))
+                                          (ui/step (ui/step-label "Fund Smart Contract"))
                                           (ui/step (ui/step-label "Contract execution")))
                               [:p.center [:strong "Smart Contract ID: "] (:human-id contract)]
                               (let [explorer-url (case globals/*env*
@@ -608,10 +608,10 @@
                                                    "")]
                                 [:div.center
                                  [(if (:input-tx contract) :a.tx-link :a.tx-link-shadow) (when (:input-tx contract) {:href (str explorer-url (:input-tx contract)) :target "_blank"})
-                                  [:strong "escrow input transaction"]]
+                                  [:strong "Input transaction"]]
                                  [:span.tx-link " / "]
                                  [(if (:output-tx contract) :a.tx-link :a.tx-link-shadow) (when (:output-tx contract) {:href (str explorer-url (:output-tx contract)) :target "_blank"})
-                                  [:strong "escrow output transaction"]]])
+                                  [:strong "Output transaction"]]])
                               (when (case (:stage contract)
                                       ("waiting-start" "waiting-transfer") true
                                       "waiting-escrow" (am-i-seller? contract)
