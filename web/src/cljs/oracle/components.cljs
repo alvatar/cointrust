@@ -300,7 +300,8 @@
        [:p.center [:strong (:min sell-offer)] " to " [:strong (:max sell-offer)] " "
         (clojure.string/upper-case currency) " ("
         (common/round-currency (* (:min sell-offer) ex-rate)) " - "
-        (common/round-currency (* (:max sell-offer) ex-rate)) " " (if (= currency "usd") "BTC" "USD") ")"
+        (common/round-currency (* (:max sell-offer) ex-rate) (if (= currency "usd") 5 2))
+        " " (if (= currency "usd") "BTC" "USD") ")"
         [:br]]
        [:h6.center {:style {:margin-top "-0.8rem" :margin-bottom "1rem"}}
         "conversion excluding " (:premium sell-offer) "% premium"]])))
@@ -622,7 +623,7 @@
                                                   :on-touch-tap #(when (js/confirm "Are you sure?") (actions/break-contract (:id contract)))})])])]}
             [:div.hint--bottom {:aria-label (case (:stage contract)
                                               "waiting-start" (if (am-i-seller? contract)
-                                                                (gstring/format "Waiting for you to initiate the interaction with %s. You'll have 60 minutes for a fully-confirmed Smart Contract funding" (:buyer-name contract))
+                                                                (gstring/format "You must coordinate a start-time for this trade with %s on Facebook Messenger. Once started you’ll have 60 minutes to fund the Smart Contract." (:buyer-name contract))
                                                                 (gstring/format "Waiting for %s and you to agree on initiation time." (:seller-name contract)))
                                               "waiting-escrow" (if (am-i-seller? contract)
                                                                  "Waiting for you to deposit Bitcoins into this Smart Contract"
