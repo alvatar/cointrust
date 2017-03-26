@@ -162,22 +162,21 @@
    wallet
    (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
      (onCoinsReceived [this wallet transaction prev-balance new-balance]
-       (try (btc-log! "Wallet balance PRE-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
-            (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))
-                  address-payed (.toString
-                                 (.getAddressFromP2PKHScript
-                                  (first (.getOutputs transaction)) (:network-params @current-app)))
-                  tx-hash (.. transaction getHash toString)]
-              (if (pos? amount-payed)
-                (do (btc-log! "Received payment of %s BTC in address %s with tx hash %s\n" (common/satoshi->btc amount-payed) address-payed tx-hash)
-                    (if-let [contract (not-empty (db/get-contract-by-input-address address-payed))]
-                      (do (log/infof "BITCOIN *** Payment to %s funds contract ID %s" address-payed (:id contract))
-                          (db/contract-set-escrow-funded! (:id contract) amount-payed tx-hash)
-                          (db/save-current-wallet (wallet-serialize wallet)))
-                      (log/errorf "BITCOIN *** CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
-                                  (common/satoshi->btc amount-payed) address-payed)))
-                (btc-log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed)))
-            (btc-log! "Wallet balance POST-OP: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+       (try (btc-log! "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+            (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))]
+              (doseq [output (.getOutputs transaction)]
+                (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
+                  (let [tx-hash (.. transaction getHash toString)
+                        address-payed (.toString address-p2pk)]
+                    (if (pos? amount-payed)
+                      (do (btc-log! "Received payment of %s BTC in address %s with tx hash %s\n" (common/satoshi->btc amount-payed) address-payed tx-hash)
+                          (if-let [contract (not-empty (db/get-contract-by-input-address address-payed))]
+                            (do (log/infof "BITCOIN *** Payment to %s funds contract ID %s" address-payed (:id contract))
+                                (db/contract-set-escrow-funded! (:id contract) amount-payed tx-hash)
+                                (db/save-current-wallet (wallet-serialize wallet)))
+                            (log/errorf "BITCOIN *** CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
+                                        (common/satoshi->btc amount-payed) address-payed)))
+                      (btc-log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed))))))
             (catch Exception e (log/error e))))))
   wallet)
 
