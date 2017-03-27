@@ -17,8 +17,11 @@
             [clojure.pprint :refer [pprint]]
             [taoensso.timbre :as log]
             [cemerick.url :refer [url]]
+            [cheshire.core :as json]
+            [taoensso.carmine :as r]
             ;; -----
             [oracle.common :as common]
+            [oracle.redis :as redis]
             [oracle.database :as db]))
 
 ;;
@@ -157,28 +160,63 @@
   (wallet-send-coins wallet app target-address
                      (substract-satoshi-fee (wallet-get-balance wallet))))
 
-(defn wallet-init-listeners! [wallet]
-  (.addCoinsReceivedEventListener
-   wallet
-   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
-     (onCoinsReceived [this wallet transaction prev-balance new-balance]
-       (try (btc-log! "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
-            (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))]
-              (doseq [output (.getOutputs transaction)]
-                (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
-                  (let [tx-hash (.. transaction getHash toString)
-                        address-payed (.toString address-p2pk)]
-                    (if (pos? amount-payed)
-                      (do (btc-log! "Received payment of %s BTC in address %s with tx hash %s\n" (common/satoshi->btc amount-payed) address-payed tx-hash)
-                          (if-let [contract (not-empty (db/get-contract-by-input-address address-payed))]
-                            (do (log/infof "BITCOIN *** Payment to %s funds contract ID %s" address-payed (:id contract))
-                                (db/contract-set-escrow-funded! (:id contract) amount-payed tx-hash)
-                                (db/save-current-wallet (wallet-serialize wallet)))
-                            (log/errorf "BITCOIN *** CRITICAL: payment of %d BTC in address %s is not associated to any contract\n"
-                                        (common/satoshi->btc amount-payed) address-payed)))
-                      (btc-log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed))))))
-            (catch Exception e (log/error e))))))
-  wallet)
+(defn follow-transaction! [tx-hash address amount contract-id]
+  (redis/wcar* (r/hset "pending-transactions" tx-hash
+                       (json/generate-string
+                        {:address address
+                         :amount amount
+                         :contract-id contract-id}))))
+
+(defn unfollow-transaction! [tx-hash]
+  (redis/wcar* (r/hdel "pending-transactions" tx-hash)))
+
+(defn followed-transaction [tx-hash]
+  (when-let [tx (redis/wcar* (r/hget "pending-transactions" tx-hash))]
+    (json/parse-string tx true)))
+
+(def coins-received-listener
+  (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
+    (onCoinsReceived [this wallet transaction prev-balance new-balance]
+      (try (btc-log! "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+           (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))]
+             (doseq [output (.getOutputs transaction)]
+               (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
+                 (let [tx-hash (.. transaction getHash toString)
+                       address-payed (.toString address-p2pk)]
+                   (if (pos? amount-payed)
+                     (if-let [contract (db/get-contract-by-input-address address-payed)]
+                       (do (log/infof "BITCOIN *** Following payment to %s funds contract ID %s" address-payed (:id contract))
+                           (follow-transaction! (.getHashAsString transaction) address-payed amount-payed (:id contract)))
+                       (log/errorf "BITCOIN *** CRITICAL: payment of %s BTC in address %s is not associated to any contract\n"
+                                   (common/satoshi->btc amount-payed) address-payed))
+                     (btc-log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed))))))
+           (catch Exception e (log/error e))))))
+
+(def transaction-confidence-listener
+  (reify org.bitcoinj.core.listeners.TransactionConfidenceEventListener
+    (onTransactionConfidenceChanged [this wallet transaction]
+      (let [tx-hash (.getHashAsString transaction)]
+        (when-let [tx-data (followed-transaction tx-hash)]
+          (let [confidence (.getConfidence transaction)
+                tx-depth (.getDepthInBlocks confidence)
+                tx-confidence-type (.getConfidenceType confidence)
+                address-payed (:address tx-data)
+                contract-id (:contract-id tx-data)]
+            (cond (>= tx-depth 1)
+                  (do (log/infof "BITCOIN *** Payment to %s funds contract ID %s" address-payed contract-id)
+                      (db/contract-set-escrow-funded! contract-id (:amount tx-data) tx-hash)
+                      (db/save-current-wallet (wallet-serialize wallet))
+                      (unfollow-transaction! tx-hash))
+                  (zero? tx-depth)
+                  (log/errorf "ALERT BITCOIN *** TRANSACTION CONFIDENCE TYPE CHANGED TO %s. Transaction was funded contract ID %s" tx-confidence-type contract-id))))))))
+
+(defn wallet-add-listeners! [wallet]
+  (.addCoinsReceivedEventListener wallet coins-received-listener)
+  (.addTransactionConfidenceEventListener wallet transaction-confidence-listener))
+
+(defn wallet-remove-listeners! [wallet]
+  (.removeCoinsReceivedEventListener wallet coins-received-listener)
+  (.removeTransactionConfidenceEventListener wallet transaction-confidence-listener))
 
 ;;
 ;; Multisig
@@ -266,10 +304,10 @@
                                (let [wallet (wallet-deserialize w)]
                                  (log/debug "Restoring wallet from database...")
                                  (log/debugf "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
-                                 (wallet-init-listeners! wallet)))
+                                 (wallet-add-listeners! wallet)))
                              (do (log/warn "Creating new wallet!")
                                  (let [w (make-wallet @current-app)]
-                                   (wallet-init-listeners! w)
+                                   (wallet-add-listeners! w)
                                    (db/save-current-wallet (wallet-serialize w))
                                    w))))
   (app-add-wallet @current-app @current-wallet)
@@ -277,8 +315,13 @@
 
 (defn system-stop! []
   (when @current-app
+    (wallet-remove-listeners! @current-wallet)
     (.stop (:peergroup @current-app))
     'ok))
+
+(defn reset-listeners! []
+  (wallet-remove-listeners! @current-wallet)
+  (wallet-add-listeners! @current-wallet))
 
 (defn system-reset!!! []
   (system-stop!)

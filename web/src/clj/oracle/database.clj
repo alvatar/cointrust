@@ -370,7 +370,8 @@ SELECT * FROM contract
 WHERE input_address = ?
 " input-address])
       first
-      ->kebab-case))
+      ->kebab-case
+      not-empty))
 
 (defn get-contracts []
   (map ->kebab-case
