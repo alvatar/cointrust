@@ -226,7 +226,8 @@ SELECT * FROM full_buy_request WHERE seller_id = ?;
 SELECT * FROM full_buy_request WHERE id = ?;
 " id])
       first
-      ->kebab-case))
+      ->kebab-case
+      not-empty))
 
 (defn buy-request-update! [id v & [txcb]]
   (if txcb
@@ -304,15 +305,6 @@ INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
       (log/debugf "Error in contract creation with params: %s" (with-out-str (pprint params)))
       (throw e))))
 
-(defn contract-add-event! [contract-id stage & [data txcb]]
-  (sql/with-db-transaction
-    [tx db]
-    (sql/execute! tx ["
-INSERT INTO contract_event (contract_id, stage, data) VALUES (?, ?, ?);
-" contract-id stage (when data (nippy/freeze data) "")])
-    (log-op! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
-    (when txcb (txcb nil))))
-
 (defn get-contract-events [contract-id]
   (into []
         (sql/query db ["
@@ -323,14 +315,26 @@ WHERE contract.id = ?;
 " contract-id])))
 
 (defn get-contract-last-event [contract-id]
-  (first
-   (sql/query db ["
+  (-> (sql/query db ["
 SELECT contract_event.* FROM contract_event
 INNER JOIN contract
 ON contract.id = contract_event.contract_id
 WHERE contract_event.time = ( SELECT MAX(contract_event.time) FROM contract_event
                               WHERE contract_event.contract_id = ? );
-" contract-id])))
+" contract-id])
+      first
+      not-empty))
+
+(defn contract-add-event! [contract-id stage & [data txcb]]
+  (sql/with-db-transaction
+    [tx db]
+    (let [last-event (get-contract-last-event contract-id)]
+      (when (not= stage (:stage last-event))
+        (sql/execute! tx ["
+INSERT INTO contract_event (contract_id, stage, data) VALUES (?, ?, ?);
+" contract-id stage (when data (nippy/freeze data) "")])
+        (log-op! tx "contract-add-event" {:id contract-id :stage stage :data (or data "")})
+        (when txcb (txcb nil))))))
 
 (defn get-contracts-by-user-fast [user-id]
   (map ->kebab-case
@@ -354,7 +358,8 @@ SELECT * FROM contract
 WHERE id = ?
 " id])
       first
-      ->kebab-case))
+      ->kebab-case
+      not-empty))
 
 (defn get-contract-by-id [id]
   (-> (sql/query db ["
@@ -362,7 +367,8 @@ SELECT * FROM full_contract
 WHERE full_contract.id = ?
 " id])
       first
-      ->kebab-case))
+      ->kebab-case
+      not-empty))
 
 (defn get-contract-by-input-address [input-address]
   (-> (sql/query db ["
@@ -408,7 +414,7 @@ INNER JOIN (
      [tx db]
      (sql/execute! db ["
 UPDATE contract SET started_timestamp = CURRENT_TIMESTAMP
-WHERE id = ?
+WHERE id = ? AND started_timestamp IS NULL
 " id])
      (sql/query tx ["
 SELECT * FROM full_contract
@@ -420,7 +426,7 @@ WHERE full_contract.id = ?
 (defn contract-set-escrow-funded! [id amount-received tx-hash]
   (sql/execute! db ["
 UPDATE contract SET escrow_amount = ?, input_tx = ?, escrow_funded_timestamp = CURRENT_TIMESTAMP
-WHERE id = ?
+WHERE id = ? AND escrow_funded_timestamp IS NULL
 " amount-received tx-hash id]))
 
 (defn contract-update! [id v]

@@ -392,7 +392,7 @@
   (let [{:keys [tag data]} message
         buy-request-id (:id data)
         buy-request (db/get-buy-request-by-id buy-request-id)]
-    (if (not-empty buy-request)
+    (if buy-request
       (do (log/debug message)
           (set-buy-request-status buy-request-id "<accepted>") ; Idempotent
           (events/send-event! (:buyer-id buy-request) :buy-request/delete buy-request) ; Repeat OK

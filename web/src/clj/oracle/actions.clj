@@ -175,15 +175,20 @@
                               (escrow/encode-key (escrow/get-buyer-key (:id ?data)))
                               (escrow/encode-key (escrow/get-seller-key (:id ?data)))))
       (?reply-fn {:status :error-wrong-key})
-      (not (:escrow-amount (db/get-contract-by-id-fast (:id ?data))))
-      (?reply-fn {:status :error-escrow-not-funded})
-      ;;
       :else
-      (try (db/contract-update! (:id ?data) {:output_address output-address
-                                             :escrow_release "<processing>"})
-           (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
-           (?reply-fn {:status :ok})
-           (catch Exception e (pprint e) (?reply-fn {:status :error}))))))
+      (let [contract (db/get-contract-by-id-fast (:id ?data))]
+        ;; TODO: enhance: make this atomical
+        (cond
+          (= (:escrow-release contract) "<success>")
+          (?reply-fn {:status :already-released})
+          (:escrow-amount contract)
+          (try (db/contract-update! (:id ?data) {:output_address output-address
+                                                 :escrow_release "<processing>"})
+               (tasks/initiate-preemptive-task :escrow/release-to-user ?data)
+               (?reply-fn {:status :ok})
+               (catch Exception e (pprint e) (?reply-fn {:status :error})))
+          :else
+          (?reply-fn {:status :error-escrow-not-funded}))))))
 
 (defmethod -event-msg-handler :notification/ack
   [{:keys [?data ?reply-fn]}]
