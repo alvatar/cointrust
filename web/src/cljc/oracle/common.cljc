@@ -29,8 +29,8 @@
 
 (defn currency-as-float [amount currency]
   (case (keyword currency)
-    :btc (float (round-currency ((satoshi->btc amount)) 8))
-    :usd (float (round-currency (/ amount 100.0) 2))))
+    :btc (float (round-currency (satoshi->btc amount) :btc))
+    :usd (float (round-currency (/ amount 100.0) :usd))))
 
 (defn currency->symbol [currency]
   (case (keyword currency)
