@@ -198,17 +198,23 @@
       (let [tx-hash (.getHashAsString transaction)]
         (when-let [tx-data (followed-transaction tx-hash)]
           (let [confidence (.getConfidence transaction)
-                tx-depth (.getDepthInBlocks confidence)
+                tx-confidence-val (.getValue confidence)
                 tx-confidence-type (.getConfidenceType confidence)
+                tx-depth (.getDepthInBlocks confidence)
                 address-payed (:address tx-data)
                 contract-id (:contract-id tx-data)]
-            (cond (>= tx-depth 1)
+            (cond (and (>= tx-depth 1)
+                       (= tx-confidence-val org.bitcoinj.core.TransactionConfidence$ConfidenceType/BUILDING))
                   (do (log/infof "BITCOIN *** Payment to %s funds contract ID %s" address-payed contract-id)
                       (db/contract-set-escrow-funded! contract-id (:amount tx-data) tx-hash)
                       (db/save-current-wallet (wallet-serialize wallet))
                       (unfollow-transaction! tx-hash))
-                  (zero? tx-depth)
-                  (log/errorf "ALERT BITCOIN *** TRANSACTION CONFIDENCE TYPE CHANGED TO %s. Transaction was funded contract ID %s" tx-confidence-type contract-id))))))))
+                  (or (= tx-confidence-val org.bitcoinj.core.TransactionConfidence$ConfidenceType/DEAD)
+                      (= tx-confidence-val org.bitcoinj.core.TransactionConfidence$ConfidenceType/IN_CONFLICT))
+                  (do (log/errorf "ALERT BITCOIN *** TRANSACTION CONFIDENCE TYPE CHANGED TO %s. Transaction was funding contract ID %s" tx-confidence-type contract-id)
+                      (unfollow-transaction! tx-hash))
+                  ;; UNKNOWN and PENDING don't require action
+                  :else nil)))))))
 
 (defn wallet-add-listeners! [wallet]
   (.addCoinsReceivedEventListener wallet coins-received-listener)

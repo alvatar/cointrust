@@ -110,9 +110,9 @@
         current-by-currency #(case (:currency @input)
                                "btc" (case %
                                        :btc parsed-val
-                                       :usd (common/round-currency (* (:btc-usd exchange-rates) parsed-val) 2))
+                                       :usd (common/round-currency (* (:btc-usd exchange-rates) parsed-val) :usd))
                                "usd" (case %
-                                       :usd (common/round-currency parsed-val 2)
+                                       :usd (common/round-currency parsed-val :usd)
                                        :btc (* (:usd-btc exchange-rates) parsed-val)))
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                  [:div [:h4 "Price: 1 Bitcoin = $" (:btc-usd exchange-rates)]
@@ -133,13 +133,13 @@
                                   :error-text (when-not (and parsed-val (pos? parsed-val)) "Invalid value")})
                   (when (and parsed-val (pos? parsed-val))
                     (case currency
-                      "btc" (gstring/format "for %s USD" (common/round-currency (* (:btc-usd exchange-rates) parsed-val) 2))
-                      "usd" (gstring/format "gets you %s BTC" (common/round-currency (* (:usd-btc exchange-rates) parsed-val)))))
+                      "btc" (gstring/format "for %s USD" (common/round-currency (* (:btc-usd exchange-rates) parsed-val) :usd))
+                      "usd" (gstring/format "gets you %s BTC" (common/round-currency (* (:usd-btc exchange-rates) parsed-val) :btc))))
                   [:h6 {:style {:margin-top "0.5rem"}} "Note: 1% fee and 1% seller premium will be paid from the total purchased."]
                   [:h4 {:style {:margin-top "-1rem"}}
                    (gstring/format "You will be paying $%s and receiving %s Bitcoin"
                                    (current-by-currency :usd)
-                                   (common/round-currency (* 0.99 0.99 (current-by-currency :btc)) 5))]]
+                                   (common/round-currency (* 0.99 0.99 (current-by-currency :btc)) :btc))]]
                  (when (:processing (rum/react input))
                    [:div
                     (ui/linear-progress {:size 60 :mode "indeterminate"
@@ -220,8 +220,8 @@
                     [:div {:style {:float "left" :width "50%" :margin-top "2.5rem"}}
                      (clojure.string/upper-case currency) " - ("
                      (if (= currency "btc")
-                       (str (common/round-currency (* ex-rate parsed-min-val) 2) " USD)")
-                       (str (common/round-currency (* ex-rate parsed-min-val)) " BTC)"))])]
+                       (str (common/round-currency (* ex-rate parsed-min-val) :usd) " USD)")
+                       (str (common/round-currency (* ex-rate parsed-min-val) :btc) " BTC)"))])]
                  [:div.group
                   [:div {:style {:float "left"}}
                    (ui/text-field {:id "max"
@@ -237,8 +237,8 @@
                     [:div {:style {:float "left" :width "50%" :margin-top "2.5rem"}}
                      (clojure.string/upper-case currency) " - ("
                      (if (= currency "btc")
-                       (str (common/round-currency (* ex-rate parsed-max-val) 2) " USD)")
-                       (str (common/round-currency (* ex-rate parsed-max-val)) " BTC)"))])]]
+                       (str (common/round-currency (* ex-rate parsed-max-val) :usd) " USD)")
+                       (str (common/round-currency (* ex-rate parsed-max-val) :btc) " BTC)"))])]]
         buttons [(when offer-active?
                    (ui/flat-button {:label "Remove"
                                     :key "offer-remove-button"
@@ -299,8 +299,8 @@
        [:h4 {:style {:text-align "center"}} "Sell offer"]
        [:p.center [:strong (:min sell-offer)] " to " [:strong (:max sell-offer)] " "
         (clojure.string/upper-case currency) " ("
-        (common/round-currency (* (:min sell-offer) ex-rate)) " - "
-        (common/round-currency (* (:max sell-offer) ex-rate) (if (= currency "usd") 5 2))
+        (common/round-currency (* (:min sell-offer) ex-rate) currency) " - "
+        (common/round-currency (* (:max sell-offer) ex-rate) currency)
         " " (if (= currency "usd") "BTC" "USD") ")"
         [:br]]
        [:h6.center {:style {:margin-top "-0.8rem" :margin-bottom "1rem"}}
@@ -465,7 +465,8 @@
                              [:div.center.margin-2rem
                               [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                          [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
-                                               (common/currency-as-float (:amount contract) (:currency-seller contract))
+                                               (* (common/currency-as-float (:amount current) (:currency-seller current))
+                                                  (common/long->decr (:premium current)))
                                                " " (clojure.string/upper-case (:currency-seller contract))] " to the following Smart Contract address"]
                          [:div {:style {:background-color "#fff" :border-radius "2px"}}
                           [:div {:style {:color "#000" :padding "10px 0px 10px 0px" :text-align "center"}}
@@ -526,7 +527,7 @@
                                (* (common/currency-as-float (:amount contract)
                                                             (:currency-seller contract))
                                   (.-rep (:exchange-rate contract)))
-                               2)]] " to @" (:transfer-info contract) " in Venmo"]]
+                               (:currency-seller contract))]] " to @" (:transfer-info contract) " in Venmo"]]
                   ;; Seller dialog
                   [:div.padding-1rem
                    [:h3 (gstring/format "Step 1: Expect a video from %s reading the following text" (:buyer-name contract))]
