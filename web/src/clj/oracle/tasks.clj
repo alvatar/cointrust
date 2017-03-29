@@ -429,7 +429,7 @@
                    (common/long->decr (:fee contract))
                    (common/long->decr (:premium contract)))))
       (let [contract (merge contract {:escrow-release "<success>"})]
-        (db/contract-update! contract-id {:escrow-release "<success>"})
+        (db/contract-update! contract-id {:escrow_release "<success>"})
         (events/send-event! (:buyer-id contract) :contract/update contract)
         (events/send-event! (:seller-id contract) :contract/update contract)
         (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
