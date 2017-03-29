@@ -465,8 +465,8 @@
                              [:div.center.margin-2rem
                               [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                          [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
-                                               (* (common/currency-as-float (:amount current) (:currency-seller current))
-                                                  (common/long->decr (:premium current)))
+                                               (* (common/currency-as-float (:amount contract) (:currency-seller contract))
+                                                  (common/long->decr (:premium contract)))
                                                " " (clojure.string/upper-case (:currency-seller contract))] " to the following Smart Contract address"]
                          [:div {:style {:background-color "#fff" :border-radius "2px"}}
                           [:div {:style {:color "#000" :padding "10px 0px 10px 0px" :text-align "center"}}
