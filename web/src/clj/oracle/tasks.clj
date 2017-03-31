@@ -417,19 +417,16 @@
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
         contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)
-        open-for (cond
-                   (= (:escrow-open-for contract) (:buyer-id contract) :buyer)
-                   (= (:escrow-open-for contract) (:seller-id contract) :seller))]
+        contract (db/get-contract-by-id contract-id)]
     (log/debug message)
     ;; TEMPORARY APPROACH
-    (if open-for
+    (if (:escrow-open-for contract)
       (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
             @bitcoin/current-app
             contract-id
             (:output-address contract)
             ;; Substract the fee (applying also the premium)
-            (if (= open-for :buyer)
+            (if (= (:escrow-open-for contract) (:buyer-id contract))
               (long (* (:amount contract)
                        (common/long->decr (:fee contract))
                        (common/long->decr (:premium contract))))
