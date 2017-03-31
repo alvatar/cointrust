@@ -60,9 +60,7 @@
                 (reset! current-rates rates))
             (reset! current-rates (json/parse-string (r/get "coinbase-rates"))))
           (Thread/sleep 60000))
-        (catch Exception e
-          (println e)
-          e))
+        (catch Exception e (log/debug "Exception in rates worker")))
       (recur))))
 
 (defn start-exchange-rates-updates! []

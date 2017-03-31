@@ -417,27 +417,35 @@
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
         contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)]
+        contract (db/get-contract-by-id contract-id)
+        open-for (cond
+                   (= (:escrow-open-for contract) (:buyer-id contract) :buyer)
+                   (= (:escrow-open-for contract) (:seller-id contract) :seller))]
     (log/debug message)
     ;; TEMPORARY APPROACH
-    (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
-          @bitcoin/current-app
-          contract-id
-          (:output-address contract)
-          ;; Substract the fee (applying also the premium)
-          (long (* (:amount contract)
-                   (common/long->decr (:fee contract))
-                   (common/long->decr (:premium contract)))))
-      (let [contract (merge contract {:escrow-release "<success>"})]
-        (db/contract-update! contract-id {:escrow_release "<success>"})
-        (events/send-event! (:buyer-id contract) :contract/update contract)
-        (events/send-event! (:seller-id contract) :contract/update contract)
-        (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
-      (let [contract (merge contract {:escrow-release "<failure>"})]
-        (db/contract-update! contract-id {:escrow_release "<failure>"})
-        (events/send-event! (:buyer-id contract) :contract/update contract)
-        (events/send-event! (:seller-id contract) :contract/update contract)
-        (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"})))
+    (if open-for
+      (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
+            @bitcoin/current-app
+            contract-id
+            (:output-address contract)
+            ;; Substract the fee (applying also the premium)
+            (if (= open-for :buyer)
+              (long (* (:amount contract)
+                       (common/long->decr (:fee contract))
+                       (common/long->decr (:premium contract))))
+              (long (* (:amount contract)
+                       (common/long->decr (:premium contract))))))
+        (let [contract (merge contract {:escrow-release "<success>"})]
+          (db/contract-update! contract-id {:escrow_release "<success>"})
+          (events/send-event! (:buyer-id contract) :contract/update contract)
+          (events/send-event! (:seller-id contract) :contract/update contract)
+          (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
+        (let [contract (merge contract {:escrow-release "<failure>"})]
+          (db/contract-update! contract-id {:escrow_release "<failure>"})
+          (events/send-event! (:buyer-id contract) :contract/update contract)
+          (events/send-event! (:seller-id contract) :contract/update contract)
+          (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"})))
+      (log/errorf "Error releasing to user -- Not open for any party. Contract: %s" (with-out-str (pprint contract))))
     {:status :success}))
 
 ;;
