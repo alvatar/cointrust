@@ -515,8 +515,8 @@
                        [:div.center.margin-2rem
                         [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                    [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
-                   [:div.center
-                    [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/messages/t/" (:seller-fb-id contract)) :target "_blank"}
+                   [:div.center {:style {:margin "-0.5rem 0 -0.5rem 0"}}
+                    [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/" (:seller-fb-id contract)) :target "_blank"}
                      [:img.circle {:src (:seller-photo contract)}]]]
                    [:h3 "Step 3: On Facebook, " [:a {:href "https://www.youtube.com/watch?v=ZeAJDFgcCYA" :target "_blank"} "send a video message to Cedric."] " Record yourself reading this script."]
                    (legal-text :buyer)
@@ -551,7 +551,7 @@
               (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
                           :open true
                           :modal true
-                          :content-style {:width "500px"}
+                          :content-style {:width "600px"}
                           :actions buttons}
                          content)))
 
