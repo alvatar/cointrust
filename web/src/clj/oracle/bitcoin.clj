@@ -138,7 +138,9 @@
   (.toString (.currentReceiveAddress wallet)))
 
 (defn wallet-get-fresh-address [wallet]
-  (.toString (.freshReceiveAddress wallet)))
+  (let [addr (.freshReceiveAddress wallet)]
+    (db/save-current-wallet (wallet-serialize wallet))
+    (.toString addr)))
 
 (defn wallet-get-balance [wallet]
   (.getValue (.getBalance wallet)))
@@ -178,8 +180,7 @@
 (def coins-received-listener
   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
     (onCoinsReceived [this wallet transaction prev-balance new-balance]
-      (try (log/debugf "BITCOIN *** Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
-           (db/save-current-wallet (wallet-serialize wallet))
+      (try (db/save-current-wallet (wallet-serialize wallet))
            (doseq [output (.getOutputs transaction)]
              (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
                (let [tx-hash (.. transaction getHash toString)
@@ -208,7 +209,7 @@
                   tx-depth (.getDepthInBlocks confidence)
                   address-payed (:address tx-data)
                   contract-id (:contract-id tx-data)]
-              (log/debugf "BITCOIN *** Followed transaction %s changed to: %s" tx-hash (.getConfidence transaction))
+              (log/debugf "BITCOIN *** Transaction %s changed to: %s" tx-hash (.getConfidence transaction))
               (cond (>= tx-depth 1)
                     (do (log/infof "BITCOIN *** Successful payment to %s with transaction %s funds contract ID %s"
                                    address-payed tx-hash contract-id)
@@ -364,3 +365,9 @@
                   (:our-key multisig)
                   (:seller-key multisig))
   (def mtx (multisig-setup-from-wallet multisig w app)))
+
+
+(defn test-wallet []
+  (let [addr (wallet-get-current-address (get-current-wallet))]
+    (db/contract-update! 1 {:input_address addr})
+    addr))
