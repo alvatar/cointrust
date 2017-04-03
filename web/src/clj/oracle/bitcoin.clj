@@ -151,8 +151,8 @@
              tx (.-tx send-result)
              tx-hash (.. tx getHash toString)]
          (db/contract-update! contract-id {:output_tx tx-hash})
-         (btc-log! "Send payment for contract %s of %s BTC to address %s transaction %s\n"
-                   contract-id (common/satoshi->btc amount) target-address tx-hash))
+         (log/debugf "Send payment for contract %s of %s BTC to address %s transaction %s\n"
+                     contract-id (common/satoshi->btc amount) target-address tx-hash))
        (catch Exception e
          (log/debugf "Error sending coins: %s" e) nil)))
 
@@ -174,32 +174,28 @@
   (when-let [tx (redis/wcar* (r/hget "pending-transactions" tx-hash))]
     (json/parse-string tx true)))
 
+(defonce coins-received-listener_ (atom nil))
 (def coins-received-listener
   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
     (onCoinsReceived [this wallet transaction prev-balance new-balance]
-      (try (log/debugf "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
+      (try (log/debugf "BITCOIN *** Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
            (db/save-current-wallet (wallet-serialize wallet))
-           (let [amount-payed (- (.getValue new-balance) (.getValue prev-balance))]
-             (log/debugf "Coins received: %s BTC in transaction %s" (- (common/satoshi->btc amount-payed)) (.getHashAsString transaction))
-             (doseq [output (.getOutputs transaction)]
-               (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
-                 (let [tx-hash (.. transaction getHash toString)
-                       address-payed (.toString address-p2pk)]
-                   (if (pos? amount-payed)
-                     (when-let [contract (db/get-contract-by-input-address address-payed)]
-                       (log/infof "BITCOIN *** Following payment of %s BTC to %s funds contract ID %s in transaction %s"
-                                  (common/satoshi->btc amount-payed) address-payed (:id contract) tx-hash)
-                       (follow-transaction! (.getHashAsString transaction) address-payed amount-payed (:id contract))
-                       ;; (log/errorf "BITCOIN *** CRITICAL: payment of %s BTC in address %s is not associated to any contract\n"
-                       ;;             (common/satoshi->btc amount-payed) address-payed)
-                       )
-                     (btc-log! "Sent payment of %s BTC to address %s\n" (- (common/satoshi->btc amount-payed)) address-payed))))))
+           (doseq [output (.getOutputs transaction)]
+             (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
+               (let [tx-hash (.. transaction getHash toString)
+                     address-payed (.toString address-p2pk)
+                     amount-payed (.getValue (.getValue output))]
+                 (when-let [contract (db/get-contract-by-input-address address-payed)]
+                   (log/infof "BITCOIN *** Following payment of %s BTC to %s funds contract ID %s with amount %s in transaction %s"
+                              (common/satoshi->btc amount-payed) address-payed (:id contract) (common/satoshi->btc amount-payed) tx-hash)
+                   (follow-transaction! (.getHashAsString transaction) address-payed amount-payed (:id contract))))))
            (catch Exception e (log/error e))))))
 
 (def transaction-confidence:building (.getValue org.bitcoinj.core.TransactionConfidence$ConfidenceType/BUILDING))
 (def transaction-confidence:dead (.getValue org.bitcoinj.core.TransactionConfidence$ConfidenceType/DEAD))
 (def transaction-confidence:in-conflict (.getValue org.bitcoinj.core.TransactionConfidence$ConfidenceType/IN_CONFLICT))
 
+(defonce transaction-confidence-listener_ (atom nil))
 (def transaction-confidence-listener
   (reify org.bitcoinj.core.listeners.TransactionConfidenceEventListener
     (onTransactionConfidenceChanged [this wallet transaction]
@@ -214,7 +210,8 @@
                   contract-id (:contract-id tx-data)]
               (log/debugf "BITCOIN *** Followed transaction %s changed to: %s" tx-hash (.getConfidence transaction))
               (cond (>= tx-depth 1)
-                    (do (log/infof "BITCOIN *** Successful payment to %s funds contract ID %s" address-payed contract-id)
+                    (do (log/infof "BITCOIN *** Successful payment to %s with transaction %s funds contract ID %s"
+                                   address-payed tx-hash contract-id)
                         (db/contract-set-escrow-funded! contract-id (:amount tx-data) tx-hash)
                         (db/save-current-wallet (wallet-serialize wallet))
                         (unfollow-transaction! tx-hash))
@@ -229,11 +226,13 @@
 
 (defn wallet-add-listeners! [wallet]
   (.addCoinsReceivedEventListener wallet coins-received-listener)
-  (.addTransactionConfidenceEventListener wallet transaction-confidence-listener))
+  (.addTransactionConfidenceEventListener wallet transaction-confidence-listener)
+  (reset! coins-received-listener_ coins-received-listener)
+  (reset! transaction-confidence-listener_ transaction-confidence-listener))
 
 (defn wallet-remove-listeners! [wallet]
-  (.removeCoinsReceivedEventListener wallet coins-received-listener)
-  (.removeTransactionConfidenceEventListener wallet transaction-confidence-listener))
+  (.removeCoinsReceivedEventListener wallet @coins-received-listener_)
+  (.removeTransactionConfidenceEventListener wallet @transaction-confidence-listener_))
 
 ;;
 ;; Multisig

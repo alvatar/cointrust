@@ -3,8 +3,13 @@
 (defn satoshi->btc [sat]
   (float (/ sat 100000000)))
 
-(defn btc->satoshi [btc]
-  (* btc 100000000))
+#?(:clj
+   (defn btc->satoshi [btc]
+     (long (* btc 100000000))))
+
+#?(:cljs
+   (defn btc->satoshi [btc]
+     (* btc 100000000)))
 
 #?(:clj
    (defn currency-as-long [amount currency]

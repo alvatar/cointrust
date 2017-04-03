@@ -425,13 +425,15 @@
             @bitcoin/current-app
             contract-id
             (:output-address contract)
-            ;; Substract the fee (applying also the premium)
             (if (= (:escrow-open-for contract) (:buyer-id contract))
+              ;; Substract the Cointrust fee (applying also the premium)
               (long (* (:amount contract)
                        (common/long->decr (:fee contract))
                        (common/long->decr (:premium contract))))
-              (long (* (:amount contract)
-                       (common/long->decr (:premium contract))))))
+              ;; Subtract enough for the miners fee
+              (- (long (* (:amount contract)
+                          (common/long->decr (:premium contract))))
+                 100000)))
         (let [contract (merge contract {:escrow-release "<success>"})]
           (db/contract-update! contract-id {:escrow_release "<success>"})
           (events/send-event! (:buyer-id contract) :contract/update contract)

@@ -23,7 +23,7 @@
                  ;; Database
                  [org.clojure/java.jdbc "0.6.1"]
                  [org.postgresql/postgresql "42.0.0"]
-                 [com.taoensso/carmine "2.15.1" :exclusions [com.taoensso/encore]]
+                 [com.taoensso/carmine "2.16.0" :exclusions [com.taoensso/encore]]
                  ;; Bitcoin
                  [org.bitcoinj/bitcoinj-core "0.14.4" :exclusions [com.google.protobuf/protobuf-java
                                                                    com.google.guava/guava
@@ -35,7 +35,7 @@
                  [com.cemerick/url "0.1.1"]
                  ;; Cljs
                  [rum "0.10.8" :exclusions [cljsjs/react cljsjs/react-dom]]
-                 [cljs-react-material-ui "0.2.38"]
+                 [cljs-react-material-ui "0.2.39"]
                  [cljsjs/rc-slider "4.0.1-0" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [netpyoung/fb-sdk-cljs "0.1.2" :exclusions [com.google.guava/guava]]
                  [cljs-hash "0.0.2"]
