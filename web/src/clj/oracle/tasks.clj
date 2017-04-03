@@ -434,7 +434,7 @@
               (- (long (* (:amount contract)
                           (common/long->decr (:premium contract))))
                  (if (= (env :env) "production")
-                   1000 ; http://bitcoinexchangerate.org/fees
+                   70000 ; http://bitcoinexchangerate.org/fees
                    100000))))
         (let [contract (merge contract {:escrow-release "<success>"})]
           (db/contract-update! contract-id {:escrow_release "<success>"})
