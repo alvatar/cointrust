@@ -433,7 +433,9 @@
               ;; Subtract enough for the miners fee
               (- (long (* (:amount contract)
                           (common/long->decr (:premium contract))))
-                 100000)))
+                 (if (= (env :env) "production")
+                   1000 ; http://bitcoinexchangerate.org/fees
+                   100000))))
         (let [contract (merge contract {:escrow-release "<success>"})]
           (db/contract-update! contract-id {:escrow_release "<success>"})
           (events/send-event! (:buyer-id contract) :contract/update contract)
