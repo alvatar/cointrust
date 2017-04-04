@@ -18,13 +18,16 @@
          :btc (long (btc->satoshi bigdec))
          :usd (long (* 100 bigdec))))))
 
+(defn pow [x n]
+  (#?(:clj Math/pow)
+   #?(:cljs js/Math.pow)
+   x n))
+
 (defn round-currency
   ([val arg]
    (if (number? arg)
-     (let [pow (#?(:clj Math/pow)
-                #?(:cljs js/Math.pow)
-                10 arg)]
-       (/ (long (* pow val)) pow))
+     (let [power (pow 10 arg)]
+       (/ (long (* power val)) power))
      (round-currency val (case (keyword arg)
                            :usd 2
                            :btc 8
@@ -32,10 +35,10 @@
   ([val]
    (round-currency val 2)))
 
-(defn currency-as-float [amount currency]
+(defn currency-as-floating-point [amount currency]
   (case (keyword currency)
-    :btc (float (round-currency (satoshi->btc amount) :btc))
-    :usd (float (round-currency (/ amount 100.0) :usd))))
+    :btc (double (round-currency (satoshi->btc amount) :btc))
+    :usd (double (round-currency (/ amount 100.0) :usd))))
 
 (defn currency->symbol [currency]
   (case (keyword currency)
@@ -47,11 +50,13 @@
     :btc (str amount " Bitcoin")
     :usd (str "$" amount)))
 
-(defn long->incr [val]
-  (float (+ 1 (/ val 10000))))
+(defn currency-tax [val tax decimals]
+  (long (* (double (+ 1 (/ tax (pow 10 (+ 2 decimals)))))
+           val)))
 
-(defn long->decr [val]
-  (float (- 1 (/ val 10000))))
+(defn currency-discount [val discount decimals]
+  (long (* (double (- 1 (/ discount (pow 10 (+ 2 decimals)))))
+           val)))
 
 ;;
 ;; Testing utils

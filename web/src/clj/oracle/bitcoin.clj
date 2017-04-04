@@ -139,6 +139,7 @@
 
 (defn wallet-get-fresh-address [wallet]
   (let [addr (.freshReceiveAddress wallet)]
+    (.addWatchedAddress wallet addr)
     (db/save-current-wallet (wallet-serialize wallet))
     (.toString addr)))
 
@@ -154,9 +155,10 @@
              tx-hash (.. tx getHash toString)]
          (db/contract-update! contract-id {:output_tx tx-hash})
          (log/debugf "Send payment for contract %s of %s BTC to address %s transaction %s\n"
-                     contract-id (common/satoshi->btc amount) target-address tx-hash))
+                     contract-id (common/satoshi->btc amount) target-address tx-hash)
+         true)
        (catch Exception e
-         (log/debugf "Error sending coins: %s" e) nil)))
+         (log/debugf "Error sending coins: %s" e) false)))
 
 (defn wallet-send-all-funds-to [wallet app target-address]
   (wallet-send-coins wallet app target-address
@@ -180,7 +182,8 @@
 (def coins-received-listener
   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
     (onCoinsReceived [this wallet transaction prev-balance new-balance]
-      (try (db/save-current-wallet (wallet-serialize wallet))
+      (try (log/debugf "BITCOIN *** Coins received: %s" transaction)
+           (db/save-current-wallet (wallet-serialize wallet))
            (doseq [output (.getOutputs transaction)]
              (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
                (let [tx-hash (.. transaction getHash toString)
@@ -209,7 +212,8 @@
                   tx-depth (.getDepthInBlocks confidence)
                   address-payed (:address tx-data)
                   contract-id (:contract-id tx-data)]
-              (log/debugf "BITCOIN *** Transaction %s changed to: %s" tx-hash (.getConfidence transaction))
+              (log/debugf "BITCOIN *** Transaction %s changed to: %s with depth %s confidence %s"
+                          tx-hash (.getConfidence transaction) tx-depth tx-confidence-type)
               (cond (>= tx-depth 1)
                     (do (log/infof "BITCOIN *** Successful payment to %s with transaction %s funds contract ID %s"
                                    address-payed tx-hash contract-id)
@@ -226,10 +230,10 @@
           (log/debugf "Exception in confidence listener: %s" (with-out-str (pprint e))))))))
 
 (defn wallet-add-listeners! [wallet]
-  (.addCoinsReceivedEventListener wallet coins-received-listener)
-  (.addTransactionConfidenceEventListener wallet transaction-confidence-listener)
   (reset! coins-received-listener_ coins-received-listener)
-  (reset! transaction-confidence-listener_ transaction-confidence-listener))
+  (reset! transaction-confidence-listener_ transaction-confidence-listener)
+  (.addCoinsReceivedEventListener wallet @coins-received-listener_)
+  (.addTransactionConfidenceEventListener wallet @transaction-confidence-listener_))
 
 (defn wallet-remove-listeners! [wallet]
   (.removeCoinsReceivedEventListener wallet @coins-received-listener_)

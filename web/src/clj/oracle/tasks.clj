@@ -195,7 +195,7 @@
                                                      {:wants {:amount amount :currency currency-seller}
                                                       :offers {:currency currency-buyer}})]
                               (db/buy-request-set-seller! buy-request-id counterparty %)
-                              (log/debugf "Buyer ID %s - Seller ID %s match for %s %s" buyer-id counterparty (common/currency-as-float amount currency-seller) currency-seller)))]
+                              (log/debugf "Buyer ID %s - Seller ID %s match for %s %s" buyer-id counterparty (common/currency-as-floating-point amount currency-seller) currency-seller)))]
         (let [full-buy-request (db/get-buy-request-by-id buy-request-id)]
           (idempotent-ops mid :event-sell-offer-matched state
                           (events/send-event! seller-id :sell-offer-match/create full-buy-request)
@@ -311,7 +311,7 @@
         "waiting-escrow"
         (cond (and (:transfer-info contract) (:escrow-funded-timestamp contract))
               ;; Amount expected: amount - premium
-              (if (>= (:escrow-amount contract) (* (:amount contract) (common/long->decr (:premium contract))))
+              (if (>= (:escrow-amount contract) (common/currency-discount (:amount contract) (:premium contract) 2))
                 ;; Received the right amount
                 (do (with-idempotent-transaction mid :contract-add-event-waiting-transfer state
                       (fn [idemp]
@@ -426,12 +426,12 @@
             (:output-address contract)
             (if (= (:escrow-open-for contract) (:buyer-id contract))
               ;; Substract the Cointrust fee (applying also the premium)
-              (long (* (:amount contract)
-                       (common/long->decr (:fee contract))
-                       (common/long->decr (:premium contract))))
+              (common/currency-discount
+               (common/currency-discount (:amount contract) (:fee contract) 2)
+               (:premium contract)
+               2)
               ;; Subtract enough for the miners fee
-              (- (long (* (:amount contract)
-                          (common/long->decr (:premium contract))))
+              (- (common/currency-discount (:amount contract) (:premium contract) 2)
                  (if (= (env :env) "production")
                    70000 ; http://bitcoinexchangerate.org/fees
                    100000))))

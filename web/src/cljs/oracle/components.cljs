@@ -322,7 +322,7 @@
          (for [req requests]
            (ui/list-item {:key (str "buy-request-item-" (:id req))
                           :disabled true
-                          :primary-text (str "Buy request for " (common/humanize-currency (common/currency-as-float (:amount req) (:currency-seller req))
+                          :primary-text (str "Buy request for " (common/humanize-currency (common/currency-as-floating-point (:amount req) (:currency-seller req))
                                                                                           (:currency-seller req)))
                           :secondary-text (gstring/format "ID: %d - %s"
                                                           (:id req)
@@ -467,8 +467,11 @@
                                [:div.center.margin-2rem
                                 [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
                            [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
-                                                 (* (common/currency-as-float (:amount contract) (:currency-seller contract))
-                                                    (common/long->decr (:premium contract)))
+                                                 (common/round-currency
+                                                  (common/currency-as-floating-point
+                                                   (common/currency-discount (:amount contract) (:premium contract) 2)
+                                                   (:currency-seller contract))
+                                                  (:currency-seller contract))
                                                  " " (clojure.string/upper-case (:currency-seller contract))] " to the following Smart Contract address"]
                            [:div {:style {:background-color "#fff" :border-radius "2px"}}
                             [:div {:style {:color "#000" :padding "10px 0px 10px 0px" :text-align "center"}}
@@ -493,7 +496,7 @@
                                 (case role :buyer "<say your Facebook name>" :seller "<his/her name on Facebook>")
                                 [:br]
                                 (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s Bitcoins."
-                                                (common/currency-as-float (:amount contract) (:currency-seller contract)))
+                                                (common/currency-as-floating-point (:amount contract) (:currency-seller contract)))
                                 [:br]
                                 (gstring/format "As long as the contract ID '%s' listed at cointrust.io shows that the contract is completed when I log into CoinTrust with my Facebook ID." (:human-id contract))])
                   content
@@ -526,8 +529,8 @@
                       [:span {:style {:color "rgb(0, 188, 212)"}}
                        (common/currency->symbol (:currency-buyer contract))
                        [:strong (common/round-currency
-                                 (* (common/currency-as-float (:amount contract)
-                                                              (:currency-seller contract))
+                                 (* (common/currency-as-floating-point (:amount contract)
+                                                                       (:currency-seller contract))
                                     (.-rep (:exchange-rate contract)))
                                  (:currency-seller contract))]] " to @" (:transfer-info contract) " in Venmo"]]
                     ;; Seller dialog
@@ -738,9 +741,10 @@
                      [:h3 (gstring/format "%s wants to buy %f Bitcoins"
                                           (:buyer-name current)
                                           (common/round-currency
-                                           (* (common/currency-as-float (:amount current) (:currency-seller current))
-                                              (common/long->decr (:premium current)))
-                                           :btc))]
+                                           (common/currency-as-floating-point
+                                            (common/currency-discount (:amount current) (:premium current) 2)
+                                            (:currency-seller current))
+                                           (:currency-seller current)))]
                      [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}
                       [:a.hint--bottom {:aria-label (:buyer-name current)}
                        [:img.circle {:src (:buyer-photo current)}]]]

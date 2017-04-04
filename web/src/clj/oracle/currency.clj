@@ -87,7 +87,7 @@
   (if (= (name from) (name to))
     amount
     (common/currency-as-long
-     (/ (common/currency-as-float amount from)
+     (/ (common/currency-as-floating-point amount from)
         (get (:rates (or exchange-rates (get-current-exchange-rates)))
              (keyword (str (name to) "-" (name from)))))
      to)))

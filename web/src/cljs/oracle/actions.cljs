@@ -124,8 +124,8 @@
          (push-error (str "Internal error retrieving sell offer " (:message resp)))
          :no-offer nil
          (reset! (:sell-offer state/app)
-                 {:min (common/currency-as-float (float (:min resp)) (:currency resp))
-                  :max (common/currency-as-float (float (:max resp)) (:currency resp))
+                 {:min (common/currency-as-floating-point (:min resp) (:currency resp))
+                  :max (common/currency-as-floating-point (:max resp) (:currency resp))
                   :currency (:currency resp)
                   :premium (float (/ (:premium resp) 100))}))
        (push-error "There was an error retrieving the sell offer.")))))
