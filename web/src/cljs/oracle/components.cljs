@@ -196,7 +196,7 @@
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                  [:div
                   [:h4 "How much would you like to sell? (Your coins will be sold at the market price, as listed on the top US exchange)"]
-                  [:h4 "Bitcoin price: $1" (:btc-usd (rum/react (:exchange-rates state/app)))]
+                  [:h4 "Bitcoin price: $" (:btc-usd (rum/react (:exchange-rates state/app)))]
                   [:h6 {:style {:margin-top "-1rem"}}
                    (gstring/format "Exchange rate will update in %s seconds" (- globals/exchange-rates-refresh-interval
                                                                                 (rum/react (:seconds-since-last-exchange-rates-refresh state/app))))]
@@ -335,143 +335,107 @@
   (rum/local {:output-address "" :key ""} ::input)
   (rum/local nil ::user-key)
   (rum/local {} ::errors)
-  [_state]
-  (let [input (::input _state)
-        user-key (::user-key _state)
-        errors (::errors _state)
-        contract-id (rum/react (:display-contract state/app))
-        server-time (rum/react (:server-time state/app))]
-    (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts state/app)))]
-      (let [time-left (contract-time-left contract server-time)
-            escrow-release-dialog
-            (fn [role]
-             (let [buttons
-                   [(ui/flat-button {:label "Ok"
-                                     :key (str "contract-ok-button-" (:id contract))
-                                     :primary true
-                                     :on-touch-tap
-                                     (fn []
-                                       (if (or (= (:output-address @input) "") (= (:key @input) ""))
-                                         (do (when (= (:output-address @input) "") (swap! errors assoc :output-address "Missing parameter"))
-                                             (when (= (:key @input) "") (swap! errors assoc :key "Missing parameter")))
-                                         (network/send!
-                                          [:escrow/release-to-user {:id (:id contract)
-                                                                    :user-role (name role)
-                                                                    :output-address (:output-address @input)
-                                                                    :escrow-user-key (:key @input)}]
-                                          5000
-                                          #(if (sente/cb-success? %)
-                                             (case (:status %)
-                                               :ok
-                                               (do (actions/update-contract
-                                                    (:id contract)
-                                                    (fn [c] (-> c
-                                                                (assoc :output-address (:output-address @input))
-                                                                (assoc :escrow-release "<processing>"))))
-                                                   (close-display-contract!))
-                                               :error-wrong-key
-                                               (swap! errors assoc :key "Invalid Key")
-                                               :error-wrong-address
-                                               (swap! errors assoc :output-address "Invalid address")
-                                               :error-missing-parameters
-                                               (utils/log* "Error calling contract/release-escrow-buyer" %)
-                                               :error-escrow-not-funded
-                                               (swap! errors assoc :output-address "Smart Contract not funded or not enough confirmations.")
-                                               (do (swap! errors assoc :key "Unknown Error")
-                                                   (swap! errors assoc :output-address "Unknown Error")
-                                                   (utils/log* %)))
-                                             (do (reset! state/error "There was an error in requesting the Smart Contract funds. Please inform us of this event.")
-                                                 (utils/log* "Error calling contract/release-escrow-buyer" %))))))})
-                    (ui/flat-button {:label "Cancel"
-                                     :key (str "contract-cancel-" contract-id)
-                                     :primary false
-                                     :on-touch-tap close-display-contract!})]
-                   content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                            [:h3 "Claim funds"]
-                            [:h5 "Please provide the Destination Address and the Smart Contract Release Key in order to receive your Bitcoins"]
-                            (ui/text-field {:id "output-address"
-                                            :floating-label-text "Destination Address"
-                                            :error-text (:output-address (rum/react errors))
-                                            :value (:output-address (rum/react input))
-                                            :style {:width "100%"}
-                                            :on-change #(do (reset! errors {})
-                                                            (swap! input assoc :output-address (.. % -target -value)))})
-                            [:br]
-                            (ui/text-field {:id "key"
-                                            :floating-label-text "Smart Contract Release Key"
-                                            :error-text (:key (rum/react errors))
-                                            :value (:key (rum/react input))
-                                            :style {:width "100%"}
-                                            :on-change #(do (reset! errors {})
-                                                            (swap! input assoc :key (.. % -target -value)))})]]
-               (if (rum/react small-display?)
-                 (mobile-overlay true content buttons)
-                 (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
-                             :open true
-                             :modal true
-                             :actions buttons}
-                            content))))]
+  {:key-fn (fn [contract-id] (str "dialog-for-contract-" contract-id))}
+  [_state contract-id]
+  (when (= (rum/react (:display-contract state/app)) contract-id)
+    (let [input (::input _state)
+          user-key (::user-key _state)
+          errors (::errors _state)
+          ;;contract-id (rum/react (:display-contract state/app))
+          server-time (rum/react (:server-time state/app))]
+      (when-let [contract (some #(and (= (:id %) contract-id) %) (rum/react (:contracts state/app)))]
+        (let [time-left (contract-time-left contract server-time)
+              escrow-release-dialog
+              (fn [role]
+                (let [buttons
+                      [(ui/flat-button {:label "Ok"
+                                        :key (str "contract-ok-button-" (:id contract))
+                                        :primary true
+                                        :on-touch-tap
+                                        (fn []
+                                          (if (or (= (:output-address @input) "") (= (:key @input) ""))
+                                            (do (when (= (:output-address @input) "") (swap! errors assoc :output-address "Missing parameter"))
+                                                (when (= (:key @input) "") (swap! errors assoc :key "Missing parameter")))
+                                            (network/send!
+                                             [:escrow/release-to-user {:id (:id contract)
+                                                                       :user-role (name role)
+                                                                       :output-address (:output-address @input)
+                                                                       :escrow-user-key (:key @input)}]
+                                             5000
+                                             #(if (sente/cb-success? %)
+                                                (case (:status %)
+                                                  :ok
+                                                  (do (actions/update-contract
+                                                       (:id contract)
+                                                       (fn [c] (-> c
+                                                                   (assoc :output-address (:output-address @input))
+                                                                   (assoc :escrow-release "<processing>"))))
+                                                      (close-display-contract!))
+                                                  :error-wrong-key
+                                                  (swap! errors assoc :key "Invalid Key")
+                                                  :error-wrong-address
+                                                  (swap! errors assoc :output-address "Invalid address")
+                                                  :error-missing-parameters
+                                                  (utils/log* "Error calling contract/release-escrow-buyer" %)
+                                                  :error-escrow-not-funded
+                                                  (swap! errors assoc :output-address "Smart Contract not funded or not enough confirmations.")
+                                                  (do (swap! errors assoc :key "Unknown Error")
+                                                      (swap! errors assoc :output-address "Unknown Error")
+                                                      (utils/log* %)))
+                                                (do (reset! state/error "There was an error in requesting the Smart Contract funds. Please inform us of this event.")
+                                                    (utils/log* "Error calling contract/release-escrow-buyer" %))))))})
+                       (ui/flat-button {:label "Cancel"
+                                        :key (str "contract-cancel-" contract-id)
+                                        :primary false
+                                        :on-touch-tap close-display-contract!})]
+                      content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
+                               [:h3 "Claim funds"]
+                               [:h5 "Please provide the Destination Address and the Smart Contract Release Key in order to receive your Bitcoins"]
+                               (ui/text-field {:id "output-address"
+                                               :floating-label-text "Destination Address"
+                                               :error-text (:output-address (rum/react errors))
+                                               :value (:output-address (rum/react input))
+                                               :style {:width "100%"}
+                                               :on-change #(do (reset! errors {})
+                                                               (swap! input assoc :output-address (.. % -target -value)))})
+                               [:br]
+                               (ui/text-field {:id "key"
+                                               :floating-label-text "Smart Contract Release Key"
+                                               :error-text (:key (rum/react errors))
+                                               :value (:key (rum/react input))
+                                               :style {:width "100%"}
+                                               :on-change #(do (reset! errors {})
+                                                               (swap! input assoc :key (.. % -target -value)))})]]
+                  (if (rum/react small-display?)
+                    (mobile-overlay true content buttons)
+                    (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
+                                :open true
+                                :modal true
+                                :actions buttons}
+                               content))))]
 
-        (case (:stage contract)
+          (case (:stage contract)
 
-          "waiting-start"
-          (let [buttons [(ui/flat-button {:label "Close"
-                                          :key (str "ws-close-button-contract-" contract-id)
-                                          :primary true
-                                          :on-touch-tap close-display-contract!})]
-                the-other (if (am-i-seller? contract) (:buyer-name contract) (:seller-name contract))
-                content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                         [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
-                          [:h3 (str "Time left: " time-left)]
-                          [:p (gstring/format "You must coordinate a start-time for this trade with %s on Facebook Messenger within the time left." the-other)]
-                          [:p (if (am-i-seller? contract)
-                                (gstring/format "Once started you’ll have 60 minutes to send the bitcoin to a smart contract and 30 minutes to confirm you’ve received payment from %s." the-other)
-                                (gstring/format "Once started you'll have to wait for a maximum of 60 minutes for %s to send the Bitcoins to the smart contract, and then you will have 30 minutes to make the payment." the-other))]]
-                         (when (am-i-seller? contract)
-                           (ui/raised-button {:label "Start Trade"
-                                              :key (str "ws-start-interaction-button-contract" contract-id)
-                                              :primary true
-                                              :on-touch-tap (fn []
-                                                              (actions/contract-start contract-id)
-                                                              (close-display-contract!))}))]]
-            (if (rum/react small-display?)
-              (mobile-overlay true content buttons)
-              (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
-                          :open (boolean contract)
-                          :modal true
-                          :content-style {:width "500px"}
-                          :actions buttons}
-                         content)))
-
-          "waiting-escrow"
-          (let [buttons [(ui/flat-button {:label "Close"
-                                          :key (str "we-close-button-contract-" contract-id)
-                                          :primary true
-                                          :on-touch-tap close-display-contract!})]
-                content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                         [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
-                          [:h3 (str "Time left: " time-left)]
-                          [:h3 "Step 1: Get the Smart Contract key"]
-                          (if (:escrow-seller-has-key contract)
-                            [:p "The key has been extracted and is no longer available in our servers."]
-                            [:div
-                             [:div.center
-                              (if (and (nil? (rum/react user-key)) (not (:escrow-seller-has-key contract)))
-                                (ui/raised-button {:label "Get the Smart Contract Key" :primary true
-                                                   :on-touch-tap #(actions/escrow-retrieve-key contract-id :seller user-key)})
-                                (ui/raised-button {:label "I have stored my key in a secure place" :primary true
-                                                   :on-touch-tap #(when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
-                                                                    (actions/escrow-forget-key contract-id :seller))}))]
-                             [:div.center.margin-2rem
-                              [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
-                         [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
-                                               (* (common/currency-as-float (:amount contract) (:currency-seller contract))
-                                                  (common/long->decr (:premium contract)))
-                                               " " (clojure.string/upper-case (:currency-seller contract))] " to the following Smart Contract address"]
-                         [:div {:style {:background-color "#fff" :border-radius "2px"}}
-                          [:div {:style {:color "#000" :padding "10px 0px 10px 0px" :text-align "center"}}
-                           (:input-address contract)]]]]
-            (when (am-i-seller? contract) ; make sure we are the seller
+            "waiting-start"
+            (let [buttons [(ui/flat-button {:label "Close"
+                                            :key (str "ws-close-button-contract-" contract-id)
+                                            :primary true
+                                            :on-touch-tap close-display-contract!})]
+                  the-other (if (am-i-seller? contract) (:buyer-name contract) (:seller-name contract))
+                  content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
+                           [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
+                            [:h3 (str "Time left: " time-left)]
+                            [:p (gstring/format "You must coordinate a start-time for this trade with %s on Facebook Messenger within the time left." the-other)]
+                            [:p (if (am-i-seller? contract)
+                                  (gstring/format "Once started you’ll have 60 minutes to send the bitcoin to a smart contract and 30 minutes to confirm you’ve received payment from %s." the-other)
+                                  (gstring/format "Once started you'll have to wait for a maximum of 60 minutes for %s to send the Bitcoins to the smart contract, and then you will have 30 minutes to make the payment." the-other))]]
+                           (when (am-i-seller? contract)
+                             (ui/raised-button {:label "Start Trade"
+                                                :key (str "ws-start-interaction-button-contract" contract-id)
+                                                :primary true
+                                                :on-touch-tap (fn []
+                                                                (actions/contract-start contract-id)
+                                                                (close-display-contract!))}))]]
               (if (rum/react small-display?)
                 (mobile-overlay true content buttons)
                 (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
@@ -479,93 +443,131 @@
                             :modal true
                             :content-style {:width "500px"}
                             :actions buttons}
-                           content))))
+                           content)))
 
-          "waiting-transfer"
-          (let [legal-text (fn [role]
-                             [:p.special-text
-                              "My name is "
-                              (case role :buyer "<say your legal name>." :seller "<his/her legal name>")
-                              [:br]
-                              "My name on Facebook is "
-                              (case role :buyer "<say your Facebook name>" :seller "<his/her name on Facebook>")
-                              [:br]
-                              (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s Bitcoins."
-                                              (common/currency-as-float (:amount contract) (:currency-seller contract)))
-                              [:br]
-                              (gstring/format "As long as the contract ID '%s' listed at cointrust.io shows that the contract is completed when I log into CoinTrust with my Facebook ID." (:human-id contract))])
-                content
-                (if (am-i-buyer? contract)
-                  ;; Buyer dialog
-                  [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
-                   [:div (if (:escrow-buyer-has-key contract) {:style {:color "#bbb"}} {})
-                    [:h3 "Step 1: get the Smart Contract key"]
-                    (if (:escrow-buyer-has-key contract)
-                      [:p "The key has been extracted and is no longer available in our servers."]
-                      [:div
-                       [:div.center
-                        (if (and (nil? (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
-                          (ui/raised-button {:label "Get the Smart Contract Key"
-                                             :primary true
-                                             :on-touch-tap #(actions/escrow-retrieve-key contract-id :buyer user-key)})
-                          (ui/raised-button {:label "I have stored my key in a secure place"
-                                             :primary true
-                                             :on-touch-tap #(when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
-                                                             (actions/escrow-forget-key contract-id :buyer))}))]
-                       [:div.center.margin-2rem
-                        [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
-                   [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
-                   [:div.center {:style {:margin "-0.5rem 0 -0.5rem 0"}}
-                    [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/" (:seller-fb-id contract)) :target "_blank"}
-                     [:img.circle {:src (:seller-photo contract)}]]]
-                   [:h3 "Step 3: On Facebook, " [:a {:href "https://www.youtube.com/watch?v=ZeAJDFgcCYA" :target "_blank"} "send a video message to Cedric."] " Record yourself reading this script."]
-                   (legal-text :buyer)
-                   [:h3 "Step 4: send "
-                    [:span {:style {:color "rgb(0, 188, 212)"}}
-                     (common/currency->symbol (:currency-buyer contract))
-                     [:strong (common/round-currency
-                               (* (common/currency-as-float (:amount contract)
-                                                            (:currency-seller contract))
-                                  (.-rep (:exchange-rate contract)))
-                               (:currency-seller contract))]] " to @" (:transfer-info contract) " in Venmo"]]
-                  ;; Seller dialog
-                  [:div.padding-1rem
-                   [:h3 (gstring/format "Step 1: Expect a video from %s reading the following text" (:buyer-name contract))]
-                   [:div.center
-                    [:a.hint--bottom {:aria-label (:buyer-name contract)}
-                     [:img.circle {:src (:buyer-photo contract)}]]]
-                   (legal-text :seller)
-                   [:h3 "Step 2: As soon as you receive a valid video in Facebook and the funds in Venmo, press the button below:"]
-                   [:div.center
-                    (ui/raised-button {:label "I've received the funds"
-                                       :primary true
-                                       :on-touch-tap #(do (actions/mark-contract-transfer-received (:id contract))
-                                                          (close-display-contract!))})]])
-                buttons
-                [(ui/flat-button {:label "Close"
-                                  :key (str "wt-close-button-contract-" contract-id)
-                                  :primary true
-                                  :on-touch-tap close-display-contract!})]]
-            (if (rum/react small-display?)
-              (mobile-overlay true content [:div {:style {:height "2rem"}}] buttons)
-              (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
-                          :open true
-                          :modal true
-                          :content-style {:width "600px"}
-                          :actions buttons}
-                         content)))
+            "waiting-escrow"
+            (let [buttons [(ui/flat-button {:label "Close"
+                                            :key (str "we-close-button-contract-" contract-id)
+                                            :primary true
+                                            :on-touch-tap close-display-contract!})]
+                  content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
+                           [:div (if (:escrow-seller-has-key contract) {:style {:color "#bbb"}} {})
+                            [:h3 (str "Time left: " time-left)]
+                            [:h3 "Step 1: Get the Smart Contract key"]
+                            (if (:escrow-seller-has-key contract)
+                              [:p "The key has been extracted and is no longer available in our servers."]
+                              [:div
+                               [:div.center
+                                (if (and (nil? (rum/react user-key)) (not (:escrow-seller-has-key contract)))
+                                  (ui/raised-button {:label "Get the Smart Contract Key" :primary true
+                                                     :on-touch-tap #(actions/escrow-retrieve-key contract-id :seller user-key)})
+                                  (ui/raised-button {:label "I have stored my key in a secure place" :primary true
+                                                     :on-touch-tap #(when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
+                                                                      (actions/escrow-forget-key contract-id :seller))}))]
+                               [:div.center.margin-2rem
+                                [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
+                           [:h3 "Step 2: send " [:span {:style {:color "rgb(0, 188, 212)"}}
+                                                 (* (common/currency-as-float (:amount contract) (:currency-seller contract))
+                                                    (common/long->decr (:premium contract)))
+                                                 " " (clojure.string/upper-case (:currency-seller contract))] " to the following Smart Contract address"]
+                           [:div {:style {:background-color "#fff" :border-radius "2px"}}
+                            [:div {:style {:color "#000" :padding "10px 0px 10px 0px" :text-align "center"}}
+                             (:input-address contract)]]]]
+              (when (am-i-seller? contract) ; make sure we are the seller
+                (if (rum/react small-display?)
+                  (mobile-overlay true content buttons)
+                  (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
+                              :open (boolean contract)
+                              :modal true
+                              :content-style {:width "500px"}
+                              :actions buttons}
+                             content))))
 
-          "contract-success"
-          (when (am-i-buyer? contract) (escrow-release-dialog :buyer))
+            "waiting-transfer"
+            (let [legal-text (fn [role]
+                               [:p.special-text
+                                "My name is "
+                                (case role :buyer "<say your legal name>." :seller "<his/her legal name>")
+                                [:br]
+                                "My name on Facebook is "
+                                (case role :buyer "<say your Facebook name>" :seller "<his/her name on Facebook>")
+                                [:br]
+                                (gstring/format "This is a video contract confirming that I am conditionally agreeing to purchase %s Bitcoins."
+                                                (common/currency-as-float (:amount contract) (:currency-seller contract)))
+                                [:br]
+                                (gstring/format "As long as the contract ID '%s' listed at cointrust.io shows that the contract is completed when I log into CoinTrust with my Facebook ID." (:human-id contract))])
+                  content
+                  (if (am-i-buyer? contract)
+                    ;; Buyer dialog
+                    [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
+                     [:div (if (:escrow-buyer-has-key contract) {:style {:color "#bbb"}} {})
+                      [:h3 "Step 1: get the Smart Contract key"]
+                      (if (:escrow-buyer-has-key contract)
+                        [:p "The key has been extracted and is no longer available in our servers."]
+                        [:div
+                         [:div.center
+                          (if (and (nil? (rum/react user-key)) (not (:escrow-buyer-has-key contract)))
+                            (ui/raised-button {:label "Get the Smart Contract Key"
+                                               :primary true
+                                               :on-touch-tap #(actions/escrow-retrieve-key contract-id :buyer user-key)})
+                            (ui/raised-button {:label "I have stored my key in a secure place"
+                                               :primary true
+                                               :on-touch-tap #(when (js/confirm "Please double-check the key. You will not be able to recover your funds without it.")
+                                                                (actions/escrow-forget-key contract-id :buyer))}))]
+                         [:div.center.margin-2rem
+                          [:div.center {:style {:font-size "small"}} (rum/react user-key)]]])]
+                     [:h3 "Step 2: Click here to start a Facebook chat with " [:a {:href (str "https://facebook.com/" (:seller-fb-id contract)) :target "_blank"} (:seller-name contract)]]
+                     [:div.center {:style {:margin "-0.5rem 0 -0.5rem 0"}}
+                      [:a.hint--bottom {:aria-label (str "Start a Facebook chat with " (:seller-name contract)) :href (str "https://facebook.com/" (:seller-fb-id contract)) :target "_blank"}
+                       [:img.circle {:src (:seller-photo contract)}]]]
+                     [:h3 "Step 3: On Facebook, " [:a {:href "https://www.youtube.com/watch?v=ZeAJDFgcCYA" :target "_blank"} "send a video message to Cedric."] " Record yourself reading this script."]
+                     (legal-text :buyer)
+                     [:h3 "Step 4: send "
+                      [:span {:style {:color "rgb(0, 188, 212)"}}
+                       (common/currency->symbol (:currency-buyer contract))
+                       [:strong (common/round-currency
+                                 (* (common/currency-as-float (:amount contract)
+                                                              (:currency-seller contract))
+                                    (.-rep (:exchange-rate contract)))
+                                 (:currency-seller contract))]] " to @" (:transfer-info contract) " in Venmo"]]
+                    ;; Seller dialog
+                    [:div.padding-1rem
+                     [:h3 (gstring/format "Step 1: Expect a video from %s reading the following text" (:buyer-name contract))]
+                     [:div.center
+                      [:a.hint--bottom {:aria-label (:buyer-name contract)}
+                       [:img.circle {:src (:buyer-photo contract)}]]]
+                     (legal-text :seller)
+                     [:h3 "Step 2: As soon as you receive a valid video in Facebook and the funds in Venmo, press the button below:"]
+                     [:div.center
+                      (ui/raised-button {:label "I've received the funds"
+                                         :primary true
+                                         :on-touch-tap #(do (actions/mark-contract-transfer-received (:id contract))
+                                                            (close-display-contract!))})]])
+                  buttons
+                  [(ui/flat-button {:label "Close"
+                                    :key (str "wt-close-button-contract-" contract-id)
+                                    :primary true
+                                    :on-touch-tap close-display-contract!})]]
+              (if (rum/react small-display?)
+                (mobile-overlay true content [:div {:style {:height "2rem"}}] buttons)
+                (ui/dialog {:title (str "Smart Contract ID: " (:human-id contract))
+                            :open true
+                            :modal true
+                            :content-style {:width "600px"}
+                            :actions buttons}
+                           content)))
 
-          "contract-broken"
-          (when (and (am-i-seller? contract) (:escrow-funded-timestamp contract))
-            (escrow-release-dialog :seller))
+            "contract-success"
+            (when (am-i-buyer? contract) (escrow-release-dialog :buyer))
 
-          "contract-broken/escrow-insufficient"
-          (when (am-i-seller? contract) (escrow-release-dialog :seller))
+            "contract-broken"
+            (when (and (am-i-seller? contract) (:escrow-funded-timestamp contract))
+              (escrow-release-dialog :seller))
 
-          [:div "Unknown contract state. Please contact us."])))))
+            "contract-broken/escrow-insufficient"
+            (when (am-i-seller? contract) (escrow-release-dialog :seller))
+
+            [:div "Unknown contract state. Please contact us."]))))))
 
 (rum/defc contract-listing-comp
   < rum/reactive
@@ -581,7 +583,7 @@
       [:div
        [:h4.center.hint--bottom.hint--large {:aria-label "Smart contracts are computer protocols that facilitate, verify, or enforce the negotiation or performance of a contract, or that make a contractual clause unnecessary. Smart contracts often emulate the logic of contractual clauses." :style {:width "100%"}} "Smart Contracts"]
        [:div
-        (contract-dialog)
+        (for [contract contracts] (contract-dialog (:id contract)))
         (ui/list
          (for [contract contracts]
            (ui/list-item
