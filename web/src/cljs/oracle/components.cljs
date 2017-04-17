@@ -58,8 +58,8 @@
       "waiting-start" ;; 12 hours
       (milliseconds->mins-formatted (- (* 12 60 60 1000)
                                        (- server-time (:created contract))))
-      "waiting-escrow" ;; 60 mins
-      (milliseconds->mins-formatted (- (* 60 60 1000)
+      "waiting-escrow" ;; 120 mins
+      (milliseconds->mins-formatted (- (* 2 60 60 1000)
                                        (- server-time (:started-timestamp contract))))
       "waiting-transfer" ;; 30 mins
       (milliseconds->mins-formatted (- (* 30 60 1000)
@@ -427,8 +427,8 @@
                             [:h3 (str "Time left: " time-left)]
                             [:p (gstring/format "You must coordinate a start-time for this trade with %s on Facebook Messenger within the time left." the-other)]
                             [:p (if (am-i-seller? contract)
-                                  (gstring/format "Once started you’ll have 60 minutes to send the bitcoin to a smart contract and 30 minutes to confirm you’ve received payment from %s." the-other)
-                                  (gstring/format "Once started you'll have to wait for a maximum of 60 minutes for %s to send the Bitcoins to the smart contract, and then you will have 30 minutes to make the payment." the-other))]]
+                                  (gstring/format "Once started you’ll have 2 hours to send the bitcoin to a smart contract and 30 minutes to confirm you’ve received payment from %s." the-other)
+                                  (gstring/format "Once started you'll have to wait for a maximum of 2 hours for %s to send the Bitcoins to the smart contract, and then you will have 30 minutes to make the payment." the-other))]]
                            (when (am-i-seller? contract)
                              (ui/raised-button {:label "Start Trade"
                                                 :key (str "ws-start-interaction-button-contract" contract-id)
@@ -629,7 +629,7 @@
                                                   :on-touch-tap #(when (js/confirm "Are you sure?") (actions/break-contract (:id contract)))})])])]}
             [:div.hint--bottom {:aria-label (case (:stage contract)
                                               "waiting-start" (if (am-i-seller? contract)
-                                                                (gstring/format "You must coordinate a start-time for this trade with %s on Facebook Messenger. Once started you’ll have 60 minutes to fund the Smart Contract." (:buyer-name contract))
+                                                                (gstring/format "You must coordinate a start-time for this trade with %s on Facebook Messenger. Once started you’ll have 2 hours to fund the Smart Contract and 30 minutes to confirm that %s has sent you the correct amount." (:buyer-name contract) (:buyer-name contract))
                                                                 (gstring/format "Waiting for %s and you to agree on initiation time." (:seller-name contract)))
                                               "waiting-escrow" (if (am-i-seller? contract)
                                                                  "Waiting for you to deposit Bitcoins into this Smart Contract"
@@ -742,7 +742,7 @@
                                           (:buyer-name current)
                                           (common/round-currency
                                            (common/currency-as-floating-point
-                                            (common/currency-discount (:amount current) (:premium current) 2)
+                                            (:amount current)
                                             (:currency-seller current))
                                            (:currency-seller current)))]
                      [:div.center {:style {:margin-top "-1rem" :margin-bottom "1rem"}}

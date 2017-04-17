@@ -248,7 +248,7 @@
           now (get-in state [:global :now])
           initial-contract (with-idempotent-transaction mid :contract state
                              #(if-let [contract (db/contract-create!
-                                                 (merge buy-request {:input-address (bitcoin/wallet-get-fresh-address (bitcoin/get-current-wallet))
+                                                 (merge buy-request {:input-address (bitcoin/wallet-get-fresh-address @bitcoin/current-wallet)
                                                                      :fee 100})
                                                  %)]
                                 (do (log/debug "Contract created:" contract)
@@ -331,7 +331,7 @@
                       (events/send-event! (:buyer-id contract) :contract/update contract))
                     {:status :retry :backoff-ms 1}))
               ;; The countdown
-              (> now (utils/unix-after (time-coerce/to-date-time (:started-timestamp contract)) (time/minutes 60)))
+              (> now (utils/unix-after (time-coerce/to-date-time (:started-timestamp contract)) (time/hours 2)))
               (do (with-idempotent-transaction mid :contract-add-event-contract-boken state
                     #(db/contract-add-event! contract-id "contract-broken" {:reason "escrow waiting period timed out"} %))
                   ;; Let the success contract stage handle it
@@ -416,25 +416,23 @@
   [{:keys [mid message attempt]}]
   (let [{:keys [tag data]} message
         contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)]
+        contract (db/get-contract-by-id contract-id)
+        escrow-open-for (:escrow-open-for contract)]
     (log/debug message)
     ;; TEMPORARY APPROACH
-    (if (:escrow-open-for contract)
-      (if (bitcoin/wallet-send-coins (bitcoin/get-current-wallet)
-            @bitcoin/current-app
+    (if-not escrow-open-for
+      (log/errorf "Error releasing to user -- Not open for any party. Contract: %s" (with-out-str (pprint contract)))
+      (if (bitcoin/wallet-release-contract-coins @bitcoin/current-wallet
             contract-id
             (:output-address contract)
-            (if (= (:escrow-open-for contract) (:buyer-id contract))
+            (if (= escrow-open-for (:buyer-id contract))
               ;; Substract the Cointrust fee (applying also the premium)
               (common/currency-discount
                (common/currency-discount (:amount contract) (:fee contract) 2)
                (:premium contract)
                2)
-              ;; Subtract enough for the miners fee
-              (- (common/currency-discount (:amount contract) (:premium contract) 2)
-                 (if (= (env :env) "production")
-                   70000 ; http://bitcoinexchangerate.org/fees
-                   100000))))
+              (common/currency-discount (:amount contract) (:premium contract) 2))
+            :them)
         (let [contract (merge contract {:escrow-release "<success>"})]
           (db/contract-update! contract-id {:escrow_release "<success>"})
           (events/send-event! (:buyer-id contract) :contract/update contract)
@@ -444,8 +442,7 @@
           (db/contract-update! contract-id {:escrow_release "<failure>"})
           (events/send-event! (:buyer-id contract) :contract/update contract)
           (events/send-event! (:seller-id contract) :contract/update contract)
-          (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"})))
-      (log/errorf "Error releasing to user -- Not open for any party. Contract: %s" (with-out-str (pprint contract))))
+          (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"}))))
     {:status :success}))
 
 ;;

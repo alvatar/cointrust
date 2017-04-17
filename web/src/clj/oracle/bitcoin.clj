@@ -19,6 +19,7 @@
             [cemerick.url :refer [url]]
             [cheshire.core :as json]
             [taoensso.carmine :as r]
+            [taoensso.encore :as encore]
             ;; -----
             [oracle.common :as common]
             [oracle.redis :as redis]
@@ -132,8 +133,6 @@
 
 (defn make-wallet [app] (Wallet. (:network-params app)))
 
-(defn get-current-wallet [] @current-wallet)
-
 (defn wallet-get-current-address [wallet]
   (.toString (.currentReceiveAddress wallet)))
 
@@ -146,23 +145,32 @@
 (defn wallet-get-balance [wallet]
   (.getValue (.getBalance wallet)))
 
-(defn wallet-send-coins [wallet app contract-id target-address amount]
-  (try (let [send-result (.sendCoins wallet
-                                     (:peergroup app)
-                                     (. Address fromBase58 (.getNetworkParameters wallet) target-address)
-                                     (. Coin valueOf amount))
+(defn wallet-send-coins [wallet address amount pays-fees]
+  (let [amount (case pays-fees
+                 :us amount
+                 ;; TODO: proper fee calculation
+                 :them (if (= (env :env) "production")
+                         70000 ; http://bitcoinexchangerate.org/fees
+                         100000))]
+    (.sendCoins wallet
+                (:peergroup @current-app)
+                (. Address fromBase58 (.getNetworkParameters wallet) address)
+                (. Coin valueOf amount))))
+
+(defn wallet-release-contract-coins [wallet contract-id target-address amount pays-fees]
+  (try (let [send-result (wallet-send-coins wallet target-address amount pays-fees)
              tx (.-tx send-result)
              tx-hash (.. tx getHash toString)]
          (db/contract-update! contract-id {:output_tx tx-hash})
-         (log/debugf "Send payment for contract %s of %s BTC to address %s transaction %s\n"
-                     contract-id (common/satoshi->btc amount) target-address tx-hash)
+         (log/debugf "Send payment for contract %s of %s BTC to address %s transaction %s, fees paid by %s\n"
+                     contract-id (common/satoshi->btc amount) target-address tx-hash pays-fees)
          true)
        (catch Exception e
          (log/debugf "Error sending coins: %s" e) false)))
 
-(defn wallet-send-all-funds-to [wallet app target-address]
-  (wallet-send-coins wallet app target-address
-                     (substract-satoshi-fee (wallet-get-balance wallet))))
+;; (defn wallet-send-all-funds-to [wallet app target-address]
+;;   (wallet-send-coins wallet app target-address
+;;                      (substract-satoshi-fee (wallet-get-balance wallet))))
 
 (defn follow-transaction! [tx-hash address amount contract-id]
   (redis/wcar* (r/hset "pending-transactions" tx-hash
@@ -372,6 +380,6 @@
 
 
 (defn test-wallet []
-  (let [addr (wallet-get-current-address (get-current-wallet))]
+  (let [addr (wallet-get-current-address @current-wallet)]
     (db/contract-update! 1 {:input_address addr})
     addr))

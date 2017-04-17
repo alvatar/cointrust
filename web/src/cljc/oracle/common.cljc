@@ -51,11 +51,11 @@
     :usd (str "$" amount)))
 
 (defn currency-tax [val tax decimals]
-  (long (* (double (+ 1 (/ tax (pow 10 (+ 2 decimals)))))
+  (long (* (+ 1 (/ tax (pow 10 (+ 2 decimals))))
            val)))
 
 (defn currency-discount [val discount decimals]
-  (long (* (double (- 1 (/ discount (pow 10 (+ 2 decimals)))))
+  (long (* (- 1 (/ discount (pow 10 (+ 2 decimals))))
            val)))
 
 ;;
