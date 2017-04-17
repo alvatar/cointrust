@@ -253,7 +253,7 @@
                                   :primary true
                                   :key "offer-update-button"
                                   :disabled (not (and (pos? parsed-min-val) (pos? parsed-max-val)
-                                                      (<= (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) 3000)
+                                                      (<= (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) globals/max-allowed-transaction-in-usd)
                                                       (> parsed-max-val parsed-min-val)))
                                   :on-touch-tap (fn []
                                                   (actions/open-sell-offer {:currency currency :min min-val :max max-val :premium 0.01})
