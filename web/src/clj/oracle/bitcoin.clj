@@ -25,6 +25,9 @@
             [oracle.redis :as redis]
             [oracle.database :as db]))
 
+
+(declare create-multisig)
+
 ;;
 ;; Utils
 ;;
@@ -149,13 +152,17 @@
   (let [amount (case pays-fees
                  :us amount
                  ;; TODO: proper fee calculation
-                 :them (if (= (env :env) "production")
-                         70000 ; http://bitcoinexchangerate.org/fees
-                         100000))]
-    (.sendCoins wallet
-                (:peergroup @current-app)
-                (. Address fromBase58 (.getNetworkParameters wallet) address)
-                (. Coin valueOf amount))))
+                 :them (- amount
+                          (if (= (env :env) "production")
+                            70000 ; http://bitcoinexchangerate.org/fees
+                            100000)))
+        send-result (.sendCoins wallet
+                                (:peergroup @current-app)
+                                (. Address fromBase58 (.getNetworkParameters wallet) address)
+                                (. Coin valueOf amount))]
+    (db/save-current-wallet (wallet-serialize wallet))
+    (.get (.-broadcastComplete send-result))
+    send-result))
 
 (defn wallet-release-contract-coins [wallet contract-id target-address amount pays-fees]
   (try (let [send-result (wallet-send-coins wallet target-address amount pays-fees)
@@ -223,11 +230,18 @@
               (log/debugf "BITCOIN *** Transaction %s changed to: %s with depth %s confidence %s"
                           tx-hash (.getConfidence transaction) tx-depth tx-confidence-type)
               (cond (>= tx-depth 1)
-                    (do (log/infof "BITCOIN *** Successful payment to %s with transaction %s funds contract ID %s"
-                                   address-payed tx-hash contract-id)
-                        (db/contract-set-escrow-funded! contract-id (:amount tx-data) tx-hash)
-                        (db/save-current-wallet (wallet-serialize wallet))
-                        (unfollow-transaction! tx-hash))
+                    (let [amount (:amount tx-data)]
+                      (log/infof "BITCOIN *** Successful payment to %s with transaction %s funds contract ID %s"
+                                 address-payed tx-hash contract-id)
+                      (db/contract-set-escrow-funded! contract-id amount tx-hash)
+                      (db/save-current-wallet (wallet-serialize wallet))
+                      (unfollow-transaction! tx-hash)
+                      ;; (create-multisig @current-app @current-wallet
+                      ;;                  (- amount
+                      ;;                     (if (= (env :env) "production")
+                      ;;                       70000 ; http://bitcoinexchangerate.org/fees
+                      ;;                       100000)))
+                      )
                     (or (= tx-confidence-val transaction-confidence:dead)
                         (= tx-confidence-val transaction-confidence:in-conflict))
                     (do (log/errorf "ALERT BITCOIN *** TRANSACTION CONFIDENCE TYPE CHANGED TO %s. Transaction was funding contract ID %s" tx-confidence-type contract-id)
@@ -269,6 +283,8 @@
         _ (.addOutput tx (. Coin valueOf value) script)
         request (. SendRequest forTx tx)]
     (.completeTx wallet request)
+    (.commitTx wallet (.tx request))
+    (db/save-current-wallet (wallet-serialize wallet))
     (.broadcastTransaction (:peergroup app) (.tx request))
     multisig))
 
