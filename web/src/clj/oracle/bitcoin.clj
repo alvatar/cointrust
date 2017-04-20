@@ -230,7 +230,10 @@
               (log/debugf "BITCOIN *** Transaction %s changed to: %s with depth %s confidence %s"
                           tx-hash (.getConfidence transaction) tx-depth tx-confidence-type)
               (cond (>= tx-depth 1)
-                    (let [amount (:amount tx-data)]
+                    (let [amount (:amount tx-data)
+                          contract (db/get-contract-by-id contract-id)
+                          fee (:fee contract)
+                          premium (:premium contract)]
                       (log/infof "BITCOIN *** Successful payment to %s with transaction %s funds contract ID %s"
                                  address-payed tx-hash contract-id)
                       (db/contract-set-escrow-funded! contract-id amount tx-hash)
@@ -238,10 +241,10 @@
                       (unfollow-transaction! tx-hash)
                       (let [{:keys [escrow-tx escrow-script]}
                             (create-multisig @current-app @current-wallet
-                                             (- amount
-                                                (if (= (env :env) "production")
-                                                  70000 ; http://bitcoinexchangerate.org/fees
-                                                  100000))
+                                             (common/currency-discount
+                                              (common/currency-discount amount fee 2)
+                                              premium
+                                              2)
                                              (.getBytes (db/contract-get-field contract-id "escrow_our_key"))
                                              (escrow/get-seller-key contract-id)
                                              (escrow/get-buyer-key contract-id))]
@@ -276,13 +279,17 @@
 ;; Private key: "GMPBVAgMHJ6jUk7g7zoYhQep5EgpLAFbrJ4BbfxCr9pp"
 ;; Address: "mjd3Ug6t53rbsrZhZpCdobqHDUnU8sjAYd"
 
-(defn create-multisig [app wallet value our-key-bytes seller-key-bytes buyer-key-bytes]
+(defn create-multisig [app wallet amount our-key-bytes seller-key-bytes buyer-key-bytes]
   (let [our-key (. ECKey fromPrivate our-key-bytes)
         seller-key (. ECKey fromPrivate seller-key-bytes)
         buyer-key (. ECKey fromPrivate buyer-key-bytes)
         keys (. ImmutableList of our-key seller-key buyer-key)
         script (. ScriptBuilder createMultiSigOutputScript 2 keys)
         tx (Transaction. (:network-params app))
+        value (- amount
+                 (if (= (env :env) "production")
+                   70000 ; http://bitcoinexchangerate.org/fees
+                   100000))
         _ (.addOutput tx (. Coin valueOf value) script)
         request (. SendRequest forTx tx)]
     (.completeTx wallet request)
@@ -293,7 +300,8 @@
      :escrow-script (.getProgram script)}))
 
 (defn multisig-spend [app wallet escrow-script input-tx target-address key1 key2]
-  (let [multisig-out (.getOutput input-tx 0)
+  (let [input-tx (.getTransaction wallet (Sha256Hash. (.getBytes input-tx)))
+        multisig-out (first (filter #(.isMine %) (.getOutputs input-tx)))
         value (.getValue multisig-out)
         ;; Signature 1
         tx1 (Transaction. (:network-params app))

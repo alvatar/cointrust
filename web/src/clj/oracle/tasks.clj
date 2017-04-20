@@ -431,13 +431,13 @@
     (if-not escrow-open-for
       (log/errorf "Error releasing to user -- Not open for any party. Contract: %s" (with-out-str (pprint contract)))
       (if-let [release-tx-hash
-               ;; HERE
                (bitcoin/multisig-spend @bitcoin/current-app @bitcoin/current-wallet
                                        (:escrow-script contract)
                                        (:input-tx contract)
                                        (:output-address contract)
                                        (:escrow-our-key contract)
                                        (:escrow-user-key data))
+
                #_(bitcoin/wallet-release-contract-coins @bitcoin/current-wallet
                  contract-id
                  (:output-address contract)
