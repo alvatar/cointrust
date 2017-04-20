@@ -1,4 +1,4 @@
-(ns the-oracle.core-test
+(ns oracle.core-test
   (:require-macros [cljs.test :refer (is deftest testing)])
   (:require [cljs.test]))
 

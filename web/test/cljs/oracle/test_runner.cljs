@@ -1,4 +1,4 @@
-(ns the-oracle.test-runner
+(ns oracle.test-runner
   (:require
    [doo.runner :refer-macros [doo-tests]]
    [the-oracle.core-test]

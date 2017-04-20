@@ -429,6 +429,13 @@ UPDATE contract SET escrow_amount = ?, input_tx = ?, escrow_funded_timestamp = C
 WHERE id = ? AND escrow_funded_timestamp IS NULL
 " amount-received tx-hash id]))
 
+(defn contract-get-field [id field]
+  ((keyword field)
+   (first
+    (sql/query db [(format "
+SELECT %s FROM contract WHERE id = ?" field)
+                   id]))))
+
 (defn contract-update! [id v]
   (sql/update! db :contract v ["id = ?" id]))
 
@@ -521,6 +528,8 @@ CREATE TABLE contract (
   input_address                    VARCHAR(128),
   input_tx                         VARCHAR(128),
   escrow_address                   VARCHAR(128),
+  escrow_tx                        VARCHAR(128),
+  escrow_script                    BYTEA,
   output_address                   VARCHAR(128),
   output_tx                        VARCHAR(128),
   escrow_our_key                   VARCHAR(128),

@@ -5,7 +5,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
 
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [org.clojure/clojurescript "1.9.495"]
+                 [org.clojure/clojurescript "1.9.521"]
                  [com.cognitect/transit-clj "0.8.300"]
                  [com.cognitect/transit-cljs "0.8.239"]
                  [environ "1.1.0"]
@@ -18,8 +18,8 @@
                  [compojure "1.5.2"]
                  [com.taoensso/nippy "2.13.0"]
                  [com.taoensso/sente "1.11.0"]
-                 [com.taoensso/encore "2.90.1"]
-                 [com.taoensso/timbre "4.8.0"]
+                 [com.taoensso/encore "2.91.0"]
+                 [com.taoensso/timbre "4.10.0"]
                  ;; Database
                  [org.clojure/java.jdbc "0.6.1"]
                  [org.postgresql/postgresql "42.0.0"]
@@ -30,16 +30,16 @@
                                                                    com.google.code.findbugs/jsr305]]
                  ;; Misc
                  [crypto-random "1.2.0"]
-                 [cheshire "5.7.0"]
+                 [cheshire "5.7.1"]
                  [clj-time "0.13.0"]
                  [com.cemerick/url "0.1.1"]
                  ;; Cljs
                  [rum "0.10.8" :exclusions [cljsjs/react cljsjs/react-dom]]
-                 [cljs-react-material-ui "0.2.39"]
+                 [cljs-react-material-ui "0.2.41"]
                  [cljsjs/rc-slider "4.0.1-0" :exclusions [cljsjs/react cljsjs/react-dom]]
                  [netpyoung/fb-sdk-cljs "0.1.2" :exclusions [com.google.guava/guava]]
                  [cljs-hash "0.0.2"]
-                 [datascript "0.15.5"]
+                 [datascript "0.16.1"]
                  [camel-snake-kebab "0.4.0"]]
 
   :plugins [[lein-cljsbuild "1.1.3"]
@@ -128,16 +128,22 @@
          :target-path "resources/public/css"}
 
   :profiles {:dev
-             {:dependencies [[figwheel "0.5.9" :exclusions [com.google.guava/guava]]
-                             [figwheel-sidecar "0.5.9" :exclusions [com.google.guava/guava]]
+             {:dependencies [[figwheel "0.5.10" :exclusions [com.google.guava/guava]]
+                             [figwheel-sidecar "0.5.10" :exclusions [com.google.guava/guava]]
                              [com.cemerick/piggieback "0.2.1"]
-                             [org.clojure/tools.nrepl "0.2.12"]]
-              :plugins [[lein-figwheel "0.5.9"]
+                             [org.clojure/tools.nrepl "0.2.13"]
+                             [midje "1.8.3"]]
+              :plugins [[lein-figwheel "0.5.10"]
                         [lein-doo "0.1.6"]
-                        [lein-ancient "0.6.10"]]
+                        [lein-ancient "0.6.10"]
+                        [lein-midje "3.1.3"]]
               :source-paths ["dev"]
               :repl-options {:nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}
               :env {:env "dev"}}
+             :test
+             {:dependencies [[midje "1.8.3"]]
+              :plugins [[lein-midje "3.1.3"]]
+              :env {:env "test"}}
              :uberjar
              {:source-paths ^:replace ["src/clj" "src/cljc"]
               :prep-tasks ["compile" ["cljsbuild" "once" "min"]]

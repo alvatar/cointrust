@@ -230,6 +230,14 @@
         (add-task-metadata mid {:queue "buy-requests" :exception prex :attempt attempt}))
       {:status :retry :backoff-ms 360000})))
 
+(defn setup-keys-for-contract! [contract-id]
+  (let [keys {:our-key (bitcoin/make-private-key)
+              :buyer-key (bitcoin/make-private-key)
+              :seller-key (bitcoin/make-private-key)}]
+    (db/contract-update! contract-id {:escrow_our_key (:our-key keys)})
+    (escrow/set-buyer-key contract-id (:buyer-key keys))
+    (escrow/set-seller-key contract-id (:seller-key keys))))
+
 ;; Contract master handler
 ;; 1. Get current stage
 ;; 2. Check for conditions to change stage. If not met, retry later.
@@ -266,7 +274,7 @@
                       (db/buy-request-delete! (:id buy-request)) ; Idempotent, must be done at the end
                       (events/send-event! (:buyer-id contract) :contract/create contract)
                       (events/send-event! (:seller-id contract) :contract/create contract)
-                      (escrow/setup-keys-for-contract! contract-id))
+                      (setup-keys-for-contract! contract-id))
       (case (:stage contract)
 
         ;; Currently only used for testing
@@ -422,19 +430,28 @@
     ;; TEMPORARY APPROACH
     (if-not escrow-open-for
       (log/errorf "Error releasing to user -- Not open for any party. Contract: %s" (with-out-str (pprint contract)))
-      (if (bitcoin/wallet-release-contract-coins @bitcoin/current-wallet
-            contract-id
-            (:output-address contract)
-            (if (= escrow-open-for (:buyer-id contract))
-              ;; Substract the Cointrust fee (applying also the premium)
-              (common/currency-discount
-               (common/currency-discount (:amount contract) (:fee contract) 2)
-               (:premium contract)
-               2)
-              (common/currency-discount (:amount contract) (:premium contract) 2))
-            :them)
+      (if-let [release-tx-hash
+               ;; HERE
+               (bitcoin/multisig-spend @bitcoin/current-app @bitcoin/current-wallet
+                                       (:escrow-script contract)
+                                       (:input-tx contract)
+                                       (:output-address contract)
+                                       (:escrow-our-key contract)
+                                       (:escrow-user-key data))
+               #_(bitcoin/wallet-release-contract-coins @bitcoin/current-wallet
+                 contract-id
+                 (:output-address contract)
+                 (if (= escrow-open-for (:buyer-id contract))
+                   ;; Substract the Cointrust fee (applying also the premium)
+                   (common/currency-discount
+                    (common/currency-discount (:amount contract) (:fee contract) 2)
+                    (:premium contract)
+                    2)
+                   (common/currency-discount (:amount contract) (:premium contract) 2))
+                 :them)]
         (let [contract (merge contract {:escrow-release "<success>"})]
-          (db/contract-update! contract-id {:escrow_release "<success>"})
+          (db/contract-update! contract-id {:escrow_release "<success>"
+                                            :output_tx release-tx-hash})
           (events/send-event! (:buyer-id contract) :contract/update contract)
           (events/send-event! (:seller-id contract) :contract/update contract)
           (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))

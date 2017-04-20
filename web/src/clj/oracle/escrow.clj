@@ -5,8 +5,7 @@
             [taoensso.carmine :as r]
             ;; -----
             [oracle.redis :refer :all]
-            [oracle.database :as db]
-            [oracle.bitcoin :as bitcoin])
+            [oracle.database :as db])
   (:import java.util.Base64))
 
 
@@ -45,11 +44,3 @@
 
 (defn forget-seller-key [contract-id]
   (= 1 (wcar* (r/del (str "contract:escrow:seller-key:" contract-id)))))
-
-(defn setup-keys-for-contract! [contract-id]
-  (let [keys {:our-key (bitcoin/make-private-key)
-              :buyer-key (bitcoin/make-private-key)
-              :seller-key (bitcoin/make-private-key)}]
-    (db/contract-update! contract-id {:escrow_our_key (:our-key keys)})
-    (set-buyer-key contract-id (:buyer-key keys))
-    (set-seller-key contract-id (:seller-key keys))))

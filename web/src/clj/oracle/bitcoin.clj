@@ -4,7 +4,7 @@
            [java.util ArrayList]
            [com.google.common.collect ImmutableList]
            [org.bitcoinj.core Address BlockChain Coin Context ECKey PeerAddress PeerGroup Transaction
-            TransactionBroadcast]
+            TransactionBroadcast Sha256Hash]
            [org.bitcoinj.core.listeners DownloadProgressTracker]
            [org.bitcoinj.kits WalletAppKit]
            [org.bitcoinj.net.discovery DnsDiscovery]
@@ -23,7 +23,8 @@
             ;; -----
             [oracle.common :as common]
             [oracle.redis :as redis]
-            [oracle.database :as db]))
+            [oracle.database :as db]
+            [oracle.escrow :as escrow]))
 
 
 (declare create-multisig)
@@ -168,10 +169,9 @@
   (try (let [send-result (wallet-send-coins wallet target-address amount pays-fees)
              tx (.-tx send-result)
              tx-hash (.. tx getHash toString)]
-         (db/contract-update! contract-id {:output_tx tx-hash})
          (log/debugf "Send payment for contract %s of %s BTC to address %s transaction %s, fees paid by %s\n"
                      contract-id (common/satoshi->btc amount) target-address tx-hash pays-fees)
-         true)
+         tx-hash)
        (catch Exception e
          (log/debugf "Error sending coins: %s" e) false)))
 
@@ -236,12 +236,18 @@
                       (db/contract-set-escrow-funded! contract-id amount tx-hash)
                       (db/save-current-wallet (wallet-serialize wallet))
                       (unfollow-transaction! tx-hash)
-                      ;; (create-multisig @current-app @current-wallet
-                      ;;                  (- amount
-                      ;;                     (if (= (env :env) "production")
-                      ;;                       70000 ; http://bitcoinexchangerate.org/fees
-                      ;;                       100000)))
-                      )
+                      (let [{:keys [escrow-tx escrow-script]}
+                            (create-multisig @current-app @current-wallet
+                                             (- amount
+                                                (if (= (env :env) "production")
+                                                  70000 ; http://bitcoinexchangerate.org/fees
+                                                  100000))
+                                             (.getBytes (db/contract-get-field contract-id "escrow_our_key"))
+                                             (escrow/get-seller-key contract-id)
+                                             (escrow/get-buyer-key contract-id))]
+                        (db/contract-update! contract-id {:escrow_tx escrow-tx
+                                                          :escrow_script escrow-script}))
+                      (db/save-current-wallet (wallet-serialize wallet)))
                     (or (= tx-confidence-val transaction-confidence:dead)
                         (= tx-confidence-val transaction-confidence:in-conflict))
                     (do (log/errorf "ALERT BITCOIN *** TRANSACTION CONFIDENCE TYPE CHANGED TO %s. Transaction was funding contract ID %s" tx-confidence-type contract-id)
@@ -270,25 +276,23 @@
 ;; Private key: "GMPBVAgMHJ6jUk7g7zoYhQep5EgpLAFbrJ4BbfxCr9pp"
 ;; Address: "mjd3Ug6t53rbsrZhZpCdobqHDUnU8sjAYd"
 
-(defrecord MultiSig [our-key seller-key buyer-key tx script])
-
-(defn create-multisig [app wallet value]
-  (let [our-key (ECKey.)
-        seller-key (ECKey.)
-        buyer-key (ECKey.)
+(defn create-multisig [app wallet value our-key-bytes seller-key-bytes buyer-key-bytes]
+  (let [our-key (. ECKey fromPrivate our-key-bytes)
+        seller-key (. ECKey fromPrivate seller-key-bytes)
+        buyer-key (. ECKey fromPrivate buyer-key-bytes)
         keys (. ImmutableList of our-key seller-key buyer-key)
         script (. ScriptBuilder createMultiSigOutputScript 2 keys)
         tx (Transaction. (:network-params app))
-        multisig (MultiSig. our-key seller-key buyer-key tx script)
         _ (.addOutput tx (. Coin valueOf value) script)
         request (. SendRequest forTx tx)]
     (.completeTx wallet request)
     (.commitTx wallet (.tx request))
     (db/save-current-wallet (wallet-serialize wallet))
     (.broadcastTransaction (:peergroup app) (.tx request))
-    multisig))
+    {:escrow-tx (.getHashAsString (.tx request))
+     :escrow-script (.getProgram script)}))
 
-(defn multisig-spend [multisig app input-tx target-address key1 key2 & [key3]]
+(defn multisig-spend [app wallet escrow-script input-tx target-address key1 key2]
   (let [multisig-out (.getOutput input-tx 0)
         value (.getValue multisig-out)
         ;; Signature 1
@@ -298,7 +302,7 @@
         signature1 (.calculateSignature tx1
                                         0
                                         key1
-                                        (:script multisig)
+                                        escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)
         ;; Signature 2
@@ -308,13 +312,16 @@
         signature2 (.calculateSignature tx2
                                         0
                                         key2
-                                        (:script multisig)
+                                        escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)
         input-script (. ScriptBuilder createMultiSigInputScript [signature1 signature2])]
     (.setScriptSig input input-script)
     (.verify input multisig-out)
-    (.broadcastTransaction (:peergroup app) tx2)))
+    (.commitTx wallet tx2)
+    (db/save-current-wallet (wallet-serialize wallet))
+    (.broadcastTransaction (:peergroup app) tx2)
+    (.getHashAsString tx2)))
 
 ;;
 ;; P2SH Multisig (not supported)
