@@ -79,7 +79,7 @@
     (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
 
 (defn app-stop! [app]
-  (.stop (:peergroup app))
+  (when (.isRunning (:peergroup app)) (.stop (:peergroup app)))
   (.close (.getBlockStore (:blockchain app))))
 
 (defn app-start! [app & [block? silent?]]

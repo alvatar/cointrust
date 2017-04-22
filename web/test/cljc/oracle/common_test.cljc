@@ -1,6 +1,6 @@
 (ns oracle.common-test
   #? (:cljs (:require-macros [cljs.test :refer (is deftest testing)]))
-  (:require [the-oracle.common :as sut]
+  (:require [oracle.common :as sut]
             #?(:clj [clojure.test :refer :all]
                :cljs [cljs.test])))
 
