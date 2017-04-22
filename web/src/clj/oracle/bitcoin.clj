@@ -292,11 +292,12 @@
 
 (defn multisig-spend [app wallet escrow-script input-tx target-address key1-bytes key2-bytes]
   (let [input-tx (.getTransaction wallet (. Sha256Hash wrap input-tx))
-        multisig-out (first (filter #(.isMine % wallet) (.getOutputs input-tx)))
+        multisig-out (first (filter #(not (.isMine % wallet)) (.getOutputs input-tx)))
         value (.getValue multisig-out)
+        address (. Address fromBase58 (:network-params app) target-address)
         ;; Signature 1
         tx1 (Transaction. (:network-params app))
-        _ (.addOutput tx1 value (. Address fromBase58 (:network-params app) target-address))
+        _ (.addOutput tx1 value address)
         _ (.addInput tx1 multisig-out)
         signature1 (.calculateSignature tx1
                                         0
@@ -306,7 +307,7 @@
                                         false)
         ;; Signature 2
         tx2 (Transaction. (:network-params app))
-        _ (.addOutput tx2 value (. Address fromBase58 (:network-params app) target-address))
+        _ (.addOutput tx2 value address)
         input (.addInput tx2 multisig-out)
         signature2 (.calculateSignature tx2
                                         0
@@ -316,8 +317,6 @@
                                         false)
         input-script (. ScriptBuilder createMultiSigInputScript [signature1 signature2])]
     (.setScriptSig input input-script)
-    (println input)
-    (println multisig-out)
     (.verify input multisig-out)
     (.commitTx wallet tx2)
     (db/save-current-wallet (wallet-serialize wallet))
@@ -330,21 +329,23 @@
 
 ;; Ref: http://www.soroushjp.com/2014/12/20/bitcoin-multisig-the-hard-way-understanding-raw-multisignature-bitcoin-transactions/
 
-(defrecord P2SHMultiSig [our-key seller-key buyer-key p2sh-script redeem-script])
+(comment (defrecord P2SHMultiSig [our-key seller-key buyer-key p2sh-script redeem-script]))
 
-(defn create-p2hs-multisig [app]
-  (let [our-key (ECKey.)
-        ;;  We can get the other parties public key from somewhere
-        ;; ECKey serverKey = new ECKey(null, publicKeyBytes);
-        seller-key (ECKey.)
-        buyer-key (ECKey.)
-        keys (. ImmutableList of our-key seller-key buyer-key)
-        redeem-script (. ScriptBuilder createRedeemScript 2 keys)
-        p2sh-script (. ScriptBuilder createP2SHOutputScript redeem-script)]
-    (P2SHMultiSig. our-key seller-key buyer-key p2sh-script redeem-script)))
+(comment
+  (defn create-p2hs-multisig [app]
+    (let [our-key (ECKey.)
+          ;;  We can get the other parties public key from somewhere
+          ;; ECKey serverKey = new ECKey(null, publicKeyBytes);
+          seller-key (ECKey.)
+          buyer-key (ECKey.)
+          keys (. ImmutableList of our-key seller-key buyer-key)
+          redeem-script (. ScriptBuilder createRedeemScript 2 keys)
+          p2sh-script (. ScriptBuilder createP2SHOutputScript redeem-script)]
+      (P2SHMultiSig. our-key seller-key buyer-key p2sh-script redeem-script))))
 
-(defn p2hs-multisig-address [multisig app]
-  (. Address fromP2SHHash (:network-params app) (.getPubKeyHash (:p2sh-script multisig))))
+(comment
+  (defn p2hs-multisig-address [multisig app]
+    (. Address fromP2SHHash (:network-params app) (.getPubKeyHash (:p2sh-script multisig)))))
 
 ;;
 ;; Init

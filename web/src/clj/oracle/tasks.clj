@@ -434,7 +434,7 @@
         (if-let [release-tx-hash
                  (bitcoin/multisig-spend @bitcoin/current-app @bitcoin/current-wallet
                                          (:escrow-script contract)
-                                         (:input-tx contract)
+                                         (:escrow-tx contract)
                                          (:output-address contract)
                                          (:escrow-our-key contract)
                                          (:escrow-user-key data))]

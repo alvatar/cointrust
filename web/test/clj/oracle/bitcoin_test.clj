@@ -20,7 +20,6 @@
   (let [com (sh "bitcoin-cli" "-regtest" "sendtoaddress"
                 (wallet-get-current-address w)
                 (str btc-amount))]
-    (println com)
     (when-not (zero? (:exit com)) (println com))
     (:out com)))
 
@@ -36,7 +35,7 @@
         (let [input-tx (clojure.string/trim (wallet-fund wallet 1))]
           (blockchain-generate 1)
           (Thread/sleep 500)
-          (f app wallet input-tx))
+          (f app wallet))
         (app-stop! app)
         (wallet-remove-listeners! wallet listeners))
       (finally
@@ -48,9 +47,9 @@
 
 (deftest test-wallet-send-coins
   (with-app-wallet
-    (fn [app1 wallet1 _]
+    (fn [app1 wallet1]
       (with-app-wallet
-        (fn [app2 wallet2 _]
+        (fn [app2 wallet2]
           (wallet-send-coins app1 wallet1 (wallet-get-current-address wallet2)
                              (common/btc->satoshi 0.1)
                              :us)
@@ -61,12 +60,14 @@
 
 (deftest test-escrow-create-and-spend
   (with-app-wallet
-    (fn [app wallet itx]
+    (fn [app wallet]
       (let [our-key-bytes (.getPrivKeyBytes (ECKey.))
             seller-key-bytes (.getPrivKeyBytes (ECKey.))
             buyer-key-bytes (.getPrivKeyBytes (ECKey.))
             {:keys [escrow-tx escrow-script]}
             (create-multisig app wallet (common/btc->satoshi 0.1) our-key-bytes seller-key-bytes buyer-key-bytes)]
         (blockchain-generate 1)
-        (is (< (common/satoshi->btc (wallet-get-balance wallet)) 1))
-        (multisig-spend app wallet escrow-script itx (wallet-get-current-address wallet) our-key-bytes seller-key-bytes)))))
+        (is (< (common/satoshi->btc (wallet-get-balance wallet)) 0.91))
+        (multisig-spend app wallet escrow-script escrow-tx (wallet-get-current-address wallet) our-key-bytes seller-key-bytes)
+        (blockchain-generate 1)
+        (is (> (common/satoshi->btc (wallet-get-balance wallet)) 0.99))))))
