@@ -422,45 +422,37 @@
 
 (defmethod common-preemptive-handler :escrow/release-to-user
   [{:keys [mid message attempt]}]
-  (let [{:keys [tag data]} message
-        contract-id (:id data)
-        contract (db/get-contract-by-id contract-id)
-        escrow-open-for (:escrow-open-for contract)]
-    (log/debug message)
-    ;; TEMPORARY APPROACH
-    (if-not escrow-open-for
-      (log/errorf "Error releasing to user -- Not open for any party. Contract: %s" (with-out-str (pprint contract)))
-      (if-let [release-tx-hash
-               (bitcoin/multisig-spend @bitcoin/current-app @bitcoin/current-wallet
-                                       (:escrow-script contract)
-                                       (:input-tx contract)
-                                       (:output-address contract)
-                                       (:escrow-our-key contract)
-                                       (:escrow-user-key data))
-
-               #_(bitcoin/wallet-release-contract-coins @bitcoin/current-wallet
-                 contract-id
-                 (:output-address contract)
-                 (if (= escrow-open-for (:buyer-id contract))
-                   ;; Substract the Cointrust fee (applying also the premium)
-                   (common/currency-discount
-                    (common/currency-discount (:amount contract) (:fee contract) 2)
-                    (:premium contract)
-                    2)
-                   (common/currency-discount (:amount contract) (:premium contract) 2))
-                 :them)]
-        (let [contract (merge contract {:escrow-release "<success>"})]
-          (db/contract-update! contract-id {:escrow_release "<success>"
-                                            :output_tx release-tx-hash})
-          (events/send-event! (:buyer-id contract) :contract/update contract)
-          (events/send-event! (:seller-id contract) :contract/update contract)
-          (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
-        (let [contract (merge contract {:escrow-release "<failure>"})]
-          (db/contract-update! contract-id {:escrow_release "<failure>"})
-          (events/send-event! (:buyer-id contract) :contract/update contract)
-          (events/send-event! (:seller-id contract) :contract/update contract)
-          (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"}))))
-    {:status :success}))
+  (try
+    (let [{:keys [tag data]} message
+          contract-id (:id data)
+          contract (db/get-contract-by-id contract-id)
+          escrow-open-for (:escrow-open-for contract)]
+      (log/debug message)
+      ;; TEMPORARY APPROACH
+      (if-not escrow-open-for
+        (log/errorf "Error releasing to user -- Not open for any party. Contract: %s" (with-out-str (pprint contract)))
+        (if-let [release-tx-hash
+                 (bitcoin/multisig-spend @bitcoin/current-app @bitcoin/current-wallet
+                                         (:escrow-script contract)
+                                         (:input-tx contract)
+                                         (:output-address contract)
+                                         (:escrow-our-key contract)
+                                         (:escrow-user-key data))]
+          (let [contract (merge contract {:escrow-release "<success>"})]
+            (db/contract-update! contract-id {:escrow_release "<success>"
+                                              :output_tx release-tx-hash})
+            (events/send-event! (:buyer-id contract) :contract/update contract)
+            (events/send-event! (:seller-id contract) :contract/update contract)
+            (db/log! "info" "bitcoin" {:operation "escrow-release" :result "success"}))
+          (let [contract (merge contract {:escrow-release "<failure>"})]
+            (db/contract-update! contract-id {:escrow_release "<failure>"})
+            (events/send-event! (:buyer-id contract) :contract/update contract)
+            (events/send-event! (:seller-id contract) :contract/update contract)
+            (db/log! "info" "bitcoin" {:operation "escrow-release" :result "failure"}))))
+      {:status :success})
+    (catch Exception e
+      (log/debugf "Exception in task: %s" (with-out-str (pprint e)))
+      {:status :retry :backoff-ms (case (env :env) "staging" 10000 360000)})))
 
 ;;
 ;; Lifecyle

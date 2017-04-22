@@ -16,6 +16,7 @@
   (:require [environ.core :refer [env]]
             [clojure.pprint :refer [pprint]]
             [taoensso.timbre :as log]
+            [clojure.core.async :as async :refer [>! <! >!! <!! chan]]
             [cemerick.url :refer [url]]
             [cheshire.core :as json]
             [taoensso.carmine :as r]
@@ -33,14 +34,6 @@
 ;; Utils
 ;;
 
-(def global-fee 5000)
-
-(defn substract-satoshi-fee [sat]
-  (- sat global-fee))
-
-(defn substract-btc-fee [sat]
-  (- sat (common/satoshi->btc global-fee)))
-
 (defn make-tx-broadcast-progress-cb []
   (reify org.bitcoinj.core.TransactionBroadcast$ProgressCallback
     (onBroadcastProgress [this p] (println p))))
@@ -57,6 +50,7 @@
 
 (defonce current-app (atom nil))
 (defonce current-wallet (atom nil))
+(defonce current-listeners (atom nil))
 
 ;;
 ;; App
@@ -64,7 +58,7 @@
 
 (defrecord App [network-params blockchain peergroup wallets])
 
-(defn make-app []
+(defn make-app [& [spvchain-file]]
   (let [network-params (case (env :env)
                          "production" (. MainNetParams get)
                          "staging" (. TestNet3Params get)
@@ -72,7 +66,7 @@
         uri (url (str "http" (subs (or (env :database-url) "postgres://alvatar:@localhost:5432/oracledev") 8)))
         blockchain (BlockChain. network-params
                                 ;;(MemoryBlockStore. network-params)
-                                (SPVBlockStore. network-params (File. ".spvchain"))
+                                (SPVBlockStore. network-params (File. (or spvchain-file ".spvchain")))
                                 ;; According to the documentation 1000 blocks stored is safe
                                 #_(PostgresFullPrunedBlockStore.
                                    network-params 1000
@@ -83,10 +77,12 @@
     (. BriefLogFormatter init)
     (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
 
-(defn app-start! [app]
-  (let [listener (proxy [DownloadProgressTracker] []
+(defn app-start! [app & [block?]]
+  (let [is-done (chan)
+        listener (proxy [DownloadProgressTracker] []
                    (doneDownload []
-                     (println "Blockchain download complete"))
+                     (println "Blockchain download complete")
+                     (when block? (>!! is-done true)))
                    (startDownload [blocks]
                      (println (format "Downloading %d blocks" blocks)))
                    (progress [pct block-so-far date]
@@ -106,10 +102,7 @@
                                  (.stop (:peergroup app))
                                  ;; TODO: Save wallets to their Files
                                  (.close (.getBlockStore (:blockchain app))))))
-    listener))
-
-(defn app-stop! [app]
-  (.shutDown app))
+    (<!! is-done)))
 
 (defn app-add-wallet [app wallet]
   (.addWallet (:blockchain app) wallet)
@@ -193,29 +186,27 @@
   (when-let [tx (redis/wcar* (r/hget "pending-transactions" tx-hash))]
     (json/parse-string tx true)))
 
-(defonce coins-received-listener_ (atom nil))
-(def coins-received-listener
+(defn make-coins-received-listener [app]
   (reify org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
     (onCoinsReceived [this wallet transaction prev-balance new-balance]
-      (try (log/debugf "BITCOIN *** Coins received: %s" transaction)
-           (db/save-current-wallet (wallet-serialize wallet))
-           (doseq [output (.getOutputs transaction)]
-             (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params @current-app))]
-               (let [tx-hash (.. transaction getHash toString)
-                     address-payed (.toString address-p2pk)
-                     amount-payed (.getValue (.getValue output))]
-                 (when-let [contract (db/get-contract-by-input-address address-payed)]
-                   (log/infof "BITCOIN *** Following payment of %s BTC to %s funds contract ID %s with amount %s in transaction %s"
-                              (common/satoshi->btc amount-payed) address-payed (:id contract) (common/satoshi->btc amount-payed) tx-hash)
-                   (follow-transaction! (.getHashAsString transaction) address-payed amount-payed (:id contract))))))
-           (catch Exception e (log/error e))))))
+      (try ;;(log/debugf "BITCOIN *** Coins received: %s" transaction)
+        (db/save-current-wallet (wallet-serialize wallet))
+        (doseq [output (.getOutputs transaction)]
+          (when-let [address-p2pk (.getAddressFromP2PKHScript output (:network-params app))]
+            (let [tx-hash (.. transaction getHash toString)
+                  address-payed (.toString address-p2pk)
+                  amount-payed (.getValue (.getValue output))]
+              (when-let [contract (db/get-contract-by-input-address address-payed)]
+                (log/infof "BITCOIN *** Following payment of %s BTC to %s funds contract ID %s with amount %s in transaction %s"
+                           (common/satoshi->btc amount-payed) address-payed (:id contract) (common/satoshi->btc amount-payed) tx-hash)
+                (follow-transaction! (.getHashAsString transaction) address-payed amount-payed (:id contract))))))
+        (catch Exception e (log/error e))))))
 
 (def transaction-confidence:building (.getValue org.bitcoinj.core.TransactionConfidence$ConfidenceType/BUILDING))
 (def transaction-confidence:dead (.getValue org.bitcoinj.core.TransactionConfidence$ConfidenceType/DEAD))
 (def transaction-confidence:in-conflict (.getValue org.bitcoinj.core.TransactionConfidence$ConfidenceType/IN_CONFLICT))
 
-(defonce transaction-confidence-listener_ (atom nil))
-(def transaction-confidence-listener
+(defn make-transaction-confidence-listener [app wallet]
   (reify org.bitcoinj.core.listeners.TransactionConfidenceEventListener
     (onTransactionConfidenceChanged [this wallet transaction]
       (try
@@ -240,7 +231,7 @@
                       (db/save-current-wallet (wallet-serialize wallet))
                       (unfollow-transaction! tx-hash)
                       (let [{:keys [escrow-tx escrow-script]}
-                            (create-multisig @current-app @current-wallet
+                            (create-multisig app wallet
                                              (common/currency-discount
                                               (common/currency-discount amount fee 2)
                                               premium
@@ -260,15 +251,16 @@
         (catch Exception e
           (log/debugf "Exception in confidence listener: %s" (with-out-str (pprint e))))))))
 
-(defn wallet-add-listeners! [wallet]
-  (reset! coins-received-listener_ coins-received-listener)
-  (reset! transaction-confidence-listener_ transaction-confidence-listener)
-  (.addCoinsReceivedEventListener wallet @coins-received-listener_)
-  (.addTransactionConfidenceEventListener wallet @transaction-confidence-listener_))
+(defn wallet-add-listeners! [app wallet]
+  (let [recv-li (make-coins-received-listener app)
+        trans-li (make-transaction-confidence-listener app wallet)]
+    (.addCoinsReceivedEventListener wallet recv-li)
+    (.addTransactionConfidenceEventListener wallet trans-li)
+    {:coins-received recv-li :transaction-confidence trans-li}))
 
-(defn wallet-remove-listeners! [wallet]
-  (.removeCoinsReceivedEventListener wallet @coins-received-listener_)
-  (.removeTransactionConfidenceEventListener wallet @transaction-confidence-listener_))
+(defn wallet-remove-listeners! [wallet listeners]
+  (.removeCoinsReceivedEventListener wallet (:coins-received listeners))
+  (.removeTransactionConfidenceEventListener wallet (:transaction-confidence listeners)))
 
 ;;
 ;; Multisig
@@ -300,7 +292,7 @@
      :escrow-script (.getProgram script)}))
 
 (defn multisig-spend [app wallet escrow-script input-tx target-address key1 key2]
-  (let [input-tx (.getTransaction wallet (Sha256Hash. (.getBytes input-tx)))
+  (let [input-tx (.getTransaction wallet (. Sha256Hash create (.getBytes input-tx)))
         multisig-out (first (filter #(.isMine %) (.getOutputs input-tx)))
         value (.getValue multisig-out)
         ;; Signature 1
@@ -364,11 +356,11 @@
                                (let [wallet (wallet-deserialize w)]
                                  (log/debug "Restoring wallet from database...")
                                  (log/debugf "Wallet balance: %s" (common/satoshi->btc (wallet-get-balance wallet)))
-                                 (wallet-add-listeners! wallet)
+                                 (reset! current-listeners (wallet-add-listeners! @current-app wallet))
                                  wallet))
                              (do (log/warn "Creating new wallet!")
                                  (let [w (make-wallet @current-app)]
-                                   (wallet-add-listeners! w)
+                                   (reset! current-listeners (wallet-add-listeners! @current-app w))
                                    (db/save-current-wallet (wallet-serialize w))
                                    w))))
   (app-add-wallet @current-app @current-wallet)
@@ -381,8 +373,8 @@
     'ok))
 
 (defn reset-listeners! []
-  (wallet-remove-listeners! @current-wallet)
-  (wallet-add-listeners! @current-wallet))
+  (wallet-remove-listeners! @current-wallet @current-listeners)
+  (reset! current-listeners (wallet-add-listeners! @current-app @current-wallet)))
 
 (defn system-reset!!! []
   (system-stop!)
