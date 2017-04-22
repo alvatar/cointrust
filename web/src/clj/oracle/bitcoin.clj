@@ -77,16 +77,16 @@
     (. BriefLogFormatter init)
     (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
 
-(defn app-start! [app & [block?]]
+(defn app-start! [app & [block? silent?]]
   (let [is-done (chan)
         listener (proxy [DownloadProgressTracker] []
                    (doneDownload []
                      (println "Blockchain download complete")
                      (when block? (>!! is-done true)))
                    (startDownload [blocks]
-                     (println (format "Downloading %d blocks" blocks)))
+                     (when-not silent? (println (format "Downloading %d blocks" blocks))))
                    (progress [pct block-so-far date]
-                     (println pct)))]
+                     (when-not silent? (println pct))))]
     (case (env :env)
       ("production" "staging")
       (.addPeerDiscovery (:peergroup app) (DnsDiscovery. (:network-params app)))
@@ -142,7 +142,7 @@
 (defn wallet-get-balance [wallet]
   (.getValue (.getBalance wallet)))
 
-(defn wallet-send-coins [wallet address amount pays-fees]
+(defn wallet-send-coins [app wallet address amount pays-fees]
   (let [amount (case pays-fees
                  :us amount
                  ;; TODO: proper fee calculation
@@ -151,15 +151,15 @@
                             70000 ; http://bitcoinexchangerate.org/fees
                             100000)))
         send-result (.sendCoins wallet
-                                (:peergroup @current-app)
+                                (:peergroup app)
                                 (. Address fromBase58 (.getNetworkParameters wallet) address)
                                 (. Coin valueOf amount))]
     (db/save-current-wallet (wallet-serialize wallet))
     (.get (.-broadcastComplete send-result))
     send-result))
 
-(defn wallet-release-contract-coins [wallet contract-id target-address amount pays-fees]
-  (try (let [send-result (wallet-send-coins wallet target-address amount pays-fees)
+(defn wallet-release-contract-coins [app wallet contract-id target-address amount pays-fees]
+  (try (let [send-result (app wallet-send-coins app wallet target-address amount pays-fees)
              tx (.-tx send-result)
              tx-hash (.. tx getHash toString)]
          (log/debugf "Send payment for contract %s of %s BTC to address %s transaction %s, fees paid by %s\n"
@@ -167,10 +167,6 @@
          tx-hash)
        (catch Exception e
          (log/debugf "Error sending coins: %s" e) false)))
-
-;; (defn wallet-send-all-funds-to [wallet app target-address]
-;;   (wallet-send-coins wallet app target-address
-;;                      (substract-satoshi-fee (wallet-get-balance wallet))))
 
 (defn follow-transaction! [tx-hash address amount contract-id]
   (redis/wcar* (r/hset "pending-transactions" tx-hash

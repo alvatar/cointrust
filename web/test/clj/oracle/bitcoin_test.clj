@@ -17,24 +17,34 @@
 (defn print-wallet-funds [w]
   (log/debugf "Wallet funds: %s" (wallet-get-balance w)))
 
-(defn with-app [f]
+(defn with-app-wallet [f]
   (let [spvfile (str "spvfile-test-" (rand-int 99999))]
     (try
       (let [app (make-app spvfile)
             wallet (make-wallet app)
             listeners (wallet-add-listeners! app wallet)]
         (app-add-wallet app wallet)
-        (app-start! app true)
-        (wallet-fund wallet 1.1)
+        (app-start! app true true)
         (blockchain-generate 10)
-        (Thread/sleep 1000)
+        (wallet-fund wallet 10)
+        (blockchain-generate 10)
         (f app wallet)
         (.stop (:peergroup app))
         (wallet-remove-listeners! wallet listeners))
       (finally
         (sh "rm" spvfile)))))
 
-(deftest create-escrow
-  (with-app
-    (fn [app wallet]
-      (println "HELLO " wallet))))
+(deftest wallet-send-money
+  (with-app-wallet
+    (fn [app1 wallet1]
+      (with-app-wallet
+        (fn [app2 wallet2]
+          (wallet-send-coins app1 wallet1 (wallet-get-current-address wallet2)
+                             (common/btc->satoshi 1)
+                             :us)
+          (blockchain-generate 40)
+          ;;(println (common/satoshi->btc (wallet-get-balance wallet1)))
+          ;;(println (common/satoshi->btc (wallet-get-balance wallet2)))
+          (is (> (common/satoshi->btc (wallet-get-balance wallet2)) 10))
+          (is (< (common/satoshi->btc (wallet-get-balance wallet1)) 10)))))))
+
