@@ -235,7 +235,7 @@
                                               (common/currency-discount amount fee 2)
                                               premium
                                               2)
-                                             (.getBytes (db/contract-get-field contract-id "escrow_our_key"))
+                                             (db/contract-get-field contract-id "escrow_our_key")
                                              (escrow/get-seller-key contract-id)
                                              (escrow/get-buyer-key contract-id))]
                         (db/contract-update! contract-id {:escrow_tx escrow-tx
@@ -352,7 +352,7 @@
 ;;
 
 (defn system-start! []
-  (swap! current-app #(or % (make-app)))
+  (swap! current-app #(or % (do (log/debug "Creating app...") (make-app))))
   (swap! current-wallet #(or %
                              (when-let [w (db/load-current-wallet)]
                                (let [wallet (wallet-deserialize w)]

@@ -231,12 +231,9 @@
       {:status :retry :backoff-ms 360000})))
 
 (defn setup-keys-for-contract! [contract-id]
-  (let [keys {:our-key (bitcoin/make-private-key)
-              :buyer-key (bitcoin/make-private-key)
-              :seller-key (bitcoin/make-private-key)}]
-    (db/contract-update! contract-id {:escrow_our_key (:our-key keys)})
-    (escrow/set-buyer-key contract-id (:buyer-key keys))
-    (escrow/set-seller-key contract-id (:seller-key keys))))
+  (db/contract-update! contract-id {:escrow_our_key (bitcoin/make-private-key)})
+  (escrow/set-buyer-key contract-id (bitcoin/make-private-key))
+  (escrow/set-seller-key contract-id (bitcoin/make-private-key)))
 
 ;; Contract master handler
 ;; 1. Get current stage
@@ -512,8 +509,8 @@
 (defn total-wipeout!!! []
   (workers-stop!)
   ;;(bitcoin/system-reset!!!)
-  (redis/flush!!!)
   (db/reset-database!!!)
+  (redis/flush!!!)
   (populate-test-database!)
   ;;(bitcoin/system-start!)
   (workers-start!))

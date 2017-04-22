@@ -114,6 +114,7 @@
     "dev" (log/set-level! :debug)
     "staging" (log/set-level! :debug)
     "production" (log/set-level! :debug))
+  (log/debug "Starting system...")
   (actions/sente-router-start! ch-chsk)
   (events/init! chsk-send!)
   (currency/start-exchange-rates-updates!)
@@ -129,16 +130,21 @@
                wrap-gzip)
            {:port (Integer. (or port (env :port) 5000))
             :socket-address (if ip (new InetSocketAddress ip port))}))
+  (log/debug "Server started...")
   (bitcoin/system-start!)
-  'startted)
+  (log/debug "Bitcoin peer started...")
+  (log/debug "System started...")
+  'started)
 
 (defn stop! []
   (when @server
+    (log/debug "Stopping system...")
     (tasks/workers-stop!)
     (currency/stop-exchange-rates-updates!)
     (.close @server)
     (reset! server nil)
     (bitcoin/system-stop!)
+    (log/debug "System stopped")
     'stopped))
 
 (defn -main [& [port ip]]

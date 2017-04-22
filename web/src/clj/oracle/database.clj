@@ -290,10 +290,10 @@ SELECT * FROM full_buy_request;
             (if (not-empty (first (sql/query db ["SELECT id FROM contract WHERE human_id = ?" human-id])))
               (do (log/errorf "Found collision in human-id generator: %s" human-id) (recur (utils/human-id-generator)))
               (let [init-stage "waiting-start" contract (first (sql/query tx ["
-INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address, escrow_address, escrow_our_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract (human_id, hash, buyer_id, seller_id, amount, fee, premium, currency_buyer, currency_seller, exchange_rate, transfer_info, input_address)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
-" human-id (random-string 27) buyer-id seller-id amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address "<escrow-address>" "<escrow-our-key>"]))]
+" human-id (random-string 27) buyer-id seller-id amount fee premium currency-buyer currency-seller exchange-rate transfer-info input-address]))]
                 (sql/execute! tx ["
 INSERT INTO contract_event (contract_id, stage) VALUES (?, ?);
 " (:id contract) init-stage])
@@ -532,7 +532,7 @@ CREATE TABLE contract (
   escrow_script                    BYTEA,
   output_address                   VARCHAR(128),
   output_tx                        VARCHAR(128),
-  escrow_our_key                   VARCHAR(128),
+  escrow_our_key                   BYTEA,
   escrow_buyer_has_key             BOOLEAN DEFAULT false,
   escrow_seller_has_key            BOOLEAN DEFAULT false,
   escrow_amount                    BIGINT,
