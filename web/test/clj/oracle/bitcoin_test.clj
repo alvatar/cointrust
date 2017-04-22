@@ -1,5 +1,5 @@
 (ns oracle.bitcoin-test
-  (:import [org.bitcoinj.core ECKey])
+  (:import [org.bitcoinj.core ECKey Sha256Hash])
   (:use clojure.test
         [clojure.java.shell :only [sh]]
         oracle.bitcoin)
@@ -20,6 +20,7 @@
   (let [com (sh "bitcoin-cli" "-regtest" "sendtoaddress"
                 (wallet-get-current-address w)
                 (str btc-amount))]
+    (println com)
     (when-not (zero? (:exit com)) (println com))
     (:out com)))
 
@@ -32,7 +33,7 @@
         (app-add-wallet app wallet)
         (app-start! app true true)
         ;; Note: do not fund with more, since it will produce a "too large error"
-        (let [input-tx (wallet-fund wallet 1)]
+        (let [input-tx (clojure.string/trim (wallet-fund wallet 1))]
           (blockchain-generate 1)
           (Thread/sleep 500)
           (f app wallet input-tx))
@@ -67,4 +68,5 @@
             {:keys [escrow-tx escrow-script]}
             (create-multisig app wallet (common/btc->satoshi 0.1) our-key-bytes seller-key-bytes buyer-key-bytes)]
         (blockchain-generate 1)
-        (is (< (common/satoshi->btc (wallet-get-balance wallet)) 1))))))
+        (is (< (common/satoshi->btc (wallet-get-balance wallet)) 1))
+        (multisig-spend app wallet escrow-script itx (wallet-get-current-address wallet) our-key-bytes seller-key-bytes)))))

@@ -290,9 +290,9 @@
     {:escrow-tx (.getHashAsString (.tx request))
      :escrow-script (.getProgram script)}))
 
-(defn multisig-spend [app wallet escrow-script input-tx target-address key1 key2]
-  (let [input-tx (.getTransaction wallet (. Sha256Hash create (.getBytes input-tx)))
-        multisig-out (first (filter #(.isMine %) (.getOutputs input-tx)))
+(defn multisig-spend [app wallet escrow-script input-tx target-address key1-bytes key2-bytes]
+  (let [input-tx (.getTransaction wallet (. Sha256Hash wrap input-tx))
+        multisig-out (first (filter #(.isMine % wallet) (.getOutputs input-tx)))
         value (.getValue multisig-out)
         ;; Signature 1
         tx1 (Transaction. (:network-params app))
@@ -300,7 +300,7 @@
         _ (.addInput tx1 multisig-out)
         signature1 (.calculateSignature tx1
                                         0
-                                        key1
+                                        (. ECKey fromPrivate key1-bytes)
                                         escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)
@@ -310,12 +310,14 @@
         input (.addInput tx2 multisig-out)
         signature2 (.calculateSignature tx2
                                         0
-                                        key2
+                                        (. ECKey fromPrivate key2-bytes)
                                         escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)
         input-script (. ScriptBuilder createMultiSigInputScript [signature1 signature2])]
     (.setScriptSig input input-script)
+    (println input)
+    (println multisig-out)
     (.verify input multisig-out)
     (.commitTx wallet tx2)
     (db/save-current-wallet (wallet-serialize wallet))
