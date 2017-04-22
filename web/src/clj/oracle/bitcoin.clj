@@ -29,6 +29,7 @@
 
 
 (declare create-multisig)
+(declare wallet-serialize)
 
 ;;
 ;; Utils
@@ -77,6 +78,10 @@
     (. BriefLogFormatter init)
     (App. network-params blockchain (PeerGroup. network-params blockchain) [])))
 
+(defn app-stop! [app]
+  (.stop (:peergroup app))
+  (.close (.getBlockStore (:blockchain app))))
+
 (defn app-start! [app & [block? silent?]]
   (let [is-done (chan)
         listener (proxy [DownloadProgressTracker] []
@@ -99,10 +104,8 @@
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. (fn []
                                  (println "Shutting down Bitcoin app")
-                                 (.stop (:peergroup app))
-                                 ;; TODO: Save wallets to their Files
-                                 (.close (.getBlockStore (:blockchain app))))))
-    (<!! is-done)))
+                                 (app-stop! app))))
+    (when block? (<!! is-done))))
 
 (defn app-add-wallet [app wallet]
   (.addWallet (:blockchain app) wallet)
