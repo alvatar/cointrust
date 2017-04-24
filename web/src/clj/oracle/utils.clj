@@ -10,7 +10,17 @@
 
 
 ;;
-;; Utils
+;; Structures
+;;
+
+(defn bytes? [x]
+  (if (nil? x)
+    false
+    (= (Class/forName "[B")
+       (.getClass x))))
+
+;;
+;; Time
 ;;
 
 (defn unix-now [] (time-coerce/to-long (time/now)))

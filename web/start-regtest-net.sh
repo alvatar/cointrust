@@ -4,4 +4,4 @@ bitcoind -regtest -daemon
 
 sleep 5
 
-bitcoin-cli -regtest generate 11
+bitcoin-cli -regtest generate 101

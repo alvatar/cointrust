@@ -23,6 +23,7 @@
             [taoensso.encore :as encore]
             ;; -----
             [oracle.common :as common]
+            [oracle.utils :as utils]
             [oracle.redis :as redis]
             [oracle.database :as db]
             [oracle.escrow :as escrow]))
@@ -301,7 +302,7 @@
         _ (.addInput tx1 multisig-out)
         signature1 (.calculateSignature tx1
                                         0
-                                        (. ECKey fromPrivate key1-bytes)
+                                        (. ECKey fromPrivate (if (utils/bytes? key1-bytes) key1-bytes (.getBytes key1-bytes)))
                                         escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)
@@ -311,7 +312,7 @@
         input (.addInput tx2 multisig-out)
         signature2 (.calculateSignature tx2
                                         0
-                                        (. ECKey fromPrivate key2-bytes)
+                                        (. ECKey fromPrivate (if (utils/bytes? key2-bytes) key2-bytes (.getBytes key2-bytes)))
                                         escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)
