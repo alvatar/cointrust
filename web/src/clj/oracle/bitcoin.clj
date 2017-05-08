@@ -23,7 +23,6 @@
             [taoensso.encore :as encore]
             ;; -----
             [oracle.common :as common]
-            [oracle.utils :as utils]
             [oracle.redis :as redis]
             [oracle.database :as db]
             [oracle.escrow :as escrow]))
@@ -230,18 +229,19 @@
                       (db/contract-set-escrow-funded! contract-id amount tx-hash)
                       (db/save-current-wallet (wallet-serialize wallet))
                       (unfollow-transaction! tx-hash)
-                      (let [{:keys [escrow-tx escrow-script]}
-                            (create-multisig app wallet
-                                             (common/currency-discount
-                                              (common/currency-discount amount fee 2)
-                                              premium
-                                              2)
-                                             (db/contract-get-field contract-id "escrow_our_key")
-                                             (escrow/get-seller-key contract-id)
-                                             (escrow/get-buyer-key contract-id))]
-                        (db/contract-update! contract-id {:escrow_tx escrow-tx
-                                                          :escrow_script escrow-script}))
-                      (db/save-current-wallet (wallet-serialize wallet)))
+                      ;; (let [{:keys [escrow-tx escrow-script]}
+                      ;;       (create-multisig app wallet
+                      ;;                        (common/currency-discount
+                      ;;                         (common/currency-discount amount fee 2)
+                      ;;                         premium
+                      ;;                         2)
+                      ;;                        (db/contract-get-field contract-id "escrow_our_key")
+                      ;;                        (escrow/get-seller-key contract-id)
+                      ;;                        (escrow/get-buyer-key contract-id))]
+                      ;;   (db/contract-update! contract-id {:escrow_tx escrow-tx
+                      ;;                                     :escrow_script escrow-script}))
+                      ;; (db/save-current-wallet (wallet-serialize wallet))
+                      )
                     (or (= tx-confidence-val transaction-confidence:dead)
                         (= tx-confidence-val transaction-confidence:in-conflict))
                     (do (log/errorf "ALERT BITCOIN *** TRANSACTION CONFIDENCE TYPE CHANGED TO %s. Transaction was funding contract ID %s" tx-confidence-type contract-id)
@@ -302,7 +302,7 @@
         _ (.addInput tx1 multisig-out)
         signature1 (.calculateSignature tx1
                                         0
-                                        (. ECKey fromPrivate (if (utils/bytes? key1-bytes) key1-bytes (.getBytes key1-bytes)))
+                                        (. ECKey fromPrivate key1-bytes)
                                         escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)
@@ -312,7 +312,7 @@
         input (.addInput tx2 multisig-out)
         signature2 (.calculateSignature tx2
                                         0
-                                        (. ECKey fromPrivate (if (utils/bytes? key2-bytes) key2-bytes (.getBytes key2-bytes)))
+                                        (. ECKey fromPrivate key2-bytes)
                                         escrow-script
                                         org.bitcoinj.core.Transaction$SigHash/ALL
                                         false)

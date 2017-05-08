@@ -137,18 +137,18 @@
             ;; Now contract should have succeeded
             (is (= (:stage (db/get-contract-by-id 1)) "contract-success"))
             ;; Release to buyer
-            (let [start-coins (common/satoshi->btc (wallet-get-balance wallet))
-                  {:keys [escrow-script escrow-tx escrow-our-key]} (db/get-contract-by-id 1)]
-              (multisig-spend global-app global-wallet
-                              escrow-script escrow-tx
-                              (wallet-get-current-address wallet)
-                              escrow-our-key
-                              (escrow/get-buyer-key 1))
-              (blockchain-generate 10)
-              (Thread/sleep 1000)
-              ;; We should have received the coins in the wallet from the Escrow
-              (is (> (wallet-get-balance wallet)
-                     (+ start-coins (common/btc->satoshi 0.48)))))
+            ;; (let [start-coins (common/satoshi->btc (wallet-get-balance wallet))
+            ;;       {:keys [escrow-script escrow-tx escrow-our-key]} (db/get-contract-by-id 1)]
+            ;;   (multisig-spend global-app global-wallet
+            ;;                   escrow-script escrow-tx
+            ;;                   (wallet-get-current-address wallet)
+            ;;                   escrow-our-key
+            ;;                   (escrow/get-buyer-key 1))
+            ;;   (blockchain-generate 10)
+            ;;   (Thread/sleep 1000)
+            ;;   ;; We should have received the coins in the wallet from the Escrow
+            ;;   (is (> (wallet-get-balance wallet)
+            ;;          (+ start-coins (common/btc->satoshi 0.48)))))
             (finally
               (tasks/workers-stop!)
               (reset! current-app nil)
