@@ -425,9 +425,8 @@
           contract (db/get-contract-by-id contract-id)]
       (log/debug message)
       (if (:escrow-open-for contract)
-        (if (bitcoin/wallet-send-coins @bitcoin/current-wallet
-              @bitcoin/current-app
-              contract-id
+        (if (bitcoin/wallet-send-coins @bitcoin/current-app
+              @bitcoin/current-wallet
               (:output-address contract)
               (if (= (:escrow-open-for contract) (:buyer-id contract))
                 ;; Substract the Cointrust fee (applying also the premium)
@@ -435,11 +434,10 @@
                  (common/currency-discount (:amount contract) (:fee contract) 2)
                  (:premium contract)
                  2)
-                ;; Subtract enough for the miners fee
-                (- (common/currency-discount (:amount contract) (:premium contract) 2)
-                   (if (= (env :env) "production")
-                     70000 ; http://bitcoinexchangerate.org/fees
-                     100000))))
+                ;; Apply the premium, since the seller never sent it (premium is substracted
+                ;; from principal)
+                (common/currency-discount (:amount contract) (:premium contract) 2))
+              :them)
           (let [contract (merge contract {:escrow-release "<success>"})]
             (db/contract-update! contract-id {:escrow_release "<success>"})
             (events/send-event! (:buyer-id contract) :contract/update contract)

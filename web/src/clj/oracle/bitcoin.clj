@@ -371,7 +371,7 @@
 
 (defn system-stop! []
   (when @current-app
-    (wallet-remove-listeners! @current-wallet)
+    (wallet-remove-listeners! @current-wallet @current-listeners)
     (.stop (:peergroup @current-app))
     'ok))
 

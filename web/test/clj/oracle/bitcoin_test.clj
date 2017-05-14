@@ -113,12 +113,14 @@
                                          :?data {:id 1}
                                          :?reply-fn identity})
             ;; Fund the Escrow
-            (wallet-send-coins app wallet
-                               (:input-address (db/get-contract-by-id 1))
-                               (common/btc->satoshi 0.5)
-                               :us)
-            (blockchain-generate 5)
-            (Thread/sleep 500)
+            (let [balance-before (wallet-get-balance wallet)]
+              (wallet-send-coins app wallet
+                                 (:input-address (db/get-contract-by-id 1))
+                                 (common/btc->satoshi 0.5)
+                                 :us)
+              (blockchain-generate 5)
+              (Thread/sleep 500)
+              (is (< (wallet-get-balance wallet) balance-before)))
             ;; Contract should be funded
             (is (= (:escrow-amount (db/get-contract-by-id 1))
                    (common/btc->satoshi 0.5)))
@@ -137,6 +139,15 @@
             ;; Now contract should have succeeded
             (is (= (:stage (db/get-contract-by-id 1)) "contract-success"))
             ;; Release to buyer
+            (let [balance-before (wallet-get-balance wallet)]
+              (actions/-event-msg-handler {:id :escrow/release-to-user
+                                           :?data {:output-address (wallet-get-current-address wallet)
+                                                   :escrow-user-key (escrow/encode-key (escrow/get-buyer-key 1))
+                                                   :id 1}
+                                           :?reply-fn identity})
+              (Thread/sleep 1500)
+              (< balance-before (wallet-get-balance wallet)))
+            ;; Release to buyer (ESCROW)
             ;; (let [start-coins (common/satoshi->btc (wallet-get-balance wallet))
             ;;       {:keys [escrow-script escrow-tx escrow-our-key]} (db/get-contract-by-id 1)]
             ;;   (multisig-spend global-app global-wallet
