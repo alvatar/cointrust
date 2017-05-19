@@ -153,5 +153,5 @@
 
 
 (comment
-  (db/override-db "postgres://ysmmnxhoysfblw:5aa6635b0ba87ebd8f5b6cf00a32936d49d279c9308181d4652bf7259ef9b25d@ec2-54-243-124-240.compute-1.amazonaws.com:5432/d3iuf92ncr29vo")
+  (oracle.database/override-db "postgres://ysmmnxhoysfblw:5aa6635b0ba87ebd8f5b6cf00a32936d49d279c9308181d4652bf7259ef9b25d@ec2-54-243-124-240.compute-1.amazonaws.com:5432/d3iuf92ncr29vo")
   (oracle.redis/override-url "redis://rediscloud:1selUzCCE1x9SOuM@redis-18920.c9.us-east-1-4.ec2.cloud.redislabs.com:18920"))

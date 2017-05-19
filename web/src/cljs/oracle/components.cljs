@@ -114,6 +114,7 @@
                                "usd" (case %
                                        :usd (common/round-currency parsed-val :usd)
                                        :btc (* (:usd-btc exchange-rates) parsed-val)))
+        ex-rate (get (rum/react (:exchange-rates state/app)) (if (= currency "usd") :usd-btc :btc-usd))
         content [:div {:style {:padding (if (rum/react small-display?) "1rem" 0)}}
                  [:div [:h4 "Price: 1 Bitcoin = $" (:btc-usd exchange-rates)]
                   [:h6 {:style {:margin-top "-1rem"}}
@@ -130,16 +131,21 @@
                                   :style {:width "10rem" :margin-right "1rem"}
                                   :value (:amount (rum/react input))
                                   :on-change #(swap! input assoc :amount (.. % -target -value))
-                                  :error-text (when-not (and parsed-val (pos? parsed-val)) "Invalid value")})
+                                  :error-text (cond (not (and parsed-val (pos? parsed-val)))
+                                                    "Invalid value"
+                                                    (< (case currency "usd" parsed-val (* ex-rate parsed-val)) globals/min-allowed-transaction-in-usd)
+                                                    (str "Min. of " globals/min-allowed-transaction-in-usd " USD")
+                                                    (> (case currency "usd" parsed-val (* ex-rate parsed-val)) globals/max-allowed-transaction-in-usd)
+                                                    (str "Max. of " globals/max-allowed-transaction-in-usd " USD"))})
                   (when (and parsed-val (pos? parsed-val))
                     (case currency
                       "btc" (gstring/format "for %s USD" (common/round-currency (* (:btc-usd exchange-rates) parsed-val) :usd))
                       "usd" (gstring/format "gets you %s BTC" (common/round-currency (* (:usd-btc exchange-rates) parsed-val) :btc))))
-                  [:h6 {:style {:margin-top "0.5rem"}} "Note: 1% fee and 1% seller premium will be paid from the total purchased."]
+                  [:h6 {:style {:margin-top "0.5rem"}} "Note: 1% fee and 1% seller premium will be paid from the total purchased (plus the regular Bitcoin transaction fees, approx 0.001/transaction)."]
                   [:h4 {:style {:margin-top "-1rem"}}
                    (gstring/format "You will be paying $%s and receiving %s Bitcoin"
                                    (current-by-currency :usd)
-                                   (common/round-currency (* 0.99 0.99 (current-by-currency :btc)) :btc))]]
+                                   (common/round-currency (- (* 0.99 0.99 (current-by-currency :btc)) 0.002) :btc))]]
                  (when (:processing (rum/react input))
                    [:div
                     (ui/linear-progress {:size 60 :mode "indeterminate"
@@ -147,7 +153,10 @@
                     [:h5 {:style {:text-align "center" :margin-top "2rem"}} "Initiating contract"]])]
         buttons [(ui/flat-button {:label "Buy"
                                   :primary true
-                                  :disabled (or (:processing (rum/react input)) (not (and parsed-val (pos? parsed-val))))
+                                  :disabled (or (:processing (rum/react input))
+                                                (not (and parsed-val (pos? parsed-val)))
+                                                (< (case currency "usd" parsed-val (* ex-rate parsed-val)) globals/min-allowed-transaction-in-usd)
+                                                (> (case currency "usd" parsed-val (* ex-rate parsed-val)) globals/max-allowed-transaction-in-usd))
                                   :on-touch-tap
                                   (fn [e] (when (and parsed-val (pos? parsed-val))
                                             (swap! input assoc :processing true)
@@ -186,7 +195,7 @@
   (let [offer-active? (boolean @(:sell-offer state/app))
         ui-values (::ui-values state_)
         sell-offer (:sell-offer state/app)
-        min-val (or (:min (rum/react ui-values)) (:min (rum/react sell-offer)) 0.1)
+        min-val (or (:min (rum/react ui-values)) (:min (rum/react sell-offer)) globals/min-allowed-transaction-in-usd)
         max-val (or (:max (rum/react ui-values)) (:max (rum/react sell-offer)) globals/max-allowed-transaction-in-usd)
         parsed-min-val (let [p (js/Number min-val)] (when-not (js/isNaN p) p))
         parsed-max-val (let [p (js/Number max-val)] (when-not (js/isNaN p) p))
@@ -211,7 +220,10 @@
                    (ui/text-field {:id "min"
                                    :floating-label-text "Min."
                                    :style {:margin-top "0px" :width "8rem"}
-                                   :error-text (cond (neg? parsed-min-val) "Invalid value"
+                                   :error-text (cond (neg? parsed-min-val)
+                                                     "Invalid value"
+                                                     (< (case currency "usd" parsed-min-val (* ex-rate parsed-min-val)) globals/min-allowed-transaction-in-usd)
+                                                     (str "Min. of " globals/min-allowed-transaction-in-usd " USD")
                                                      (< (js/Math.abs (- parsed-max-val parsed-min-val)) (case currency "usd" 1 "btc" 0.001))
                                                      "We recommend using a wider range")
                                    :value min-val
@@ -227,8 +239,10 @@
                    (ui/text-field {:id "max"
                                    :floating-label-text "Max."
                                    :style {:margin-top "0px" :width "8rem"}
-                                   :error-text (cond (not (pos? parsed-max-val)) "Invalid value"
-                                                     (> parsed-min-val parsed-max-val) "Max should be larger than Min"
+                                   :error-text (cond (not (pos? parsed-max-val))
+                                                     "Invalid value"
+                                                     (> parsed-min-val parsed-max-val)
+                                                     "Max should be larger than Min"
                                                      (> (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) globals/max-allowed-transaction-in-usd)
                                                      (str "Max. of " globals/max-allowed-transaction-in-usd " USD"))
                                    :value max-val
@@ -254,6 +268,7 @@
                                   :key "offer-update-button"
                                   :disabled (not (and (pos? parsed-min-val) (pos? parsed-max-val)
                                                       (<= (case currency "usd" parsed-max-val (* ex-rate parsed-max-val)) globals/max-allowed-transaction-in-usd)
+                                                      (>= (case currency "usd" parsed-min-val (* ex-rate parsed-min-val)) globals/min-allowed-transaction-in-usd)
                                                       (> parsed-max-val parsed-min-val)))
                                   :on-touch-tap (fn []
                                                   (actions/open-sell-offer {:currency currency :min min-val :max max-val :premium 0.01})

@@ -59,14 +59,16 @@
 
 (defmethod -event-msg-handler :offer/open
   [{:keys [?data ?reply-fn]}]
-  (try (let [{:keys [user-id min max currency]} ?data
-             premium 100]
-         (db/sell-offer-set! user-id currency
-                             (common/currency-as-long min currency)
-                             (common/currency-as-long max currency)
-                             premium)
-         (?reply-fn {:min min :max max :currency currency :premium premium}))
-       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+  (let [{:keys [user-id min max currency]} ?data
+        premium 100]
+    (if user-id
+      (try (db/sell-offer-set! user-id currency
+                               (common/currency-as-long min currency)
+                               (common/currency-as-long max currency)
+                               premium)
+           (?reply-fn {:min min :max max :currency currency :premium premium})
+           (catch Exception e (pprint e) (?reply-fn {:status :error})))
+      (?reply-fn {:status :error :error "no user ID provided"}))))
 
 (defmethod -event-msg-handler :offer/get
   [{:keys [?data ?reply-fn]}]
@@ -94,10 +96,12 @@
 
 (defmethod -event-msg-handler :buy-request/create
   [{:keys [?data ?reply-fn]}]
-  (try (tasks/initiate-buy-request (:user-id ?data) (common/currency-as-long (:amount ?data) (:currency-seller ?data))
-                                   (:currency-buyer ?data) (:currency-seller ?data))
-       (?reply-fn {:status :ok})
-       (catch Exception e (pprint e) (?reply-fn {:status :error}))))
+  (if-let [user-id (:user-id ?data)]
+    (try (tasks/initiate-buy-request user-id (common/currency-as-long (:amount ?data) (:currency-seller ?data))
+                                     (:currency-buyer ?data) (:currency-seller ?data))
+         (?reply-fn {:status :ok})
+         (catch Exception e (pprint e) (?reply-fn {:status :error})))
+    (?reply-fn {:status :error :error "no user ID provided"})))
 
 (defn preemptive-task-handler
   [{:keys [?data ?reply-fn]} tag]
