@@ -1,6 +1,1 @@
 # Cointrust
-
-
-## Development
-
-### Notes
